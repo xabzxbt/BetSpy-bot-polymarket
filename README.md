@@ -203,3 +203,5 @@ For support, check the logs and verify:
 4. Submit a pull request
 
 Please ensure your code follows the existing style and includes appropriate tests.
+
+License - MIT
