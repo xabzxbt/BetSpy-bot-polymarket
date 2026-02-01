@@ -172,9 +172,18 @@ Desktop.ini
 # Environment variables file
 .env
 
-# Local database file
+# Database files
 *.db
 *.db-journal
+bot_database.db
+
+# Database reset and migration files
+reset_db.py
+*.sql
+*.sqlite
+*.sqlite3
+migrations/
+alembic/
 
 # Logs
 *.log
@@ -194,6 +203,12 @@ credentials/
 *.bak
 *.swp
 *.swo
+
+# Database backup and temp files
+*.db.backup
+*.db.tmp
+temp_
+*.tmp
 
 # Compiled files
 *.class
@@ -225,7 +240,6 @@ settings_local.py
 *.sublime-workspace
 
 # Thumbnails that might be created
-*.tmp
 
 # PlatformIO build output
 .platformio/
