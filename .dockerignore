@@ -1,0 +1,38 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.coverage
+.git
+.mypy_cache/
+.vscode/
+.idea/
+.env
+.DS_Store
+logs/
+*.log
+node_modules/
+npm-debug.log*
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+# Local config files
+config.local.py
+settings_local.py
+# Database files
+*.db
+*.db-journal
+bot_database.db
+# Secrets and credentials
+secrets/
+credentials/
+*.key
+*.pem
+*.crt
+*.cert
+*.p12
+*.jks
