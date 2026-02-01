@@ -1,4 +1,4 @@
-# Polymarket Whale Tracker Bot
+# BetSpy Polymarket Bot
 
 A sophisticated Telegram bot that tracks and analyzes Polymarket trading performance with detailed statistics and PnL reporting.
 
