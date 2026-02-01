@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Production stage
 FROM python:3.12-slim
@@ -24,10 +24,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder
-COPY --from=builder /root/.local /root/.local
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Make sure scripts in .local are usable
-ENV PATH=/root/.local/bin:$PATH
+# Ensure proper permissions for botuser to access packages
+RUN chmod -R 755 /usr/local/lib/python3.12/site-packages
+RUN chmod -R 755 /usr/local/bin
 
 # Create logs directory
 RUN mkdir -p /app/logs
