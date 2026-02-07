@@ -428,22 +428,17 @@ class MarketIntelligenceEngine:
                 if market_slug and item_slug != market_slug:
                     continue
 
-                # If we don't have a market_slug, return all markets associated with this event/slug
-                # We trust the API returned relevant results for the query
-                
-                if is_event_slug_match and not from_embedded_event:
-                    # Strict check: item must belong to the requested event
-                    # Skip this check if markets came from embedded event object
-                    if item_event_slug != slug:
-                        continue
-                else:
-                     # Strict check: item must match the requested slug (or its event)
-                    if item_slug != slug and item_event_slug != slug and item.get("id") != slug:
-                        continue
-                
-                # If market_slug is provided, filter by it
-                if market_slug and item_slug != market_slug:
-                    continue
+                # Skip slug validation if markets came from embedded event object
+                # (they are already guaranteed to belong to the correct event)
+                if not from_embedded_event:
+                    if is_event_slug_match:
+                        # Strict check: item must belong to the requested event
+                        if item_event_slug != slug:
+                            continue
+                    else:
+                        # Strict check: item must match the requested slug (or its event)
+                        if item_slug != slug and item_event_slug != slug and item.get("id") != slug:
+                            continue
 
                 market = await self._parse_market(item)
                 if market:
