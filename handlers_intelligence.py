@@ -40,6 +40,63 @@ router = Router(name="intelligence")
 
 # ==================== HELPER FUNCTIONS ====================
 
+def format_whale_analysis_block(wa: Any) -> str:
+    """Format the structured whale analysis block.
+    
+    Args:
+        wa: WhaleAnalysis object (typed Any to avoid circular imports if needed, but optimally imported)
+    """
+    if not wa or not wa.is_significant:
+        return ""
+        
+    text = f"🐋 <b>АНАЛІЗ КИТІВ</b>\n"
+    
+    # 1. Headline
+    if wa.dominance_side == "NEUTRAL":
+        sentiment_text = f"⚖️ {wa.sentiment}"
+    else:
+        sentiment_text = f"💎 {wa.sentiment}" if "Strong" in wa.sentiment else f"{wa.sentiment}"
+        
+    text += f"💡 Smart Money: <b>{sentiment_text}</b> ({wa.dominance_pct:.0f}%)\n"
+    
+    # 2. Visual Bar
+    bar_len = 10
+    if wa.total_volume > 0:
+        yes_share = wa.yes_volume / wa.total_volume
+        filled = int(yes_share * bar_len)
+    else:
+        filled = 5
+        
+    bar = "▓" * filled + "░" * (bar_len - filled)
+    text += f"YES {bar} NO\n\n"
+    
+    # 3. Key Stats
+    if wa.top_trade_size > 0:
+        text += f"🏆 Top Trade: <b>${format_volume(wa.top_trade_size)}</b> on {wa.top_trade_side}\n"
+        
+    if wa.last_trade_timestamp > 0:
+        import time
+        now = time.time()
+        diff = now - wa.last_trade_timestamp
+        if diff < 60: time_str = "just now"
+        elif diff < 3600: time_str = f"{int(diff/60)}m ago"
+        elif diff < 86400: time_str = f"{int(diff/3600)}h ago"
+        else: time_str = "1d+ ago"
+        text += f"⏱ Last Activity: {time_str} on {wa.last_trade_side}\n"
+
+    text += "\n"
+    
+    # 4. Breakdown with Helper properties
+    text += f"📈 <b>YES:</b> ${format_volume(wa.yes_volume)} ({wa.yes_count} trades)\n"
+    text += f"📉 <b>NO:</b>  ${format_volume(wa.no_volume)} ({wa.no_count} trades)\n"
+    
+    duration_str = f" {wa.duration_text}" if wa.duration_text else ""
+    text += f"Smart Money Vol: <b>${format_volume(wa.total_volume)}</b> ({wa.large_whale_share_pct:.0f}% whales){duration_str}\n" 
+    
+    return text
+
+
+
 def format_signal_emoji(strength: SignalStrength) -> str:
     """Get emoji for signal strength."""
     return {
@@ -129,86 +186,25 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
     text += "\n"
     
     # === WHALE ANALYSIS ===
-    text += f"🐋 <b>АНАЛІЗ КИТІВ</b>\n"
-    
-    if market.whale_analysis and market.whale_analysis.is_significant:
-        wa = market.whale_analysis
-        
-        if wa.dominance_side == "NEUTRAL":
-            sentiment_text = f"⚖️ {wa.sentiment}"
-        else:
-            sentiment_text = f"💎 {wa.sentiment}" if "Strong" in wa.sentiment else f"{wa.sentiment}"
-            
-        # 1. Headline: Smart Money
-        text += f"💡 Smart Money: <b>{sentiment_text}</b> ({wa.dominance_pct:.0f}%)\n"
-        
-        # 2. Visual Bar
-        bar_len = 10
-        if wa.total_volume > 0:
-            yes_share = wa.yes_volume / wa.total_volume
-            filled = int(yes_share * bar_len)
-        else:
-            filled = 5 # neutral
-            
-        bar = "▓" * filled + "░" * (bar_len - filled)
-        text += f"YES {bar} NO\n\n"
-        
-        # 3. Key Stats
-        # Max ticket
-        if wa.top_trade_size > 0:
-            text += f"🏆 Top Trade: <b>${format_volume(wa.top_trade_size)}</b> on {wa.top_trade_side}\n"
-            
-        # Last activity
-        if wa.last_trade_timestamp > 0:
-            import time
-            now = time.time()
-            diff = now - wa.last_trade_timestamp
-            
-            if diff < 60:
-                time_str = "just now"
-            elif diff < 3600:
-                time_str = f"{int(diff/60)}m ago"
-            elif diff < 86400:
-                time_str = f"{int(diff/3600)}h ago"
-            else:
-                time_str = "1d+ ago"
-            text += f"⏱ Last Activity: {time_str} on {wa.last_trade_side}\n"
-
-        text += "\n"
-        # 4. Volume Breakdown
-        text += f"📈 <b>YES:</b> ${format_volume(wa.yes_volume)} ({wa.yes_count} trades)\n"
-        text += f"📉 <b>NO:</b>  ${format_volume(wa.no_volume)} ({wa.no_count} trades)\n"
-        
-        # Add tier info
-        if wa.total_volume > 0:
-            large_pct = (wa.large_volume / wa.total_volume) * 100
-        else:
-            large_pct = 0
-            
-        # Duration formatting
-        duration_str = ""
-        if wa.analysis_duration > 0:
-            if wa.analysis_duration < 3600:
-                duration_str = f" in last {int(wa.analysis_duration/60)}m"
-            elif wa.analysis_duration < 86400:
-                duration_str = f" in last {int(wa.analysis_duration/3600)}h"
-            else:
-                duration_str = f" in last {int(wa.analysis_duration/86400)}d"
-            
-        text += f"Total: ${format_volume(wa.total_volume)} ({large_pct:.0f}% whales){duration_str}\n"
-
+    wa_block = format_whale_analysis_block(market.whale_analysis)
+    if wa_block:
+         text += wa_block
     elif market.whale_consensus is not None:
-        # Legacy fallback
-        consensus_pct = int(market.whale_consensus * 100)
-        bar_len = 10
-        filled = int(market.whale_consensus * bar_len)
-        bar = "▓" * filled + "░" * (bar_len - filled)
-        
-        text += f"YES {consensus_pct}% {bar} {100-consensus_pct}% NO\n"
-        text += f"Об'єм: {format_volume(market.whale_total_volume)}"
-        text += f" ({market.whale_yes_count}↑ / {market.whale_no_count}↓)\n"
+         # Legacy fallback
+         consensus_pct = int(market.whale_consensus * 100)
+         bar_len = 10
+         filled = int(market.whale_consensus * bar_len)
+         bar = "▓" * filled + "░" * (bar_len - filled)
+         
+         text += f"🐋 <b>АНАЛІЗ КИТІВ</b>\n"
+         text += f"YES {consensus_pct}% {bar} {100-consensus_pct}% NO\n"
+         text += f"Об'єм: {format_volume(market.whale_total_volume)}"
+         text += f" ({market.whale_yes_count}↑ / {market.whale_no_count}↓)\n"
     else:
-        text += f"<i>Немає значної активності китів (<$1000)</i>\n"
+         text += f"🐋 <b>АНАЛІЗ КИТІВ</b>\n"
+         text += f"<i>Немає значної активності китів (<$1000)</i>\n"
+
+
     
     text += "\n"
     
