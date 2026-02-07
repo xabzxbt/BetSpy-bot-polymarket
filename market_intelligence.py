@@ -608,8 +608,14 @@ class MarketIntelligenceEngine:
             return ""
             
         try:
-            # Decode secret
-            secret_bytes = base64.b64decode(secret)
+            # Fix base64 padding if needed
+            secret = secret.strip()
+            missing_padding = len(secret) % 4
+            if missing_padding:
+                secret += '=' * (4 - missing_padding)
+            
+            # Decode secret using URL-safe decoding (Polymarket uses URL-safe base64)
+            secret_bytes = base64.urlsafe_b64decode(secret)
             
             # Prepare message
             message = f"{timestamp}{method}{request_path}"
