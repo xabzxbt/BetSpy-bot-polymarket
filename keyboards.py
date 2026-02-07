@@ -46,6 +46,12 @@ def get_main_menu_keyboard(lang: str) -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(
+            text=get_text("btn_analyze_link", lang),
+            callback_data="menu:analyze_link"
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
             text=get_text("btn_settings", lang),
             callback_data="menu:settings"
         ),

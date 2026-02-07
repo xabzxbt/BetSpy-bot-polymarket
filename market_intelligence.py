@@ -278,6 +278,56 @@ class MarketIntelligenceEngine:
     
     # ==================== DATA FETCHING ====================
     
+    async def fetch_event_markets(self, slug: str) -> List[MarketStats]:
+        """Fetch markets for a specific event slug."""
+        logger.info(f"Fetching markets for slug: {slug}")
+        
+        # Try finding by event_slug first (most common for event links)
+        # Gamma API supports filtering by event_slug
+        url = f"{self.gamma_api_url}/markets"
+        
+        # First try: treat as event_slug
+        params = {
+            "event_slug": slug,
+            "active": "true",
+            "closed": "false",
+        }
+        
+        data = await self._request(url, params)
+        
+        # If empty, maybe the user provided a market slug directly?
+        if not data or len(data) == 0:
+            logger.info(f"No markets found for event_slug={slug}, trying as market slug...")
+            params = {
+                "slug": slug,
+                "active": "true",
+                "closed": "false",
+            }
+            data = await self._request(url, params)
+            
+        if not data or len(data) == 0:
+            logger.warning(f"No markets found for slug {slug}")
+            return []
+            
+        logger.info(f"Found {len(data)} markets for slug {slug}")
+        
+        markets = []
+        for item in data:
+            try:
+                market = await self._parse_market(item)
+                if market:
+                    # Enrich with whale data and calculate signals
+                    enriched = await self._enrich_market_data(market)
+                    self._calculate_signal(enriched)
+                    markets.append(enriched)
+            except Exception as e:
+                logger.error(f"Failed to process market for slug {slug}: {e}")
+                continue
+                    
+        # Sort by volume (liquidity usually correlates with volume)
+        markets.sort(key=lambda m: m.volume_24h, reverse=True)
+        return markets
+    
     async def fetch_trending_markets(
         self,
         category: Category = Category.ALL,

@@ -73,6 +73,11 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "uk": "📊 Категорії",
         "ru": "📊 Категории",
     },
+    "btn_analyze_link": {
+        "en": "🔗 Analyze Link",
+        "uk": "🔗 Аналіз посилань",
+        "ru": "🔗 Анализ ссылок",
+    },
 
     "btn_settings": {
         "en": "⚙️ Settings",
@@ -603,6 +608,28 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "en": "📭 No recent trades found for this wallet.",
         "uk": "📭 Немає останніх угод для цього гаманця.",
         "ru": "📭 Нет последних сделок для этого кошелька.",
+    },
+    
+    # ==================== ANALYZE LINK ====================
+    "prompt_analyze_link": {
+        "en": "🔗 <b>Analyze Polymarket Event</b>\n\nSend me a link to a Polymarket event or market:\n\n<i>Example: https://polymarket.com/event/nba-game-winner...</i>",
+        "uk": "🔗 <b>Аналіз події Polymarket</b>\n\nНадішли мені посилання на подію або ринок Polymarket:\n\n<i>Приклад: https://polymarket.com/event/nba-game-winner...</i>",
+        "ru": "🔗 <b>Анализ события Polymarket</b>\n\nОтправь мне ссылку на событие или рынок Polymarket:\n\n<i>Пример: https://polymarket.com/event/nba-game-winner...</i>",
+    },
+    "analyzing_event": {
+        "en": "🔍 <b>Analyzing...</b>\n\nFetching data for: <i>{slug}</i>",
+        "uk": "🔍 <b>Аналізую...</b>\n\nОтримання даних для: <i>{slug}</i>",
+        "ru": "🔍 <b>Анализирую...</b>\n\nПолучение данных для: <i>{slug}</i>",
+    },
+    "analysis_error": {
+        "en": "❌ <b>Analysis Failed</b>\n\nCould not fetch data for this link. Please check if the event is valid and active.",
+        "uk": "❌ <b>Помилка аналізу</b>\n\nНе вдалося отримати дані. Перевір, чи подія дійснa та активнa.",
+        "ru": "❌ <b>Ошибка анализа</b>\n\nНе удалось получить данные. Проверь, действительно ли событие и активно.",
+    },
+    "invalid_link": {
+        "en": "❌ <b>Invalid Link</b>\n\nPlease send a valid Polymarket URL (starts with https://polymarket.com/event/...)",
+        "uk": "❌ <b>Невірне посилання</b>\n\nНадішли коректне посилання Polymarket (починається з https://polymarket.com/event/...)",
+        "ru": "❌ <b>Неверная ссылка</b>\n\nОтправь корректную ссылку Polymarket (начинается с https://polymarket.com/event/...)",
     },
     
     

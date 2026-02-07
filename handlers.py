@@ -32,10 +32,13 @@ from keyboards import (
     get_settings_language_keyboard,
     get_stats_range_keyboard,
     get_wallet_settings_keyboard,
+    get_wallet_settings_keyboard,
     get_min_amount_keyboard,
 )
 from config import get_settings
-
+from aiogram.fsm.state import State, StatesGroup
+from market_intelligence import market_intelligence
+from handlers_intelligence import format_market_detail
 
 # Create router
 router = Router(name="main")
@@ -53,6 +56,11 @@ class AddWalletStates(StatesGroup):
     """States for add wallet flow."""
     waiting_for_address = State()
     waiting_for_nickname = State()
+
+
+class AnalyzeEventStates(StatesGroup):
+    """States for analyze event flow."""
+    waiting_for_link = State()
 
 
 # ==================== COMMAND HANDLERS ====================
@@ -176,6 +184,116 @@ async def callback_help(callback: CallbackQuery) -> None:
         )
     
     await callback.answer()
+
+
+# ==================== ANALYZE LINK FLOW ====================
+
+@router.callback_query(F.data == "menu:analyze_link")
+async def callback_analyze_link(callback: CallbackQuery, state: FSMContext) -> None:
+    """Start analyze link flow."""
+    # Get user language
+    async with db.session() as session:
+        user_repo = UserRepository(session)
+        user = await user_repo.get(callback.from_user.id)
+        lang = user.language if user else "en"
+
+    await state.set_state(AnalyzeEventStates.waiting_for_link)
+    
+    await callback.message.edit_text(
+        get_text("prompt_analyze_link", lang),
+        reply_markup=get_cancel_keyboard(lang),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+    await callback.answer()
+
+
+@router.message(AnalyzeEventStates.waiting_for_link)
+async def process_analyze_link(message: Message, state: FSMContext) -> None:
+    """Process the link from user."""
+    # Get user language
+    async with db.session() as session:
+        user_repo = UserRepository(session)
+        user = await user_repo.get(message.from_user.id)
+        lang = user.language if user else "en"
+        
+    url = message.text.strip()
+    
+    # Check if user cancelled via text (improbable with inline buttons but possible)
+    if url.lower() in ["cancel", "скасувати", "отмена"]:
+        await state.clear()
+        await message.answer(get_text("action_cancelled", lang), reply_markup=get_main_menu_keyboard(lang))
+        return
+    
+    # Simple validation and slug extraction
+    slug = None
+    if "polymarket.com/event/" in url:
+        try:
+            # Extract everything after event/
+            # Example: https://polymarket.com/event/nba-was-bkn-2026-02-07
+            parts = url.split("polymarket.com/event/")
+            if len(parts) > 1:
+                # Take the first part of the path, ignore query params
+                path_parts = parts[1].split("?")[0].split("/")
+                if len(path_parts) > 0:
+                    slug = path_parts[0] # Event slug
+        except Exception:
+            pass
+            
+    if not slug:
+        await message.answer(
+            get_text("invalid_link", lang),
+            reply_markup=get_cancel_keyboard(lang),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    # Notify user we are working
+    working_msg = await message.answer(
+        get_text("analyzing_event", lang, slug=slug),
+        parse_mode=ParseMode.HTML,
+    )
+    
+    try:
+        # Fetch markets
+        # We need to ensure we have a functional market_intelligence instance
+        # It is imported from market_intelligence module
+        markets = await market_intelligence.fetch_event_markets(slug)
+        
+        if not markets:
+            await working_msg.edit_text(
+                get_text("analysis_error", lang),
+                reply_markup=get_back_to_menu_keyboard(lang),
+                parse_mode=ParseMode.HTML,
+            )
+            await state.clear()
+            return
+            
+        # We found markets. Show the best one (highest volume/liquidity)
+        best_market = markets[0]
+        
+        # Determine strict analysis/recommendation
+        rec = market_intelligence.generate_recommendation(best_market)
+        
+        # Format text
+        text = format_market_detail(best_market, rec, lang)
+        
+        await working_msg.edit_text(
+            text,
+            reply_markup=get_back_to_menu_keyboard(lang),
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+        
+    except Exception as e:
+        logger.error(f"Error analyzing link: {e}")
+        await working_msg.edit_text(
+            get_text("analysis_error", lang),
+            reply_markup=get_back_to_menu_keyboard(lang),
+            parse_mode=ParseMode.HTML,
+        )
+        
+    await state.clear()
 
 
 
