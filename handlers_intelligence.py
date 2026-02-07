@@ -160,10 +160,7 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
             
         # Last activity
         if wa.last_trade_timestamp > 0:
-            # Simple assumption: trade ts is seconds or ms?
-            # API usually returns seconds or iso string.
-            # Assuming seconds for now based on typical graphQL/Rest APIs, but check.
-            # If date is current year, it's seconds.
+            import time
             now = time.time()
             diff = now - wa.last_trade_timestamp
             
@@ -175,14 +172,20 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
                 time_str = f"{int(diff/3600)}h ago"
             else:
                 time_str = "1d+ ago"
-                
             text += f"⏱ Last Activity: {time_str} on {wa.last_trade_side}\n"
 
         text += "\n"
         # 4. Volume Breakdown
         text += f"📈 <b>YES:</b> ${format_volume(wa.yes_volume)} ({wa.yes_count} trades)\n"
         text += f"📉 <b>NO:</b>  ${format_volume(wa.no_volume)} ({wa.no_count} trades)\n"
-        text += f"Total Vol: ${format_volume(wa.total_volume)}\n"
+        
+        # Add tier info
+        if wa.total_volume > 0:
+            large_pct = (wa.large_volume / wa.total_volume) * 100
+        else:
+            large_pct = 0
+            
+        text += f"Total: ${format_volume(wa.total_volume)} ({large_pct:.0f}% whales)\n"
 
     elif market.whale_consensus is not None:
         # Legacy fallback

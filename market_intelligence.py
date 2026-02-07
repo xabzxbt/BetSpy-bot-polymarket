@@ -77,6 +77,10 @@ class WhaleAnalysis:
     last_trade_timestamp: int = 0
     last_trade_side: str = ""
     
+    # Tier breakdown
+    medium_volume: float = 0.0 # $500 - $2000
+    large_volume: float = 0.0  # $2000+
+    
     @property
     def is_significant(self) -> bool:
         return self.total_volume > 1000 # Minimum threshold to show specific analysis
@@ -194,7 +198,10 @@ class MarketIntelligenceEngine:
     """
     
     # Whale threshold in USD
-    WHALE_THRESHOLD = 5000
+    MEDIUM_THRESHOLD = 500
+    WHALE_THRESHOLD = 2000 # Considered "Large Whale"
+    
+    # Minimum volume to consider a market
     
     # Minimum volume to consider a market
     MIN_VOLUME_24H = 10000
@@ -645,6 +652,12 @@ class MarketIntelligenceEngine:
         # Fetch recent trades using PUBLIC API (no auth needed)
         trades = await self._fetch_market_trades_public(market)
         
+
+        
+        # Tiers
+        medium_vol = 0.0
+        large_vol = 0.0
+        
         whale_yes_vol = 0.0
         whale_no_vol = 0.0
         whale_yes_count = 0
@@ -681,7 +694,9 @@ class MarketIntelligenceEngine:
             # SELL + outcomeIndex=1 = selling NO tokens = bearish NO (bullish YES)
             is_yes = (side == "BUY" and outcome_index == 0) or (side == "SELL" and outcome_index == 1)
             
-            if amount >= self.WHALE_THRESHOLD:
+            # Check Tiers
+            if amount >= self.MEDIUM_THRESHOLD:
+                # It's Smart Money (Medium or Whale)
                 if is_yes:
                     whale_yes_vol += amount
                     whale_yes_count += 1
@@ -689,6 +704,12 @@ class MarketIntelligenceEngine:
                     whale_no_vol += amount
                     whale_no_count += 1
                 
+                # Categorize Tier
+                if amount >= self.WHALE_THRESHOLD:
+                    large_vol += amount
+                else:
+                    medium_vol += amount
+
                 # Check for top trade
                 if amount > top_trade_size:
                     top_trade_size = amount
@@ -726,13 +747,16 @@ class MarketIntelligenceEngine:
             market.price_7d_ago = price_history.get("price_7d", market.yes_price)
         
         # Run analysis
-        self._analyze_whales(market, top_trade_size, top_trade_side, last_trade_ts, last_trade_side)
+        self._analyze_whales(market, top_trade_size, top_trade_side, 
+                           last_trade_ts, last_trade_side, 
+                           medium_vol, large_vol)
             
         return market
 
     def _analyze_whales(self, market: MarketStats, 
                        top_size: float = 0, top_side: str = "",
-                       last_ts: int = 0, last_side: str = "") -> None:
+                       last_ts: int = 0, last_side: str = "",
+                       med_vol: float = 0, lrg_vol: float = 0) -> None:
         """Perform structured whale analysis and populate market.whale_analysis."""
         yes_vol = market.whale_yes_volume
         no_vol = market.whale_no_volume
@@ -750,7 +774,9 @@ class MarketIntelligenceEngine:
             top_trade_size=top_size,
             top_trade_side=top_side,
             last_trade_timestamp=last_ts,
-            last_trade_side=last_side
+            last_trade_side=last_side,
+            medium_volume=med_vol,
+            large_volume=lrg_vol
         )
         
         if total_vol > 0:
