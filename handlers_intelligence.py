@@ -224,12 +224,19 @@ async def cmd_trending(message: Message) -> None:
             first_name=message.from_user.first_name,
         )
         
-        await message.answer(
-            "🔥 <b>TRENDING MARKETS</b>\n\n"
-            "Обери категорію та часовий проміжок:",
-            reply_markup=get_category_keyboard(user.language),
-            parse_mode=ParseMode.HTML,
-        )
+        try:
+            await message.answer(
+                "🔥 <b>TRENDING MARKETS</b>\n\n"
+                "Обери категорію та часовий проміжок:",
+                reply_markup=get_category_keyboard(user.language),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception as e:
+            logger.error(f"Error in /trending: {e}")
+            await message.answer(
+                "❌ Помилка при завантаженні даних. Спробуй пізніше.",
+                parse_mode=ParseMode.HTML,
+            )
 
 
 @router.message(Command("signals"))
@@ -283,11 +290,14 @@ async def cmd_signals(message: Message) -> None:
                 )
                 return
             
+            # Format response - only show first 5 signals to avoid Telegram limits
+            limited_signals = good_signals[:5]
+            
             # Format response
             text = "🎯 <b>TOP SIGNALS</b>\n"
-            text += f"<i>Найкращі можливості прямо зараз</i>\n\n"
+            text += f"<i>Найкращі можливості прямо зараз (1-5 з {len(good_signals)})</i>\n\n"
             
-            for i, market in enumerate(good_signals, 1):
+            for i, market in enumerate(limited_signals, 1):
                 text += format_market_card(market, i, user.language)
                 text += "\n"
             
@@ -298,16 +308,22 @@ async def cmd_signals(message: Message) -> None:
             
             await loading_msg.edit_text(
                 text,
-                reply_markup=get_signals_keyboard(user.language, good_signals),
+                reply_markup=get_signals_keyboard(user.language, limited_signals),
                 parse_mode=ParseMode.HTML,
             )
             
         except Exception as e:
             logger.error(f"Error in /signals: {e}")
-            await loading_msg.edit_text(
-                "❌ Помилка при отриманні даних. Спробуй пізніше.",
-                parse_mode=ParseMode.HTML,
-            )
+            try:
+                await loading_msg.edit_text(
+                    "❌ Помилка при отриманні даних. Спробуй пізніше.",
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception:
+                await loading_msg.answer(
+                    "❌ Помилка при отриманні даних. Спробуй пізніше.",
+                    parse_mode=ParseMode.HTML,
+                )
 
 
 # ==================== CALLBACK HANDLERS ====================
@@ -338,13 +354,23 @@ async def callback_category_select(callback: CallbackQuery) -> None:
             Category.ALL: "📊 Всі",
         }.get(category, "📊 Всі")
         
-        await callback.message.edit_text(
-            f"🔥 <b>TRENDING MARKETS</b>\n\n"
-            f"Категорія: <b>{cat_name}</b>\n\n"
-            f"Обери часовий проміжок:",
-            reply_markup=get_timeframe_keyboard(user.language, category_str),
-            parse_mode=ParseMode.HTML,
-        )
+        try:
+            await callback.message.edit_text(
+                f"🔥 <b>TRENDING MARKETS</b>\n\n"
+                f"Категорія: <b>{cat_name}</b>\n\n"
+                f"Обери часовий проміжок:",
+                reply_markup=get_timeframe_keyboard(user.language, category_str),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            # If message edit fails, send new message
+            await callback.message.answer(
+                f"🔥 <b>TRENDING MARKETS</b>\n\n"
+                f"Категорія: <b>{cat_name}</b>\n\n"
+                f"Обери часовий проміжок:",
+                reply_markup=get_timeframe_keyboard(user.language, category_str),
+                parse_mode=ParseMode.HTML,
+            )
     
     await callback.answer()
 
@@ -375,10 +401,19 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
         )
         
         # Show loading
-        await callback.message.edit_text(
-            "🔄 Аналізую ринки...\n\n<i>Це може зайняти декілька секунд...</i>",
-            parse_mode=ParseMode.HTML,
-        )
+        try:
+            await callback.message.edit_text(
+                "🔄 Аналізую ринки...\n\n<i>Це може зайняти декілька секунд...</i>",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception as e:
+            # If message edit fails (timeout), send new message
+            await callback.answer("⏳ Завантаження, зачекайте...", show_alert=False)
+            await callback.message.answer(
+                "🔄 Аналізую ринки...\n\n<i>Це може зайняти декілька секунд...</i>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
         
         try:
             await market_intelligence.init()
@@ -433,7 +468,9 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
                 await callback.answer()
                 return
             
-            # Format markets list
+            # Format markets list with pagination - only show first 10
+            markets_page = markets[:10]  # Show first 10 markets
+            
             time_name = {
                 TimeFrame.TODAY: "Сьогодні",
                 TimeFrame.DAYS_2: "2 дні",
@@ -451,9 +488,9 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
             }.get(category, "📊")
             
             text = f"{cat_emoji} <b>TRENDING: {time_name.upper()}</b>\n"
-            text += f"<i>Знайдено {len(markets)} ринків</i>\n\n"
+            text += f"<i>Знайдено {len(markets)} ринків | Показано 1-10</i>\n\n"
             
-            for i, market in enumerate(markets, 1):
+            for i, market in enumerate(markets_page, 1):
                 text += format_market_card(market, i, user.language)
                 text += "\n"
             
@@ -461,7 +498,7 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
             
             await callback.message.edit_text(
                 text,
-                reply_markup=get_trending_keyboard(user.language, markets, category_str, timeframe_str),
+                reply_markup=get_trending_keyboard(user.language, markets_page, category_str, timeframe_str),
                 parse_mode=ParseMode.HTML,
             )
             
@@ -469,11 +506,17 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
             logger.error(f"Error fetching markets: {e}")
             import traceback
             traceback.print_exc()
-            await callback.message.edit_text(
-                f"❌ Помилка при отриманні даних.\n\n<code>{str(e)[:200]}</code>\n\nСпробуй пізніше.",
-                reply_markup=get_category_keyboard(user.language),
-                parse_mode=ParseMode.HTML,
-            )
+            try:
+                await callback.message.edit_text(
+                    f"❌ Помилка при отриманні даних.\n\n<code>{str(e)[:200]}</code>\n\nСпробуй пізніше.",
+                    reply_markup=get_category_keyboard(user.language),
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception:
+                await callback.message.answer(
+                    f"❌ Помилка при отриманні даних.\n\n<code>{str(e)[:200]}</code>\n\nСпробуй пізніше.",
+                    parse_mode=ParseMode.HTML,
+                )
     
     await callback.answer()
 
@@ -492,10 +535,19 @@ async def callback_market_detail(callback: CallbackQuery) -> None:
         )
         
         # Show loading
-        await callback.message.edit_text(
-            "🔄 Завантажую детальний аналіз...",
-            parse_mode=ParseMode.HTML,
-        )
+        try:
+            await callback.message.edit_text(
+                "🔄 Завантажую детальний аналіз...",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            # If message edit fails (timeout), send new message
+            await callback.answer("⏳ Завантаження, зачекайте...", show_alert=False)
+            await callback.message.answer(
+                "🔄 Завантажую детальний аналіз...",
+                parse_mode=ParseMode.HTML,
+            )
+            return
         
         try:
             await market_intelligence.init()
@@ -536,10 +588,16 @@ async def callback_market_detail(callback: CallbackQuery) -> None:
             
         except Exception as e:
             logger.error(f"Error in market detail: {e}")
-            await callback.message.edit_text(
-                "❌ Помилка при отриманні даних.",
-                parse_mode=ParseMode.HTML,
-            )
+            try:
+                await callback.message.edit_text(
+                    "❌ Помилка при отриманні даних.",
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception:
+                await callback.message.answer(
+                    "❌ Помилка при отриманні даних.",
+                    parse_mode=ParseMode.HTML,
+                )
     
     await callback.answer()
 
@@ -555,12 +613,21 @@ async def callback_back_to_categories(callback: CallbackQuery) -> None:
             first_name=callback.from_user.first_name,
         )
         
-        await callback.message.edit_text(
-            "🔥 <b>TRENDING MARKETS</b>\n\n"
-            "Обери категорію та часовий проміжок:",
-            reply_markup=get_category_keyboard(user.language),
-            parse_mode=ParseMode.HTML,
-        )
+        try:
+            await callback.message.edit_text(
+                "🔥 <b>TRENDING MARKETS</b>\n\n"
+                "Обери категорію та часовий проміжок:",
+                reply_markup=get_category_keyboard(user.language),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            # If message edit fails, send new message
+            await callback.message.answer(
+                "🔥 <b>TRENDING MARKETS</b>\n\n"
+                "Обери категорію та часовий проміжок:",
+                reply_markup=get_category_keyboard(user.language),
+                parse_mode=ParseMode.HTML,
+            )
     
     await callback.answer()
 
@@ -591,13 +658,23 @@ async def callback_back_to_timeframe(callback: CallbackQuery) -> None:
             Category.ALL: "📊 Всі",
         }.get(category, "📊 Всі")
         
-        await callback.message.edit_text(
-            f"🔥 <b>TRENDING MARKETS</b>\n\n"
-            f"Категорія: <b>{cat_name}</b>\n\n"
-            f"Обери часовий проміжок:",
-            reply_markup=get_timeframe_keyboard(user.language, category_str),
-            parse_mode=ParseMode.HTML,
-        )
+        try:
+            await callback.message.edit_text(
+                f"🔥 <b>TRENDING MARKETS</b>\n\n"
+                f"Категорія: <b>{cat_name}</b>\n\n"
+                f"Обери часовий проміжок:",
+                reply_markup=get_timeframe_keyboard(user.language, category_str),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            # If message edit fails, send new message
+            await callback.message.answer(
+                f"🔥 <b>TRENDING MARKETS</b>\n\n"
+                f"Категорія: <b>{cat_name}</b>\n\n"
+                f"Обери часовий проміжок:",
+                reply_markup=get_timeframe_keyboard(user.language, category_str),
+                parse_mode=ParseMode.HTML,
+            )
     
     await callback.answer()
 
