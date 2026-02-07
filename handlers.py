@@ -267,8 +267,14 @@ async def process_analyze_link(message: Message, state: FSMContext) -> None:
         markets = await market_intelligence.fetch_event_markets(slug, market_slug)
         
         if not markets:
+            # No active markets found - likely event already ended
+            error_text = (
+                "⏰ <b>Подія завершена</b>\n\n"
+                "Усі ринки цієї події вже закриті.\n"
+                "Спробуй іншу подію, яка ще активна."
+            )
             await working_msg.edit_text(
-                get_text("analysis_error", lang),
+                error_text,
                 reply_markup=get_back_to_menu_keyboard(lang),
                 parse_mode=ParseMode.HTML,
             )
