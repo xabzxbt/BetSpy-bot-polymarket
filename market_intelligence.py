@@ -344,10 +344,10 @@ class MarketIntelligenceEngine:
         is_event_slug_match = False
         
         # 1. First try: treat as event_slug
-        # 1. First try: treat as event_slug
         params = {
             "event_slug": slug,
-            # active/closed removed for broader search
+            "active": "true",
+            "closed": "false",
         }
         
         data = await self._request(url, params)
@@ -361,25 +361,51 @@ class MarketIntelligenceEngine:
                     break
         
         if not data or not has_valid_event_match:
-            # 2. If empty or junk response, try as market slug directly
+            # 2. If empty or junk response, try /events endpoint
             if data:
                  logger.info(f"API returned {len(data)} items but none matched event_slug={slug}. Likely trending fallback. Ignoring.")
             
-            logger.info(f"Trying as market slug: {slug}")
-            params = {
-                "slug": slug,
-                # active/closed removed for broader search
-            }
-            data = await self._request(url, params)
-            is_event_slug_match = False 
+            logger.info(f"Trying /events endpoint for slug: {slug}")
+            events_url = f"{self.gamma_api_url}/events"
+            events_params = {"slug": slug}
+            events_data = await self._request(events_url, events_params)
             
-            # 3. If STILL empty, try as ID
+            # /events returns a list of events
+            if events_data and len(events_data) > 0:
+                # Find the event that matches our slug
+                target_event = None
+                for event in events_data:
+                    if event.get("slug") == slug:
+                        target_event = event
+                        break
+                
+                if target_event:
+                    # Extract markets from event object if present
+                    event_markets = target_event.get("markets", [])
+                    if event_markets:
+                        logger.info(f"Found {len(event_markets)} markets in event object for slug {slug}")
+                        data = event_markets
+                        is_event_slug_match = True
+                    else:
+                        # Try using condition_id or other identifiers
+                        event_id = target_event.get("id")
+                        if event_id:
+                            logger.info(f"Event found but no markets embedded. Trying markets by event ID: {event_id}")
+                            params = {"event_id": event_id, "active": "true", "closed": "false"}
+                            data = await self._request(url, params)
+                            if data:
+                                is_event_slug_match = True
+            
+            # 3. If still nothing, try as market slug directly
             if not data or len(data) == 0:
-                logger.info(f"No markets found for slug={slug}, trying as ID...")
+                logger.info(f"Trying as market slug: {slug}")
                 params = {
-                    "id": slug,
+                    "slug": slug,
+                    "active": "true",
+                    "closed": "false",
                 }
                 data = await self._request(url, params)
+                is_event_slug_match = False
         else:
             is_event_slug_match = True
             
