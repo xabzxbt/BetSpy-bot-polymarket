@@ -264,7 +264,7 @@ async def process_analyze_link(message: Message, state: FSMContext) -> None:
         # Fetch markets
         # We need to ensure we have a functional market_intelligence instance
         # It is imported from market_intelligence module
-        markets = await market_intelligence.fetch_event_markets(slug, market_slug)
+        markets = await market_intelligence.fetch_event_markets(slug, market_slug, skip_long_term_filter=True)
         
         if not markets:
             # No active markets found - likely event already ended

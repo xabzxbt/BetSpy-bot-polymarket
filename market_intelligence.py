@@ -333,8 +333,14 @@ class MarketIntelligenceEngine:
     
     # ==================== DATA FETCHING ====================
     
-    async def fetch_event_markets(self, slug: str, market_slug: Optional[str] = None) -> List[MarketStats]:
-        """Fetch markets for a specific event slug, optionally filtering by market slug."""
+    async def fetch_event_markets(self, slug: str, market_slug: Optional[str] = None, skip_long_term_filter: bool = False) -> List[MarketStats]:
+        """Fetch markets for a specific event slug, optionally filtering by market slug.
+        
+        Args:
+            slug: Event or market slug
+            market_slug: Optional specific market slug to filter
+            skip_long_term_filter: If True, don't filter out long-term markets (>35 days)
+        """
         logger.info(f"Fetching markets for slug: {slug}, market_slug: {market_slug}")
         
         # Gamma API URL
@@ -440,7 +446,7 @@ class MarketIntelligenceEngine:
                         if item_slug != slug and item_event_slug != slug and item.get("id") != slug:
                             continue
 
-                market = await self._parse_market(item)
+                market = await self._parse_market(item, skip_long_term_filter=skip_long_term_filter)
                 if market:
                     # Enrich with whale data and calculate signals
                     enriched = await self._enrich_market_data(market)
@@ -586,8 +592,13 @@ class MarketIntelligenceEngine:
         
         return enriched_markets
     
-    async def _parse_market(self, data: Dict) -> Optional[MarketStats]:
-        """Parse market data from API response."""
+    async def _parse_market(self, data: Dict, skip_long_term_filter: bool = False) -> Optional[MarketStats]:
+        """Parse market data from API response.
+        
+        Args:
+            data: Raw market data from API
+            skip_long_term_filter: If True, don't filter out long-term markets
+        """
         try:
             # Parse end date
             end_date_str = data.get("endDate") or data.get("end_date_iso")
@@ -616,8 +627,8 @@ class MarketIntelligenceEngine:
             
             days_to_close = (end_date - now).days
             
-            # Filter out long-term markets (> 35 days)
-            if days_to_close > 35:
+            # Filter out long-term markets (> 35 days) unless explicitly skipped
+            if days_to_close > 35 and not skip_long_term_filter:
                 logger.warning(f"Market rejected: long-term ({days_to_close} days) - {data.get('question', 'N/A')[:50]}")
                 return None
             
