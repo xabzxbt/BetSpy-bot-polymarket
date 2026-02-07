@@ -1,5 +1,5 @@
 """
-Main entry point for the Polymarket Whale Tracker bot.
+Main entry point for the BetSpy Polymarket bot.
 """
 
 import asyncio
@@ -15,7 +15,9 @@ from config import get_settings
 from database import db
 from polymarket_api import api_client
 from handlers import setup_handlers
+from handlers_intelligence import setup_intelligence_handlers
 from scheduler import init_notification_service
+from market_intelligence import market_intelligence
 
 
 def setup_logging() -> None:
@@ -88,6 +90,9 @@ async def main() -> None:
     # Initialize API client
     await api_client.init()
     
+    # Initialize Market Intelligence engine
+    await market_intelligence.init()
+    
     # Create bot instance
     bot = Bot(
         token=settings.bot_token,
@@ -102,6 +107,7 @@ async def main() -> None:
     
     # Setup handlers
     setup_handlers(dp)
+    setup_intelligence_handlers(dp)  # New intelligence handlers
     
     # Initialize notification service
     notification_service = init_notification_service(
@@ -125,6 +131,7 @@ async def main() -> None:
         logger.info("Cleaning up...")
         await notification_service.stop()
         await api_client.close()
+        await market_intelligence.close()  # Close intelligence engine
         await db.close()
         await bot.session.close()
         logger.info("Cleanup complete")

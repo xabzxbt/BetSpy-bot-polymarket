@@ -178,6 +178,16 @@ async def callback_help(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data == "menu:signals")
+async def callback_signals_redirect(callback: CallbackQuery) -> None:
+    """Redirect to signals - handled by intelligence module."""
+    # This will be handled by handlers_intelligence.py
+    # We just need to trigger the /signals command behavior
+    from handlers_intelligence import cmd_signals
+    await cmd_signals(callback.message)
+    await callback.answer()
+
+
 # ==================== ADD WALLET FLOW ====================
 
 @router.callback_query(F.data == "menu:add_wallet")

@@ -68,6 +68,16 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "uk": "📋 Мої гаманці",
         "ru": "📋 Мои кошельки",
     },
+    "btn_trending": {
+        "en": "🔥 Trending",
+        "uk": "🔥 Trending",
+        "ru": "🔥 Trending",
+    },
+    "btn_signals": {
+        "en": "🎯 Signals",
+        "uk": "🎯 Сигнали",
+        "ru": "🎯 Сигналы",
+    },
     "btn_settings": {
         "en": "⚙️ Settings",
         "uk": "⚙️ Налаштування",
@@ -779,4 +789,3 @@ def get_pnl_emoji(value: float) -> str:
     elif value < 0:
         return "🔴"
     return "⚪"
-    
