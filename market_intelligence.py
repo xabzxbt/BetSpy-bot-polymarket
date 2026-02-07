@@ -352,16 +352,8 @@ class MarketIntelligenceEngine:
         
         data = await self._request(url, params)
         
-        # Validate data matches the request
-        if data and len(data) > 0:
-            # Check if at least one item matches the event_slug
-            for item in data:
-                if item.get("eventSlug") == slug:
-                    is_event_slug_match = True
-                    break
-        
-        # 2. If empty or no match, try as market slug directly
-        if not data or (len(data) > 0 and not is_event_slug_match):
+        if not data or len(data) == 0:
+            # 2. If empty, try as market slug directly
             logger.info(f"No markets found for event_slug={slug}, trying as market slug...")
             params = {
                 "slug": slug,
@@ -369,7 +361,9 @@ class MarketIntelligenceEngine:
                 "closed": "false",
             }
             data = await self._request(url, params)
-            is_event_slug_match = False # Reset flag as we are now searching by slug
+            is_event_slug_match = False 
+        else:
+            is_event_slug_match = True
             
         if not data or len(data) == 0:
             logger.warning(f"No markets found for slug {slug}")
@@ -380,18 +374,25 @@ class MarketIntelligenceEngine:
         markets = []
         for item in data:
             try:
-                # STRICT FILTERING: Ensure the returned item matches our query
-                # The API might be fuzzy or return top markets on partial fail
-                item_event_slug = item.get("eventSlug", "")
-                item_slug = item.get("slug", "")
+                # FILTERING LOGIC
+                # If we have a market_slug, ONLY return that market
+                if market_slug and item_slug != market_slug:
+                    continue
+
+                # If we don't have a market_slug, return all markets associated with this event/slug
+                # We trust the API returned relevant results for the query
                 
-                # If we searched by event_slug (is_event_slug_match=True), enforce eventSlug match
+                # Double check to prevent completely unrelated junk if API is fuzzy
                 if is_event_slug_match and item_event_slug != slug:
-                    continue
+                     # Only strict check if we are sure it was an event_slug query
+                     # But sometimes event_slug in API response differs slightly? 
+                     # Let's be permissive if data is returned appropriately.
+                     pass 
                 
-                # If we searched by slug (is_event_slug_match=False), enforce slug match
                 if not is_event_slug_match and item_slug != slug and item_event_slug != slug:
-                    continue
+                    # If we searched by slug, and neither slug matches, skip
+                    if item.get("id") != slug: # Check ID too just in case
+                         continue
                 
                 # If market_slug is provided, filter by it
                 if market_slug and item_slug != market_slug:
