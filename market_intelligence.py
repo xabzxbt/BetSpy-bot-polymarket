@@ -604,6 +604,7 @@ class MarketIntelligenceEngine:
                     try:
                         # Correct usage according to docs: pass TradeParams object
                         # Note: 'limit' is not supported in TradeParams based on docs, so we filter later if needed
+                        # FORCE UPDATE TRIGGER
                         params = TradeParams(market=condition_id)
                         return self.clob_client.get_trades(params)
                     except Exception as e:
