@@ -12,6 +12,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from loguru import logger
+import html
 
 from database import db
 from repository import UserRepository
@@ -84,15 +85,26 @@ def format_market_card(market: MarketStats, index: int, lang: str) -> str:
     else:
         time_str = f"🕐 {market.days_to_close} днів"
     
-    # Category emoji
+    # Category emoji - all Polymarket categories
     cat_emoji = {
+        "politics": "🏛️",
         "sports": "⚽",
+        "pop-culture": "🎬",
+        "business": "💼",
         "crypto": "₿",
-        "esports": "🎮",
+        "science": "🔬",
+        "gaming": "🎮",
+        "entertainment": "🎭",
+        "world": "🌍",
+        "tech": "💻",
     }.get(market.category, "📊")
     
+    # Escape HTML special characters in question to prevent parsing errors
+    safe_question = html.escape(market.question[:50])
+    ellipsis = "..." if len(market.question) > 50 else ""
+    
     text = (
-        f"<b>{index}. {cat_emoji} {market.question[:50]}{'...' if len(market.question) > 50 else ''}</b>\n"
+        f"<b>{index}. {cat_emoji} {safe_question}{ellipsis}</b>\n"
         f"├ 💰 Vol: {format_volume(market.volume_24h)} (24h)\n"
         f"├ 🟢 YES {format_price(market.yes_price)} | 🔴 NO {format_price(market.no_price)}\n"
         f"├ 🐋 Кити: {whale_str} {market.recommended_side}\n"
@@ -107,15 +119,25 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
     """Format detailed market analysis."""
     signal_emoji = format_signal_emoji(market.signal_strength)
     
-    # Category emoji
+    # Category emoji - all Polymarket categories
     cat_emoji = {
+        "politics": "🏛️",
         "sports": "⚽",
+        "pop-culture": "🎬",
+        "business": "💼",
         "crypto": "₿",
-        "esports": "🎮",
+        "science": "🔬",
+        "gaming": "🎮",
+        "entertainment": "🎭",
+        "world": "🌍",
+        "tech": "💻",
     }.get(market.category, "📊")
     
+    # Escape HTML special characters in question
+    safe_question = html.escape(market.question)
+    
     # Build the detailed view
-    text = f"{cat_emoji} <b>{market.question}</b>\n\n"
+    text = f"{cat_emoji} <b>{safe_question}</b>\n\n"
     
     # Signal summary
     text += f"{'═'*30}\n"
@@ -227,7 +249,7 @@ async def cmd_trending(message: Message) -> None:
         
         try:
             await message.answer(
-                "🔥 <b>TRENDING MARKETS</b>\n\n"
+                "� <b>СИГНАЛИ РИНКІВ</b>\n\n"
                 "Обери категорію та часовий проміжок:",
                 reply_markup=get_category_keyboard(user.language),
                 parse_mode=ParseMode.HTML,
@@ -350,10 +372,16 @@ async def callback_category_select(callback: CallbackQuery) -> None:
         )
         
         cat_name = {
+            Category.POLITICS: "🏛️ Політика",
             Category.SPORTS: "⚽ Спорт",
+            Category.POP_CULTURE: "🎬 Поп-культура",
+            Category.BUSINESS: "💼 Бізнес",
             Category.CRYPTO: "₿ Крипто",
-            Category.ESPORTS: "🎮 Кіберспорт",
-            Category.TRENDING: "🔥 Trending",
+            Category.SCIENCE: "🔬 Наука",
+            Category.GAMING: "🎮 Ігри",
+            Category.ENTERTAINMENT: "🎭 Розваги",
+            Category.WORLD: "🌍 Світ",
+            Category.TECH: "💻 Технології",
             Category.ALL: "📊 Всі",
         }.get(category, "📊 Всі")
         
@@ -364,7 +392,7 @@ async def callback_category_select(callback: CallbackQuery) -> None:
         
         try:
             await callback.message.edit_text(
-                f"🔥 <b>TRENDING MARKETS</b>\n\n"
+                f"📊 <b>СИГНАЛИ РИНКІВ</b>\n\n"
                 f"Категорія: <b>{cat_name}</b>\n\n"
                 f"Обери часовий проміжок:",
                 reply_markup=get_timeframe_keyboard(user.language, category_str),
@@ -373,7 +401,7 @@ async def callback_category_select(callback: CallbackQuery) -> None:
         except Exception:
             # If message edit fails, send new message
             await callback.message.answer(
-                f"🔥 <b>TRENDING MARKETS</b>\n\n"
+                f"📊 <b>СИГНАЛИ РИНКІВ</b>\n\n"
                 f"Категорія: <b>{cat_name}</b>\n\n"
                 f"Обери часовий проміжок:",
                 reply_markup=get_timeframe_keyboard(user.language, category_str),
@@ -448,7 +476,7 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
             if not markets and timeframe != TimeFrame.MONTH:
                 logger.info(f"No markets for {timeframe.value}, trying MONTH")
                 markets = await market_intelligence.fetch_trending_markets(
-                    category=category if category != Category.ALL else Category.TRENDING,
+                    category=category,
                     timeframe=TimeFrame.MONTH,
                     limit=10,
                 )
@@ -491,14 +519,20 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
             }.get(timeframe, "")
             
             cat_emoji = {
+                Category.POLITICS: "🏛️",
                 Category.SPORTS: "⚽",
+                Category.POP_CULTURE: "🎬",
+                Category.BUSINESS: "💼",
                 Category.CRYPTO: "₿",
-                Category.ESPORTS: "🎮",
-                Category.TRENDING: "🔥",
+                Category.SCIENCE: "🔬",
+                Category.GAMING: "🎮",
+                Category.ENTERTAINMENT: "🎭",
+                Category.WORLD: "🌍",
+                Category.TECH: "�",
                 Category.ALL: "📊",
             }.get(category, "📊")
             
-            text = f"{cat_emoji} <b>TRENDING: {time_name.upper()}</b>\n"
+            text = f"{cat_emoji} <b>СИГНАЛИ: {time_name.upper()}</b>\n"
             text += f"<i>Знайдено {len(markets)} ринків | Показано 1-10</i>\n\n"
             
             for i, market in enumerate(markets_page, 1):
@@ -717,7 +751,7 @@ async def callback_back_to_categories(callback: CallbackQuery) -> None:
         
         try:
             await callback.message.edit_text(
-                "🔥 <b>TRENDING MARKETS</b>\n\n"
+                "� <b>СИГНАЛИ РИНКІВ</b>\n\n"
                 "Обери категорію та часовий проміжок:",
                 reply_markup=get_category_keyboard(user.language),
                 parse_mode=ParseMode.HTML,
@@ -725,7 +759,7 @@ async def callback_back_to_categories(callback: CallbackQuery) -> None:
         except Exception:
             # If message edit fails, send new message
             await callback.message.answer(
-                "🔥 <b>TRENDING MARKETS</b>\n\n"
+                "� <b>СИГНАЛИ РИНКІВ</b>\n\n"
                 "Обери категорію та часовий проміжок:",
                 reply_markup=get_category_keyboard(user.language),
                 parse_mode=ParseMode.HTML,
@@ -753,10 +787,16 @@ async def callback_back_to_timeframe(callback: CallbackQuery) -> None:
             category = Category.ALL
         
         cat_name = {
+            Category.POLITICS: "🏛️ Політика",
             Category.SPORTS: "⚽ Спорт",
+            Category.POP_CULTURE: "🎬 Поп-культура",
+            Category.BUSINESS: "💼 Бізнес",
             Category.CRYPTO: "₿ Крипто",
-            Category.ESPORTS: "🎮 Кіберспорт",
-            Category.TRENDING: "🔥 Trending",
+            Category.SCIENCE: "🔬 Наука",
+            Category.GAMING: "🎮 Ігри",
+            Category.ENTERTAINMENT: "🎭 Розваги",
+            Category.WORLD: "🌍 Світ",
+            Category.TECH: "💻 Технології",
             Category.ALL: "📊 Всі",
         }.get(category, "📊 Всі")
         
@@ -767,7 +807,7 @@ async def callback_back_to_timeframe(callback: CallbackQuery) -> None:
         
         try:
             await callback.message.edit_text(
-                f"🔥 <b>TRENDING MARKETS</b>\n\n"
+                f"📊 <b>СИГНАЛИ РИНКІВ</b>\n\n"
                 f"Категорія: <b>{cat_name}</b>\n\n"
                 f"Обери часовий проміжок:",
                 reply_markup=get_timeframe_keyboard(user.language, category_str),
@@ -776,7 +816,7 @@ async def callback_back_to_timeframe(callback: CallbackQuery) -> None:
         except Exception:
             # If message edit fails, send new message
             await callback.message.answer(
-                f"🔥 <b>TRENDING MARKETS</b>\n\n"
+                f"📊 <b>СИГНАЛИ РИНКІВ</b>\n\n"
                 f"Категорія: <b>{cat_name}</b>\n\n"
                 f"Обери часовий проміжок:",
                 reply_markup=get_timeframe_keyboard(user.language, category_str),

@@ -69,9 +69,9 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "ru": "📋 Мои кошельки",
     },
     "btn_trending": {
-        "en": "🔥 Trending",
-        "uk": "🔥 Trending",
-        "ru": "🔥 Trending",
+        "en": "📊 Categories",
+        "uk": "📊 Категорії",
+        "ru": "📊 Категории",
     },
     "btn_signals": {
         "en": "🎯 Signals",

@@ -26,11 +26,17 @@ class TimeFrame(Enum):
 
 
 class Category(Enum):
-    """Supported market categories."""
+    """Supported market categories matching Polymarket."""
+    POLITICS = "politics"
     SPORTS = "sports"
+    POP_CULTURE = "pop-culture"
+    BUSINESS = "business"
     CRYPTO = "crypto"
-    ESPORTS = "esports"
-    TRENDING = "trending"
+    SCIENCE = "science"
+    GAMING = "gaming"
+    ENTERTAINMENT = "entertainment"
+    WORLD = "world"
+    TECH = "tech"
     ALL = "all"
 
 
@@ -155,16 +161,39 @@ class MarketIntelligenceEngine:
     # Minimum volume to consider a market
     MIN_VOLUME_24H = 10000
     
-    # Category tag mappings
+    # Category tag mappings for all Polymarket categories
     CATEGORY_TAGS = {
+        Category.POLITICS: ["politics", "election", "president", "trump", "biden", "congress",
+                           "senate", "republican", "democrat", "vote", "poll", "government",
+                           "political", "white house", "governor", "legislation"],
         Category.SPORTS: ["sports", "nfl", "nba", "mlb", "nhl", "soccer", "football", 
                          "basketball", "baseball", "hockey", "tennis", "mma", "ufc",
-                         "boxing", "golf", "f1", "racing"],
+                         "boxing", "golf", "f1", "racing", "olympics", "fifa", "super bowl"],
+        Category.POP_CULTURE: ["pop culture", "celebrity", "movie", "film", "music", "grammy",
+                               "oscars", "actor", "actress", "singer", "album", "kardashian",
+                               "taylor swift", "hollywood", "netflix", "streaming"],
+        Category.BUSINESS: ["business", "company", "stock", "market", "ceo", "merger",
+                           "acquisition", "ipo", "earnings", "revenue", "apple", "google",
+                           "amazon", "microsoft", "tesla", "nasdaq", "dow"],
         Category.CRYPTO: ["crypto", "bitcoin", "btc", "ethereum", "eth", "solana", 
-                         "sol", "cryptocurrency", "defi", "nft", "blockchain"],
-        Category.ESPORTS: ["esports", "gaming", "cs2", "csgo", "dota", "dota2", 
-                          "league of legends", "lol", "valorant", "overwatch",
-                          "counter-strike", "call of duty", "fortnite"],
+                         "sol", "cryptocurrency", "defi", "nft", "blockchain", "binance",
+                         "coinbase", "altcoin", "memecoin", "web3"],
+        Category.SCIENCE: ["science", "space", "nasa", "spacex", "climate", "research",
+                          "discovery", "mars", "moon", "satellite", "physics", "biology",
+                          "medicine", "vaccine", "health", "pandemic"],
+        Category.GAMING: ["gaming", "esports", "cs2", "csgo", "dota", "dota2", 
+                         "league of legends", "lol", "valorant", "overwatch",
+                         "counter-strike", "call of duty", "fortnite", "playstation",
+                         "xbox", "nintendo", "twitch", "streamer"],
+        Category.ENTERTAINMENT: ["entertainment", "tv", "television", "show", "series",
+                                "reality tv", "streaming", "disney", "hbo", "award",
+                                "premiere", "finale", "season", "episode"],
+        Category.WORLD: ["world", "international", "war", "conflict", "country", "nation",
+                        "russia", "ukraine", "china", "europe", "asia", "global",
+                        "treaty", "sanctions", "diplomacy", "middle east"],
+        Category.TECH: ["tech", "technology", "ai", "artificial intelligence", "openai",
+                       "chatgpt", "software", "hardware", "startup", "silicon valley",
+                       "iphone", "android", "computer", "internet", "social media"],
     }
     
     def __init__(self):
@@ -287,7 +316,7 @@ class MarketIntelligenceEngine:
                         continue
                 
                 # Filter by category
-                if category != Category.ALL and category != Category.TRENDING:
+                if category != Category.ALL:
                     if not self._matches_category(market, category):
                         skipped_category += 1
                         continue
@@ -319,7 +348,7 @@ class MarketIntelligenceEngine:
                         continue
                     
                     # Only filter by category if specified
-                    if category != Category.ALL and category != Category.TRENDING:
+                    if category != Category.ALL:
                         if not self._matches_category(market, category):
                             continue
                     

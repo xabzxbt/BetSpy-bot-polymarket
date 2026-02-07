@@ -45,20 +45,39 @@ def get_cached_market(key: str) -> MarketStats:
 
 
 def get_category_keyboard(lang: str) -> InlineKeyboardMarkup:
-    """Category selection keyboard."""
+    """Category selection keyboard with all Polymarket categories."""
     builder = InlineKeyboardBuilder()
     
+    # Row 1: Politics, Sports
     builder.row(
+        InlineKeyboardButton(text="🏛️ Політика", callback_data="intel:cat:politics"),
         InlineKeyboardButton(text="⚽ Спорт", callback_data="intel:cat:sports"),
-        InlineKeyboardButton(text="₿ Крипто", callback_data="intel:cat:crypto"),
     )
+    # Row 2: Pop Culture, Business
     builder.row(
-        InlineKeyboardButton(text="🎮 Кіберспорт", callback_data="intel:cat:esports"),
-        InlineKeyboardButton(text="🔥 Trending", callback_data="intel:cat:trending"),
+        InlineKeyboardButton(text="🎬 Поп-культура", callback_data="intel:cat:pop-culture"),
+        InlineKeyboardButton(text="💼 Бізнес", callback_data="intel:cat:business"),
     )
+    # Row 3: Crypto, Science
+    builder.row(
+        InlineKeyboardButton(text="₿ Крипто", callback_data="intel:cat:crypto"),
+        InlineKeyboardButton(text="🔬 Наука", callback_data="intel:cat:science"),
+    )
+    # Row 4: Gaming, Entertainment
+    builder.row(
+        InlineKeyboardButton(text="🎮 Ігри", callback_data="intel:cat:gaming"),
+        InlineKeyboardButton(text="🎭 Розваги", callback_data="intel:cat:entertainment"),
+    )
+    # Row 5: World, Tech
+    builder.row(
+        InlineKeyboardButton(text="🌍 Світ", callback_data="intel:cat:world"),
+        InlineKeyboardButton(text="💻 Технології", callback_data="intel:cat:tech"),
+    )
+    # Row 6: All categories
     builder.row(
         InlineKeyboardButton(text="📊 Всі категорії", callback_data="intel:cat:all"),
     )
+    # Row 7: Back to main menu
     builder.row(
         InlineKeyboardButton(text="🏠 Головне меню", callback_data="menu:main"),
     )
@@ -196,7 +215,7 @@ def get_signals_keyboard(
     # Navigation
     builder.row(
         InlineKeyboardButton(
-            text="🔥 Trending",
+            text="📊 Категорії",
             callback_data="intel:back_categories"
         ),
         InlineKeyboardButton(
