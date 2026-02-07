@@ -13,6 +13,7 @@ from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from loguru import logger
 import html
+import math
 
 from database import db
 from repository import UserRepository
@@ -230,7 +231,23 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
         text += "⚠️ <b>Ризики:</b>\n"
         for warning in rec.warnings:
             text += f"  {warning}\n"
+            
+    # Link
+    text += f"\n🔗 <a href='{market.market_url}'>Відкрити на Polymarket ↗️</a>"
     
+    return text
+
+
+def format_market_links_footer(markets: list, start_index: int) -> str:
+    """Format footer with links to each market."""
+    if not markets:
+        return ""
+        
+    text = "\n🔗 <b>Посилання на ринки:</b>\n"
+    for i, market in enumerate(markets):
+        idx = start_index + i
+        # Use HTML link
+        text += f"{idx}. <a href='{market.market_url}'>Перейти до ринку ↗️</a>\n"
     return text
 
 
@@ -353,7 +370,7 @@ async def cmd_signals(message: Message) -> None:
 
 @router.callback_query(F.data.startswith("intel:cat:"))
 async def callback_category_select(callback: CallbackQuery) -> None:
-    """Handle category selection."""
+    """Handle category selection and show markets directly."""
     logger.info(f"Received callback: {callback.data} from user {callback.from_user.id}")
     
     category_str = callback.data.split(":")[2]
@@ -363,71 +380,67 @@ async def callback_category_select(callback: CallbackQuery) -> None:
     except ValueError:
         category = Category.ALL
     
-    async with db.session() as session:
-        user_repo = UserRepository(session)
-        user = await user_repo.get_or_create(
-            telegram_id=callback.from_user.id,
-            username=callback.from_user.username,
-            first_name=callback.from_user.first_name,
-        )
-        
-        cat_name = {
-            Category.POLITICS: "🏛️ Політика",
-            Category.SPORTS: "⚽ Спорт",
-            Category.POP_CULTURE: "🎬 Поп-культура",
-            Category.BUSINESS: "💼 Бізнес",
-            Category.CRYPTO: "₿ Крипто",
-            Category.SCIENCE: "🔬 Наука",
-            Category.GAMING: "🎮 Ігри",
-            Category.ENTERTAINMENT: "🎭 Розваги",
-            Category.WORLD: "🌍 Світ",
-            Category.TECH: "💻 Технології",
-            Category.ALL: "📊 Всі",
-        }.get(category, "📊 Всі")
-        
-        try:
-            await callback.answer()  # Always answer the callback first
-        except Exception as e:
-            logger.warning(f"Could not answer callback: {e}")
-        
-        try:
-            await callback.message.edit_text(
-                f"📊 <b>СИГНАЛИ РИНКІВ</b>\n\n"
-                f"Категорія: <b>{cat_name}</b>\n\n"
-                f"Обери часовий проміжок:",
-                reply_markup=get_timeframe_keyboard(user.language, category_str),
-                parse_mode=ParseMode.HTML,
-            )
-        except Exception:
-            # If message edit fails, send new message
-            await callback.message.answer(
-                f"📊 <b>СИГНАЛИ РИНКІВ</b>\n\n"
-                f"Категорія: <b>{cat_name}</b>\n\n"
-                f"Обери часовий проміжок:",
-                reply_markup=get_timeframe_keyboard(user.language, category_str),
-                parse_mode=ParseMode.HTML,
-            )
+    # Trigger pagination for page 1
+    await show_markets_page(callback, category, TimeFrame.MONTH, 1)
 
 
-@router.callback_query(F.data.startswith("intel:time:"))
-async def callback_timeframe_select(callback: CallbackQuery) -> None:
-    """Handle timeframe selection and show markets."""
-    logger.info(f"Received callback: {callback.data} from user {callback.from_user.id}")
-    
+@router.callback_query(F.data.startswith("intel:p:"))
+async def callback_pagination(callback: CallbackQuery) -> None:
+    """Handle pagination."""
+    # intel:p:category:timeframe:page
     parts = callback.data.split(":")
     category_str = parts[2]
     timeframe_str = parts[3]
-    
+    try:
+        page = int(parts[4])
+    except (IndexError, ValueError):
+        page = 1
+        
     try:
         category = Category(category_str)
     except ValueError:
         category = Category.ALL
-    
+        
     try:
         timeframe = TimeFrame(timeframe_str)
     except ValueError:
-        timeframe = TimeFrame.WEEK
+        timeframe = TimeFrame.MONTH
+        
+    await show_markets_page(callback, category, timeframe, page)
+
+
+@router.callback_query(F.data.startswith("intel:time:"))
+async def callback_refresh(callback: CallbackQuery) -> None:
+    """Handle refresh (same as pagination but stay on page)."""
+    # intel:time:category:timeframe:page
+    parts = callback.data.split(":")
+    category_str = parts[2]
+    timeframe_str = parts[3]
     
+    page = 1
+    if len(parts) > 4:
+        try:
+            page = int(parts[4])
+        except ValueError:
+            page = 1
+            
+    try:
+        category = Category(category_str)
+        timeframe = TimeFrame(timeframe_str)
+    except ValueError:
+        category = Category.ALL
+        timeframe = TimeFrame.MONTH
+        
+    await show_markets_page(callback, category, timeframe, page)
+
+
+async def show_markets_page(
+    callback: CallbackQuery, 
+    category: Category, 
+    timeframe: TimeFrame, 
+    page: int
+) -> None:
+    """Common function to fetch and show markets."""
     async with db.session() as session:
         user_repo = UserRepository(session)
         user = await user_repo.get_or_create(
@@ -437,9 +450,9 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
         )
         
         try:
-            await callback.answer()  # Always answer the callback first
-        except Exception as e:
-            logger.warning(f"Could not answer callback: {e}")
+            await callback.answer()
+        except Exception:
+            pass
         
         # Show loading
         try:
@@ -447,77 +460,67 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
                 "🔄 Аналізую ринки...\n\n<i>Це може зайняти декілька секунд...</i>",
                 parse_mode=ParseMode.HTML,
             )
-        except Exception as e:
-            # If message edit fails (timeout), send new message
+        except Exception:
             await callback.message.answer(
                 "🔄 Аналізую ринки...\n\n<i>Це може зайняти декілька секунд...</i>",
                 parse_mode=ParseMode.HTML,
             )
-            return
         
         try:
             await market_intelligence.init()
+            # Fetch ALL relevant markets first (limit higher to allow pagination)
             markets = await market_intelligence.fetch_trending_markets(
                 category=category,
                 timeframe=timeframe,
-                limit=15,
+                limit=50,  # Fetch up to 50 top markets
             )
             
-            # If no markets found for specific timeframe/category, try broader search
-            if not markets and category != Category.ALL:
-                logger.info(f"No markets for {category.value}/{timeframe.value}, trying ALL category")
-                markets = await market_intelligence.fetch_trending_markets(
-                    category=Category.ALL,
-                    timeframe=timeframe,
-                    limit=10,
-                )
-            
-            # If still no markets, try month timeframe
+            # If no markets found, try fallback method
             if not markets and timeframe != TimeFrame.MONTH:
-                logger.info(f"No markets for {timeframe.value}, trying MONTH")
                 markets = await market_intelligence.fetch_trending_markets(
                     category=category,
                     timeframe=TimeFrame.MONTH,
-                    limit=10,
+                    limit=50,
                 )
+                timeframe = TimeFrame.MONTH
             
             if not markets:
-                time_name = {
-                    TimeFrame.TODAY: "Сьогодні",
-                    TimeFrame.DAYS_2: "2 дні",
-                    TimeFrame.DAYS_3: "3 дні",
-                    TimeFrame.WEEK: "Тиждень",
-                    TimeFrame.MONTH: "Місяць",
-                }.get(timeframe, "")
-                
-                cat_name = {
-                    Category.SPORTS: "Спорт",
-                    Category.CRYPTO: "Крипто",
-                    Category.ESPORTS: "Кіберспорт",
-                }.get(category, "обраної категорії")
+                cat_emoji = {
+                    Category.POLITICS: "🏛️",
+                    Category.SPORTS: "⚽",
+                    Category.POP_CULTURE: "🎬",
+                    Category.BUSINESS: "💼",
+                    Category.CRYPTO: "₿",
+                    Category.SCIENCE: "🔬",
+                    Category.GAMING: "🎮",
+                    Category.ENTERTAINMENT: "🎭",
+                    Category.WORLD: "🌍",
+                    Category.TECH: "💻",
+                    Category.ALL: "📊",
+                }.get(category, "📊")
                 
                 await callback.message.edit_text(
-                    f"😔 <b>Не знайдено ринків</b>\n\n"
-                    f"Для {cat_name} ({time_name}) немає активних ринків з достатнім volume.\n\n"
-                    f"💡 Спробуй:\n"
-                    f"• Категорію <b>Всі</b>\n"
-                    f"• Часовий проміжок <b>Місяць</b>\n",
+                    f"{cat_emoji} <b>Не знайдено активних сигналів.</b>\n\n"
+                    "Спробуйте пізніше або іншу категорію.",
                     reply_markup=get_category_keyboard(user.language),
                     parse_mode=ParseMode.HTML,
                 )
                 return
+
+            # Pagination Logic
+            ITEMS_PER_PAGE = 10
+            total_items = len(markets)
+            total_pages = math.ceil(total_items / ITEMS_PER_PAGE)
             
-            # Format markets list with pagination - only show first 10
-            markets_page = markets[:10]  # Show first 10 markets
+            if page < 1: page = 1
+            if page > total_pages: page = total_pages
             
-            time_name = {
-                TimeFrame.TODAY: "Сьогодні",
-                TimeFrame.DAYS_2: "2 дні",
-                TimeFrame.DAYS_3: "3 дні",
-                TimeFrame.WEEK: "Тиждень",
-                TimeFrame.MONTH: "Місяць",
-            }.get(timeframe, "")
+            start_idx = (page - 1) * ITEMS_PER_PAGE
+            end_idx = start_idx + ITEMS_PER_PAGE
             
+            markets_page = markets[start_idx:end_idx]
+            
+            # Format display
             cat_emoji = {
                 Category.POLITICS: "🏛️",
                 Category.SPORTS: "⚽",
@@ -528,40 +531,65 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
                 Category.GAMING: "🎮",
                 Category.ENTERTAINMENT: "🎭",
                 Category.WORLD: "🌍",
-                Category.TECH: "�",
+                Category.TECH: "💻",
                 Category.ALL: "📊",
             }.get(category, "📊")
             
-            text = f"{cat_emoji} <b>СИГНАЛИ: {time_name.upper()}</b>\n"
-            text += f"<i>Знайдено {len(markets)} ринків | Показано 1-10</i>\n\n"
+            cat_name = {
+                Category.POLITICS: "Політика",
+                Category.SPORTS: "Спорт",
+                Category.POP_CULTURE: "Pop Culture",
+                Category.BUSINESS: "Бізнес",
+                Category.CRYPTO: "Крипто",
+                Category.SCIENCE: "Наука",
+                Category.GAMING: "Ігри",
+                Category.ENTERTAINMENT: "Розваги",
+                Category.WORLD: "Світ",
+                Category.TECH: "Технології",
+                Category.ALL: "Всі",
+            }.get(category, "Всі")
             
-            for i, market in enumerate(markets_page, 1):
-                text += format_market_card(market, i, user.language)
+            text = f"{cat_emoji} <b>СИГНАЛИ: {cat_name.upper()}</b>\n"
+            text += f"<i>Сторінка {page}/{total_pages} | Всього: {total_items}</i>\n\n"
+            
+            # Cards
+            for i, market in enumerate(markets_page):
+                idx = start_idx + i + 1
+                text += format_market_card(market, idx, user.language)
                 text += "\n"
+            
+            # Footer links
+            text += format_market_links_footer(markets_page, start_idx + 1)
             
             text += "\n💡 <i>Натисни на номер для детального аналізу</i>"
             
             await callback.message.edit_text(
                 text,
-                reply_markup=get_trending_keyboard(user.language, markets_page, category_str, timeframe_str),
+                reply_markup=get_trending_keyboard(
+                    user.language, 
+                    markets_page, 
+                    category.value, 
+                    timeframe.value,
+                    page=page,
+                    total_pages=total_pages
+                ),
                 parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True
             )
             
         except Exception as e:
             logger.error(f"Error fetching markets: {e}")
-            import traceback
-            traceback.print_exc()
             try:
                 await callback.message.edit_text(
-                    f"❌ Помилка при отриманні даних.\n\n<code>{str(e)[:200]}</code>\n\nСпробуй пізніше.",
+                    "❌ Помилка при завантаженні даних.\nСпробуйте оновити або змінити категорію.",
                     reply_markup=get_category_keyboard(user.language),
                     parse_mode=ParseMode.HTML,
                 )
             except Exception:
-                await callback.message.answer(
-                    f"❌ Помилка при отриманні даних.\n\n<code>{str(e)[:200]}</code>\n\nСпробуй пізніше.",
-                    parse_mode=ParseMode.HTML,
-                )
+                pass
+
+
+
 
 
 @router.callback_query(F.data.startswith("intel:m:"))

@@ -644,111 +644,71 @@ class MarketIntelligenceEngine:
             market.signal_strength = SignalStrength.AVOID
     
     def _calc_whale_score(self, market: MarketStats) -> float:
-        """Calculate whale consensus score (max 40 points)."""
+        """Calculate whale consensus score (max 45 points)."""
+        # Whales are the smartest money. Their consensus is the strongest signal.
         total_whale = market.whale_total_volume
         
-        if total_whale < 10000:
-            return 10  # Not enough whale data
+        if total_whale < 5000:
+            return 5  # Not enough whale data, risky
         
         consensus = market.whale_consensus
+        deviation = abs(consensus - 0.5)
         
-        # Strong consensus in either direction is good
-        deviation_from_neutral = abs(consensus - 0.5)
+        # Exponential scoring for high consensus
+        # 0.5 (50%) -> 0 pts
+        # 0.6 (60%) -> 10 pts
+        # 0.7 (70%) -> 25 pts
+        # 0.8+ (80%+) -> 45 pts
         
-        if deviation_from_neutral >= 0.30:  # 80%+ on one side
-            return 40
-        elif deviation_from_neutral >= 0.20:  # 70%+
-            return 32
-        elif deviation_from_neutral >= 0.15:  # 65%+
-            return 26
-        elif deviation_from_neutral >= 0.10:  # 60%+
-            return 20
-        else:
-            return 12  # No clear consensus
+        if deviation >= 0.30: return 45      # Super strong consensus
+        elif deviation >= 0.25: return 35    # Strong consensus
+        elif deviation >= 0.20: return 25    # Good consensus
+        elif deviation >= 0.15: return 15    # Moderate consensus
+        elif deviation >= 0.10: return 10    # Weak consensus
+        else: return 0
     
     def _calc_volume_score(self, market: MarketStats) -> float:
-        """Calculate volume momentum score (max 20 points)."""
+        """Calculate volume momentum score (max 25 points)."""
+        # Volume confirms correctness of the move.
         vol_24h = market.volume_24h
         
-        # Based on absolute volume (higher = more interest)
-        if vol_24h >= 500000:
-            return 20
-        elif vol_24h >= 200000:
-            return 17
-        elif vol_24h >= 100000:
-            return 14
-        elif vol_24h >= 50000:
-            return 11
-        elif vol_24h >= 20000:
-            return 8
-        else:
-            return 5
+        if vol_24h >= 250000: return 25
+        elif vol_24h >= 100000: return 20
+        elif vol_24h >= 50000: return 15
+        elif vol_24h >= 25000: return 10
+        elif vol_24h >= 10000: return 5
+        else: return 0
     
     def _calc_trend_score(self, market: MarketStats) -> float:
         """Calculate price trend score (max 20 points)."""
+        # We want to catch the wave, but not at the very top.
         change_24h = market.price_change_24h
-        change_7d = market.price_change_7d
         
-        # For the recommended side, we want positive momentum
-        # But not too fast (might be overbought)
-        
-        # Get trend aligned with whale consensus
+        # Align direction
         if market.whale_consensus < 0.5:
-            # Whales favor NO, so price dropping is good
             change_24h = -change_24h
-            change_7d = -change_7d
         
-        # Ideal: steady upward trend (5-15% in 24h)
-        if 0.05 <= change_24h <= 0.15 and change_7d > 0:
-            return 20  # Perfect trend
-        elif 0.02 <= change_24h <= 0.20 and change_7d >= 0:
-            return 16  # Good trend
-        elif change_24h > 0.25:
-            return 10  # Too fast, might reverse
-        elif change_24h > 0:
-            return 14  # Positive but weak
-        elif change_24h > -0.05:
-            return 10  # Flat
-        else:
-            return 6   # Downtrend against position
+        # Ideal trend: steady growth +5% to +15%
+        if 0.05 <= change_24h <= 0.15: return 20        # Perfect momentum
+        elif 0.02 <= change_24h < 0.05: return 15       # Starting to move
+        elif 0.15 < change_24h <= 0.25: return 10       # Strong but maybe overheating
+        elif change_24h > 0.25: return 5                # FOMO zone, risky
+        elif -0.05 <= change_24h < 0.02: return 5       # Consolidation
+        else: return 0                                  # Against trend
     
     def _calc_liquidity_score(self, market: MarketStats) -> float:
         """Calculate liquidity score (max 10 points)."""
+        # Liquidity ensures we can enter and exit without slippage.
         liq = market.liquidity
-        
-        if liq >= 100000:
-            return 10
-        elif liq >= 50000:
-            return 8
-        elif liq >= 20000:
-            return 6
-        elif liq >= 10000:
-            return 4
-        else:
-            return 2
-    
+        if liq >= 50000: return 10
+        elif liq >= 25000: return 8
+        elif liq >= 10000: return 5
+        else: return 0
+
     def _calc_time_score(self, market: MarketStats) -> float:
-        """Calculate time value score (max 10 points)."""
-        days = market.days_to_close
-        
-        # Sweet spot: 2-14 days
-        # Not too short (can't enter/exit)
-        # Not too long (capital locked)
-        
-        if 2 <= days <= 7:
-            return 10  # Ideal short-term
-        elif 7 < days <= 14:
-            return 9
-        elif 1 <= days < 2:
-            return 7   # Very short, risky
-        elif 14 < days <= 21:
-            return 7
-        elif 21 < days <= 30:
-            return 5
-        elif days < 1:
-            return 3   # Too close to expiry
-        else:
-            return 4   # Too far out
+        """Calculate time value (legacy, kept for structure but unused in new formula)."""
+        return 0
+
     
     # ==================== RECOMMENDATION ====================
     

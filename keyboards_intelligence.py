@@ -130,18 +130,23 @@ def get_trending_keyboard(
     markets: List[MarketStats],
     category: str,
     timeframe: str,
+    page: int = 1,
+    total_pages: int = 1,
 ) -> InlineKeyboardMarkup:
-    """Keyboard with market selection buttons."""
+    """Keyboard with market selection buttons and pagination."""
     builder = InlineKeyboardBuilder()
     
     # Cache markets and get short keys
-    keys = cache_markets(markets[:10])
+    keys = cache_markets(markets)  # Cache all passed markets (should only be limits for this page)
     
-    # Market buttons (up to 10)
+    # Market buttons (up to limit)
     row_buttons = []
-    for i, key in enumerate(keys, 1):
+    start_index = (page - 1) * 10 + 1  # Global index for labels
+    
+    for i, key in enumerate(keys):
+        btn_text = f"{start_index + i}"
         btn = InlineKeyboardButton(
-            text=f"{i}",
+            text=btn_text,
             callback_data=f"intel:m:{key}"  # Short format: intel:m:12345
         )
         row_buttons.append(btn)
@@ -155,18 +160,46 @@ def get_trending_keyboard(
     if row_buttons:
         builder.row(*row_buttons)
     
-    # Refresh button
+    # Pagination Navigation
+    nav_row = []
+    if page > 1:
+        nav_row.append(
+            InlineKeyboardButton(
+                text="⬅️ Попер.", 
+                callback_data=f"intel:p:{category}:{timeframe}:{page-1}"
+            )
+        )
+    
+    # Page indicator
+    nav_row.append(
+        InlineKeyboardButton(
+            text=f"📄 {page}/{total_pages}",
+            callback_data="noop"  # Non-clickable
+        )
+    )
+        
+    if page < total_pages:
+        nav_row.append(
+            InlineKeyboardButton(
+                text="Наст. ➡️", 
+                callback_data=f"intel:p:{category}:{timeframe}:{page+1}"
+            )
+        )
+    
+    builder.row(*nav_row)
+    
+    # Refresh & Back
     builder.row(
         InlineKeyboardButton(
             text="🔄 Оновити",
-            callback_data=f"intel:time:{category}:{timeframe}"
+            callback_data=f"intel:time:{category}:{timeframe}:{page}"  # Include page to refresh current view
         ),
     )
     
     # Navigation
     builder.row(
         InlineKeyboardButton(
-            text="⬅️ Категорії",
+            text="🔙 Категорії",
             callback_data="intel:back_categories"
         ),
         InlineKeyboardButton(
