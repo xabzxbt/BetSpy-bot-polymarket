@@ -376,7 +376,7 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
         
         # Show loading
         await callback.message.edit_text(
-            "🔄 Аналізую ринки...",
+            "🔄 Аналізую ринки...\n\n<i>Це може зайняти декілька секунд...</i>",
             parse_mode=ParseMode.HTML,
         )
         
@@ -385,23 +385,52 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
             markets = await market_intelligence.fetch_trending_markets(
                 category=category,
                 timeframe=timeframe,
-                limit=10,
+                limit=15,
             )
             
+            # If no markets found for specific timeframe/category, try broader search
+            if not markets and category != Category.ALL:
+                logger.info(f"No markets for {category.value}/{timeframe.value}, trying ALL category")
+                markets = await market_intelligence.fetch_trending_markets(
+                    category=Category.ALL,
+                    timeframe=timeframe,
+                    limit=10,
+                )
+            
+            # If still no markets, try month timeframe
+            if not markets and timeframe != TimeFrame.MONTH:
+                logger.info(f"No markets for {timeframe.value}, trying MONTH")
+                markets = await market_intelligence.fetch_trending_markets(
+                    category=category if category != Category.ALL else Category.TRENDING,
+                    timeframe=TimeFrame.MONTH,
+                    limit=10,
+                )
+            
             if not markets:
+                time_name = {
+                    TimeFrame.TODAY: "Сьогодні",
+                    TimeFrame.DAYS_2: "2 дні",
+                    TimeFrame.DAYS_3: "3 дні",
+                    TimeFrame.WEEK: "Тиждень",
+                    TimeFrame.MONTH: "Місяць",
+                }.get(timeframe, "")
+                
                 cat_name = {
                     Category.SPORTS: "Спорт",
                     Category.CRYPTO: "Крипто",
                     Category.ESPORTS: "Кіберспорт",
-                }.get(category, "")
+                }.get(category, "обраної категорії")
                 
                 await callback.message.edit_text(
                     f"😔 <b>Не знайдено ринків</b>\n\n"
-                    f"Для категорії {cat_name} в обраному часовому проміжку немає активних ринків.\n\n"
-                    f"Спробуй іншу категорію або часовий проміжок.",
+                    f"Для {cat_name} ({time_name}) немає активних ринків з достатнім volume.\n\n"
+                    f"💡 Спробуй:\n"
+                    f"• Категорію <b>Всі</b>\n"
+                    f"• Часовий проміжок <b>Місяць</b>\n",
                     reply_markup=get_category_keyboard(user.language),
                     parse_mode=ParseMode.HTML,
                 )
+                await callback.answer()
                 return
             
             # Format markets list
@@ -421,7 +450,8 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
                 Category.ALL: "📊",
             }.get(category, "📊")
             
-            text = f"{cat_emoji} <b>TRENDING: {time_name.upper()}</b>\n\n"
+            text = f"{cat_emoji} <b>TRENDING: {time_name.upper()}</b>\n"
+            text += f"<i>Знайдено {len(markets)} ринків</i>\n\n"
             
             for i, market in enumerate(markets, 1):
                 text += format_market_card(market, i, user.language)
@@ -437,8 +467,10 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
             
         except Exception as e:
             logger.error(f"Error fetching markets: {e}")
+            import traceback
+            traceback.print_exc()
             await callback.message.edit_text(
-                "❌ Помилка при отриманні даних. Спробуй пізніше.",
+                f"❌ Помилка при отриманні даних.\n\n<code>{str(e)[:200]}</code>\n\nСпробуй пізніше.",
                 reply_markup=get_category_keyboard(user.language),
                 parse_mode=ParseMode.HTML,
             )

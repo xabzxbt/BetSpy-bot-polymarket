@@ -223,27 +223,31 @@ class MarketIntelligenceEngine:
         # Calculate date range based on timeframe
         now = datetime.utcnow()
         
+        # More inclusive timeframe ranges
         if timeframe == TimeFrame.TODAY:
-            end_before = now + timedelta(days=1)
-            end_after = now
+            end_before = now + timedelta(days=1, hours=12)  # Include events closing in next 36h
+            end_after = now - timedelta(hours=1)  # Include events closing very soon
         elif timeframe == TimeFrame.DAYS_2:
-            end_before = now + timedelta(days=2)
-            end_after = now + timedelta(days=1)
-        elif timeframe == TimeFrame.DAYS_3:
             end_before = now + timedelta(days=3)
-            end_after = now + timedelta(days=2)
+            end_after = now
+        elif timeframe == TimeFrame.DAYS_3:
+            end_before = now + timedelta(days=4)
+            end_after = now
         elif timeframe == TimeFrame.WEEK:
-            end_before = now + timedelta(days=7)
+            end_before = now + timedelta(days=8)
             end_after = now
         else:  # MONTH
-            end_before = now + timedelta(days=30)
+            end_before = now + timedelta(days=35)
             end_after = now
+        
+        logger.info(f"Fetching markets: category={category.value}, timeframe={timeframe.value}")
+        logger.info(f"Date range: {end_after} to {end_before}")
         
         # Fetch markets from Gamma API
         params = {
             "active": "true",
             "closed": "false",
-            "limit": 100,  # Fetch more, filter later
+            "limit": 200,  # Fetch more to have better selection
             "order": "volume24hr",
             "ascending": "false",
         }
@@ -252,26 +256,41 @@ class MarketIntelligenceEngine:
         data = await self._request(url, params)
         
         if not data:
+            logger.warning("No data returned from API")
             return []
         
+        logger.info(f"API returned {len(data)} markets")
+        
         markets = []
+        skipped_timeframe = 0
+        skipped_category = 0
+        skipped_volume = 0
+        
         for item in data:
             try:
                 market = await self._parse_market(item)
                 if market is None:
                     continue
                 
-                # Filter by timeframe
-                if not (end_after <= market.end_date <= end_before):
-                    continue
+                # Filter by timeframe (only for specific timeframes, not ALL)
+                if timeframe != TimeFrame.MONTH:  # Month is basically "all"
+                    if market.end_date < end_after or market.end_date > end_before:
+                        skipped_timeframe += 1
+                        continue
                 
                 # Filter by category
                 if category != Category.ALL and category != Category.TRENDING:
                     if not self._matches_category(market, category):
+                        skipped_category += 1
                         continue
                 
-                # Filter by minimum volume
-                if market.volume_24h < self.MIN_VOLUME_24H:
+                # Lower minimum volume for short-term events
+                min_vol = self.MIN_VOLUME_24H
+                if timeframe in [TimeFrame.TODAY, TimeFrame.DAYS_2, TimeFrame.DAYS_3]:
+                    min_vol = 1000  # Lower threshold for short-term
+                
+                if market.volume_24h < min_vol:
+                    skipped_volume += 1
                     continue
                 
                 markets.append(market)
@@ -279,6 +298,30 @@ class MarketIntelligenceEngine:
             except Exception as e:
                 logger.debug(f"Failed to parse market: {e}")
                 continue
+        
+        logger.info(f"Filtered: {len(markets)} markets passed, skipped: timeframe={skipped_timeframe}, category={skipped_category}, volume={skipped_volume}")
+        
+        # If no markets found with strict filters, try without timeframe filter
+        if len(markets) == 0 and timeframe != TimeFrame.MONTH:
+            logger.info("No markets found with timeframe filter, fetching all active markets")
+            for item in data[:50]:  # Try first 50
+                try:
+                    market = await self._parse_market(item)
+                    if market is None:
+                        continue
+                    
+                    # Only filter by category if specified
+                    if category != Category.ALL and category != Category.TRENDING:
+                        if not self._matches_category(market, category):
+                            continue
+                    
+                    if market.volume_24h >= 1000:  # Very low threshold
+                        markets.append(market)
+                        
+                except Exception as e:
+                    continue
+            
+            logger.info(f"After fallback: {len(markets)} markets")
         
         # Sort by volume and limit
         markets.sort(key=lambda m: m.volume_24h, reverse=True)

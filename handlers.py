@@ -180,11 +180,120 @@ async def callback_help(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "menu:signals")
 async def callback_signals_redirect(callback: CallbackQuery) -> None:
-    """Redirect to signals - handled by intelligence module."""
-    # This will be handled by handlers_intelligence.py
-    # We just need to trigger the /signals command behavior
-    from handlers_intelligence import cmd_signals
-    await cmd_signals(callback.message)
+    """Show signals - best opportunities."""
+    async with db.session() as session:
+        user_repo = UserRepository(session)
+        user = await user_repo.get_or_create(
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+            first_name=callback.from_user.first_name,
+        )
+        
+        # Show loading
+        await callback.message.edit_text(
+            "🔄 Аналізую ринки...\n\n<i>Це може зайняти декілька секунд...</i>",
+            parse_mode=ParseMode.HTML,
+        )
+        
+        try:
+            from market_intelligence import market_intelligence, Category, TimeFrame
+            from keyboards_intelligence import get_signals_keyboard
+            
+            await market_intelligence.init()
+            
+            # Fetch markets across all timeframes
+            all_markets = []
+            for timeframe in [TimeFrame.TODAY, TimeFrame.DAYS_2, TimeFrame.WEEK, TimeFrame.MONTH]:
+                try:
+                    markets = await market_intelligence.fetch_trending_markets(
+                        category=Category.ALL,
+                        timeframe=timeframe,
+                        limit=15,
+                    )
+                    all_markets.extend(markets)
+                except Exception as e:
+                    logger.error(f"Error fetching {timeframe}: {e}")
+                    continue
+            
+            # Remove duplicates and sort by score
+            seen = set()
+            unique_markets = []
+            for m in all_markets:
+                if m.condition_id not in seen:
+                    seen.add(m.condition_id)
+                    unique_markets.append(m)
+            
+            unique_markets.sort(key=lambda m: m.signal_score, reverse=True)
+            
+            # Filter only good signals (score >= 50)
+            good_signals = [m for m in unique_markets if m.signal_score >= 50][:10]
+            
+            if not good_signals:
+                # If no good signals, show top markets anyway
+                good_signals = unique_markets[:10]
+            
+            if not good_signals:
+                await callback.message.edit_text(
+                    "😔 <b>Не вдалося знайти ринки</b>\n\n"
+                    "Спробуй пізніше або перевір /trending",
+                    reply_markup=get_back_to_menu_keyboard(user.language),
+                    parse_mode=ParseMode.HTML,
+                )
+                await callback.answer()
+                return
+            
+            # Format response
+            text = "🎯 <b>TOP SIGNALS</b>\n"
+            text += f"<i>Найкращі можливості ({len(good_signals)} ринків)</i>\n\n"
+            
+            for i, market in enumerate(good_signals, 1):
+                signal_emoji = "🟢🟢" if market.signal_score >= 75 else "🟢" if market.signal_score >= 65 else "🟡" if market.signal_score >= 50 else "🟠"
+                
+                whale_pct = market.whale_consensus if market.recommended_side == "YES" else (1 - market.whale_consensus)
+                
+                # Time
+                if market.days_to_close == 0:
+                    time_str = "Сьогодні"
+                elif market.days_to_close == 1:
+                    time_str = "Завтра"
+                elif market.days_to_close <= 7:
+                    time_str = f"{market.days_to_close}д"
+                else:
+                    time_str = f"{market.days_to_close}д"
+                
+                # Category emoji
+                cat_emoji = {"sports": "⚽", "crypto": "₿", "esports": "🎮"}.get(market.category, "📊")
+                
+                # Volume
+                if market.volume_24h >= 1_000_000:
+                    vol_str = f"${market.volume_24h/1_000_000:.1f}M"
+                elif market.volume_24h >= 1_000:
+                    vol_str = f"${market.volume_24h/1_000:.0f}K"
+                else:
+                    vol_str = f"${market.volume_24h:.0f}"
+                
+                text += (
+                    f"<b>{i}.</b> {cat_emoji} {market.question[:45]}{'...' if len(market.question) > 45 else ''}\n"
+                    f"├ 💰 {vol_str} • 🐋 {whale_pct*100:.0f}% {market.recommended_side}\n"
+                    f"└ {signal_emoji} <b>{market.signal_score}/100</b> • ⏰ {time_str}\n\n"
+                )
+            
+            text += "💡 <i>Натисни номер для детального аналізу</i>"
+            
+            await callback.message.edit_text(
+                text,
+                reply_markup=get_signals_keyboard(user.language, good_signals),
+                parse_mode=ParseMode.HTML,
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in signals: {e}")
+            await callback.message.edit_text(
+                f"❌ Помилка: {str(e)[:100]}\n\nСпробуй пізніше.",
+                reply_markup=get_back_to_menu_keyboard(user.language),
+                parse_mode=ParseMode.HTML,
+            )
+    
     await callback.answer()
 
 
