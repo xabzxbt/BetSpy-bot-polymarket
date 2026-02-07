@@ -81,6 +81,9 @@ class WhaleAnalysis:
     medium_volume: float = 0.0 # $500 - $2000
     large_volume: float = 0.0  # $2000+
     
+    # Context
+    analysis_duration: float = 0.0 # Seconds covered by the analysis
+    
     @property
     def is_significant(self) -> bool:
         return self.total_volume > 1000 # Minimum threshold to show specific analysis
@@ -668,6 +671,10 @@ class MarketIntelligenceEngine:
         last_trade_ts = 0
         last_trade_side = ""
         
+        # Track time range
+        min_ts = 0
+        max_ts = 0
+        
         retail_yes_vol = 0.0
         retail_no_vol = 0.0
         
@@ -715,8 +722,14 @@ class MarketIntelligenceEngine:
                     top_trade_size = amount
                     top_trade_side = "YES" if is_yes else "NO"
                 
-                # Check for last trade timestamp
+                # Check for last trade timestamp (max) and first (min)
                 ts = int(trade.get("timestamp", 0) or 0)
+                if ts > 0:
+                    if min_ts == 0 or ts < min_ts:
+                        min_ts = ts
+                    if ts > max_ts:
+                        max_ts = ts
+                
                 if ts > last_trade_ts:
                     last_trade_ts = ts
                     last_trade_side = "YES" if is_yes else "NO"
@@ -746,17 +759,21 @@ class MarketIntelligenceEngine:
             market.price_24h_ago = price_history.get("price_24h", market.yes_price)
             market.price_7d_ago = price_history.get("price_7d", market.yes_price)
         
+        # Calculate duration
+        duration = max_ts - min_ts if max_ts > min_ts else 0
+        
         # Run analysis
         self._analyze_whales(market, top_trade_size, top_trade_side, 
                            last_trade_ts, last_trade_side, 
-                           medium_vol, large_vol)
+                           medium_vol, large_vol, duration)
             
         return market
 
     def _analyze_whales(self, market: MarketStats, 
                        top_size: float = 0, top_side: str = "",
                        last_ts: int = 0, last_side: str = "",
-                       med_vol: float = 0, lrg_vol: float = 0) -> None:
+                       med_vol: float = 0, lrg_vol: float = 0,
+                       duration: float = 0) -> None:
         """Perform structured whale analysis and populate market.whale_analysis."""
         yes_vol = market.whale_yes_volume
         no_vol = market.whale_no_volume
@@ -776,7 +793,8 @@ class MarketIntelligenceEngine:
             last_trade_timestamp=last_ts,
             last_trade_side=last_side,
             medium_volume=med_vol,
-            large_volume=lrg_vol
+            large_volume=lrg_vol,
+            analysis_duration=duration
         )
         
         if total_vol > 0:

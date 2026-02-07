@@ -185,7 +185,17 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
         else:
             large_pct = 0
             
-        text += f"Total: ${format_volume(wa.total_volume)} ({large_pct:.0f}% whales)\n"
+        # Duration formatting
+        duration_str = ""
+        if wa.analysis_duration > 0:
+            if wa.analysis_duration < 3600:
+                duration_str = f" in last {int(wa.analysis_duration/60)}m"
+            elif wa.analysis_duration < 86400:
+                duration_str = f" in last {int(wa.analysis_duration/3600)}h"
+            else:
+                duration_str = f" in last {int(wa.analysis_duration/86400)}d"
+            
+        text += f"Total: ${format_volume(wa.total_volume)} ({large_pct:.0f}% whales){duration_str}\n"
 
     elif market.whale_consensus is not None:
         # Legacy fallback
