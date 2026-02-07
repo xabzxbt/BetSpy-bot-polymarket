@@ -42,10 +42,6 @@ def get_main_menu_keyboard(lang: str) -> InlineKeyboardMarkup:
         InlineKeyboardButton(
             text=get_text("btn_trending", lang),
             callback_data="intel:back_categories"
-        ),
-        InlineKeyboardButton(
-            text=get_text("btn_signals", lang),
-            callback_data="menu:signals"
         )
     )
     builder.row(

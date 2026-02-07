@@ -85,46 +85,6 @@ def get_category_keyboard(lang: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_timeframe_keyboard(lang: str, category: str) -> InlineKeyboardMarkup:
-    """Timeframe selection keyboard."""
-    builder = InlineKeyboardBuilder()
-    
-    builder.row(
-        InlineKeyboardButton(
-            text="🕐 Сьогодні", 
-            callback_data=f"intel:time:{category}:today"
-        ),
-    )
-    builder.row(
-        InlineKeyboardButton(
-            text="📅 2 дні", 
-            callback_data=f"intel:time:{category}:2days"
-        ),
-        InlineKeyboardButton(
-            text="📅 3 дні", 
-            callback_data=f"intel:time:{category}:3days"
-        ),
-    )
-    builder.row(
-        InlineKeyboardButton(
-            text="📆 Тиждень", 
-            callback_data=f"intel:time:{category}:week"
-        ),
-        InlineKeyboardButton(
-            text="📆 Місяць", 
-            callback_data=f"intel:time:{category}:month"
-        ),
-    )
-    builder.row(
-        InlineKeyboardButton(
-            text="⬅️ Назад", 
-            callback_data="intel:back_categories"
-        ),
-    )
-    
-    return builder.as_markup()
-
-
 def get_trending_keyboard(
     lang: str, 
     markets: List[MarketStats],
@@ -211,53 +171,7 @@ def get_trending_keyboard(
     return builder.as_markup()
 
 
-def get_signals_keyboard(
-    lang: str,
-    markets: List[MarketStats],
-) -> InlineKeyboardMarkup:
-    """Keyboard for signals view."""
-    builder = InlineKeyboardBuilder()
-    
-    # Cache markets and get short keys
-    keys = cache_markets(markets[:10])
-    
-    # Market buttons
-    row_buttons = []
-    for i, key in enumerate(keys, 1):
-        btn = InlineKeyboardButton(
-            text=f"{i}",
-            callback_data=f"intel:m:{key}"  # Short format
-        )
-        row_buttons.append(btn)
-        
-        if len(row_buttons) == 5:
-            builder.row(*row_buttons)
-            row_buttons = []
-    
-    if row_buttons:
-        builder.row(*row_buttons)
-    
-    # Refresh
-    builder.row(
-        InlineKeyboardButton(
-            text="🔄 Оновити",
-            callback_data="intel:refresh_signals"
-        ),
-    )
-    
-    # Navigation
-    builder.row(
-        InlineKeyboardButton(
-            text="📊 Категорії",
-            callback_data="intel:back_categories"
-        ),
-        InlineKeyboardButton(
-            text="🏠 Меню",
-            callback_data="menu:main"
-        ),
-    )
-    
-    return builder.as_markup()
+
 
 
 def get_market_detail_keyboard(
