@@ -70,8 +70,11 @@ def format_market_card(market: MarketStats, index: int, lang: str) -> str:
     signal_emoji = format_signal_emoji(market.signal_strength)
     
     # Whale indicator
-    whale_pct = market.whale_consensus if market.recommended_side == "YES" else (1 - market.whale_consensus)
-    whale_str = f"{whale_pct*100:.0f}%"
+    if market.whale_consensus is not None:
+        whale_pct = market.whale_consensus if market.recommended_side == "YES" else (1 - market.whale_consensus)
+        whale_str = f"{whale_pct*100:.0f}%"
+    else:
+        whale_str = "—"
     
     # Time indicator
     if market.days_to_close == 0:
@@ -162,18 +165,25 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
     text += f"├ 24h: {format_volume(market.volume_24h)}\n"
     text += f"└ Total: {format_volume(market.volume_total)}\n\n"
     
-    # Whale analysis
-    lbl_whale = get_text("lbl_whale_analysis", lang)
-    text += f"{lbl_whale}\n"
-    if market.whale_total_volume > 0:
-        yes_pct = market.whale_consensus * 100
-        no_pct = 100 - yes_pct
-        text += f"├ 🟢 YES: {yes_pct:.0f}% ({format_volume(market.whale_yes_volume)})\n"
-        text += f"├ 🔴 NO: {no_pct:.0f}% ({format_volume(market.whale_no_volume)})\n"
-        text += get_text("lbl_whales_yes", lang, count=market.whale_yes_count) + "\n"
-        text += get_text("lbl_whales_no", lang, count=market.whale_no_count) + "\n\n"
+    # Whale Analysis
+    text += f"🐋 <b>{get_text('intel_whale_analysis', lang)}</b>\n"
+    
+    if market.whale_consensus is not None:
+        consensus_pct = int(market.whale_consensus * 100)
+        # Visual bar
+        bar_len = 10
+        filled = int(market.whale_consensus * bar_len)
+        bar = "▓" * filled + "░" * (bar_len - filled)
+        
+        text += f"YES {consensus_pct}% {bar} {100-consensus_pct}% NO\n"
+        
+        if market.whale_yes_volume > 0 or market.whale_no_volume > 0:
+            text += f"Vol: {format_volume(market.whale_total_volume)} (Yes: {market.whale_yes_count} / No: {market.whale_no_count})\n"
+        else:
+            text += get_text("lbl_not_enough_data", lang) + "\n"
     else:
-        text += get_text("lbl_not_enough_data", lang) + "\n\n"
+        text += "<i>Дані про активність китів тимчасово недоступні (Data unavailable).</i>\n"
+    text += "\n" # Add a newline for spacing after whale analysis
     
     # Retail analysis
     lbl_retail = get_text("lbl_retail", lang)

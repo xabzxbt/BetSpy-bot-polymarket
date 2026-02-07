@@ -14,6 +14,10 @@ from enum import Enum
 import aiohttp
 from aiolimiter import AsyncLimiter
 from loguru import logger
+from py_clob_client.client import ClobClient
+from py_clob_client.constants import POLYGON
+
+from config import get_settings
 
 
 class TimeFrame(Enum):
@@ -93,7 +97,7 @@ class MarketStats:
     price_7d_ago: float = 0.0
     
     # Computed scores
-    whale_consensus: float = 0.0  # 0-1, >0.5 = YES, <0.5 = NO
+    whale_consensus: Optional[float] = None  # None defines no data
     signal_score: int = 0  # 0-100
     signal_strength: SignalStrength = SignalStrength.AVOID
     recommended_side: str = "NONE"
@@ -204,6 +208,26 @@ class MarketIntelligenceEngine:
         # Increased rate limit: 60 requests per minute (was 20)
         self._limiter = AsyncLimiter(60, 60)
         self._session: Optional[aiohttp.ClientSession] = None
+        
+        # Circuit breaker for auth errors
+        self._unauthorized_count = 0
+        self._trades_api_broken = False
+        
+        # Initialize Authenticated Client
+        self.clob_client = None
+        settings = get_settings()
+        if settings.polymarket_api_key:
+            try:
+                self.clob_client = ClobClient(
+                    host="https://clob.polymarket.com",
+                    key=settings.polymarket_api_key,
+                    secret=settings.polymarket_secret,
+                    passphrase=settings.polymarket_passphrase,
+                    chain_id=137,  # Polygon
+                )
+                logger.info("✅ Authorized ClobClient initialized for Whale Analysis")
+            except Exception as e:
+                logger.error(f"❌ Failed to init ClobClient: {e}")
     
     async def init(self) -> None:
         """Initialize HTTP session."""
@@ -237,6 +261,8 @@ class MarketIntelligenceEngine:
                         await asyncio.sleep(5)
                         return None
                     else:
+                        if response.status == 401:
+                            self._unauthorized_count += 1
                         logger.warning(f"API error {response.status}: {url}")
                         return None
             except asyncio.TimeoutError:
@@ -541,7 +567,7 @@ class MarketIntelligenceEngine:
         if total_whale > 0:
             market.whale_consensus = whale_yes_vol / total_whale
         else:
-            market.whale_consensus = 0.5  # Neutral
+            market.whale_consensus = None  # No whale data
         
         # Fetch price history
         price_history = await self._fetch_price_history(market.condition_id)
@@ -552,8 +578,24 @@ class MarketIntelligenceEngine:
         return market
     
     async def _fetch_market_trades(self, condition_id: str, limit: int = 100) -> List[Dict]:
-        """Fetch recent trades for a market from CLOB API."""
-        if not condition_id:
+        if self.clob_client:
+            try:
+                loop = asyncio.get_running_loop()
+                # Run synchronous ClobClient in executor to not block async loop
+                trades = await loop.run_in_executor(
+                    None, 
+                    lambda: self.clob_client.get_trades(market=condition_id, limit=limit)
+                )
+                return trades
+            except Exception as e:
+                logger.warning(f"Authorized ClobClient error: {e}")
+                return []
+
+        # Fallback to public API (likely to fail with 401 if no keys)
+        if self._trades_api_broken or self._unauthorized_count > 3:
+            if not self._trades_api_broken:
+                logger.warning("Disabling Whale Analysis (Public API blocked)")
+                self._trades_api_broken = True
             return []
         
         # Use CLOB API trades endpoint (not data-api)
@@ -563,6 +605,9 @@ class MarketIntelligenceEngine:
         }
         
         data = await self._request(url, params)
+        if data is None:
+            return []
+            
         return data if isinstance(data, list) else []
     
     async def _fetch_price_history(self, condition_id: str) -> Dict:
@@ -622,14 +667,27 @@ class MarketIntelligenceEngine:
         market.signal_score = int(total_score)
         
         # Determine signal strength and side
-        # If whale consensus < 0.5, we should bet NO
-        if market.whale_consensus >= 0.5:
-            market.recommended_side = "YES"
-            adjusted_score = total_score
+        # Logic modified to handle missing whale data
+        if market.whale_consensus is not None:
+            # Use whale consensus if available
+            if market.whale_consensus >= 0.5:
+                market.recommended_side = "YES"
+            else:
+                market.recommended_side = "NO"
         else:
-            market.recommended_side = "NO"
-            # Recalculate score for NO side
-            adjusted_score = total_score
+            # Fallback to Price Trend
+            if market.price_change_24h > 0:
+                market.recommended_side = "YES"
+            else:
+                market.recommended_side = "NO"
+                
+            # Boost score to compensate for missing whale metrics (max 60 points available without whales)
+            # Multiplier ~1.66
+            total_score = int(total_score * 1.6)
+            if total_score > 100: total_score = 100
+                
+        market.signal_score = int(total_score)
+        adjusted_score = total_score # For compatibility logic below
         
         # Signal strength based on score
         if adjusted_score >= 75:
@@ -646,20 +704,18 @@ class MarketIntelligenceEngine:
     def _calc_whale_score(self, market: MarketStats) -> float:
         """Calculate whale consensus score (max 45 points)."""
         # Whales are the smartest money. Their consensus is the strongest signal.
+        if market.whale_consensus is None:
+            return 0
+            
         total_whale = market.whale_total_volume
         
-        if total_whale < 5000:
-            return 5  # Not enough whale data, risky
+        if total_whale < self.WHALE_THRESHOLD:
+            return 0  # Changed from 5 to 0 because low volume is not a signal
         
         consensus = market.whale_consensus
         deviation = abs(consensus - 0.5)
         
         # Exponential scoring for high consensus
-        # 0.5 (50%) -> 0 pts
-        # 0.6 (60%) -> 10 pts
-        # 0.7 (70%) -> 25 pts
-        # 0.8+ (80%+) -> 45 pts
-        
         if deviation >= 0.30: return 45      # Super strong consensus
         elif deviation >= 0.25: return 35    # Strong consensus
         elif deviation >= 0.20: return 25    # Good consensus
