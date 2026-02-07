@@ -278,15 +278,17 @@ class MarketIntelligenceEngine:
     
     # ==================== DATA FETCHING ====================
     
-    async def fetch_event_markets(self, slug: str) -> List[MarketStats]:
-        """Fetch markets for a specific event slug."""
-        logger.info(f"Fetching markets for slug: {slug}")
+    async def fetch_event_markets(self, slug: str, market_slug: Optional[str] = None) -> List[MarketStats]:
+        """Fetch markets for a specific event slug, optionally filtering by market slug."""
+        logger.info(f"Fetching markets for slug: {slug}, market_slug: {market_slug}")
         
-        # Try finding by event_slug first (most common for event links)
-        # Gamma API supports filtering by event_slug
+        # Gamma API URL
         url = f"{self.gamma_api_url}/markets"
         
-        # First try: treat as event_slug
+        data = []
+        is_event_slug_match = False
+        
+        # 1. First try: treat as event_slug
         params = {
             "event_slug": slug,
             "active": "true",
@@ -295,8 +297,16 @@ class MarketIntelligenceEngine:
         
         data = await self._request(url, params)
         
-        # If empty, maybe the user provided a market slug directly?
-        if not data or len(data) == 0:
+        # Validate data matches the request
+        if data and len(data) > 0:
+            # Check if at least one item matches the event_slug
+            for item in data:
+                if item.get("eventSlug") == slug:
+                    is_event_slug_match = True
+                    break
+        
+        # 2. If empty or no match, try as market slug directly
+        if not data or (len(data) > 0 and not is_event_slug_match):
             logger.info(f"No markets found for event_slug={slug}, trying as market slug...")
             params = {
                 "slug": slug,
@@ -304,6 +314,7 @@ class MarketIntelligenceEngine:
                 "closed": "false",
             }
             data = await self._request(url, params)
+            is_event_slug_match = False # Reset flag as we are now searching by slug
             
         if not data or len(data) == 0:
             logger.warning(f"No markets found for slug {slug}")
@@ -314,6 +325,23 @@ class MarketIntelligenceEngine:
         markets = []
         for item in data:
             try:
+                # STRICT FILTERING: Ensure the returned item matches our query
+                # The API might be fuzzy or return top markets on partial fail
+                item_event_slug = item.get("eventSlug", "")
+                item_slug = item.get("slug", "")
+                
+                # If we searched by event_slug (is_event_slug_match=True), enforce eventSlug match
+                if is_event_slug_match and item_event_slug != slug:
+                    continue
+                
+                # If we searched by slug (is_event_slug_match=False), enforce slug match
+                if not is_event_slug_match and item_slug != slug and item_event_slug != slug:
+                    continue
+                
+                # If market_slug is provided, filter by it
+                if market_slug and item_slug != market_slug:
+                    continue
+
                 market = await self._parse_market(item)
                 if market:
                     # Enrich with whale data and calculate signals

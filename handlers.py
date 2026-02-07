@@ -227,16 +227,22 @@ async def process_analyze_link(message: Message, state: FSMContext) -> None:
     
     # Simple validation and slug extraction
     slug = None
+    market_slug = None
+    
     if "polymarket.com/event/" in url:
         try:
             # Extract everything after event/
             # Example: https://polymarket.com/event/nba-was-bkn-2026-02-07
+            # Example: https://polymarket.com/event/nba-was-bkn-2026-02-07/who-will-win
             parts = url.split("polymarket.com/event/")
             if len(parts) > 1:
                 # Take the first part of the path, ignore query params
                 path_parts = parts[1].split("?")[0].split("/")
                 if len(path_parts) > 0:
-                    slug = path_parts[0] # Event slug
+                    slug = path_parts[0] # Event slug or market slug (if only 1 part)
+                    
+                    if len(path_parts) > 1 and path_parts[1]:
+                        market_slug = path_parts[1] # Specific market slug
         except Exception:
             pass
             
@@ -258,7 +264,7 @@ async def process_analyze_link(message: Message, state: FSMContext) -> None:
         # Fetch markets
         # We need to ensure we have a functional market_intelligence instance
         # It is imported from market_intelligence module
-        markets = await market_intelligence.fetch_event_markets(slug)
+        markets = await market_intelligence.fetch_event_markets(slug, market_slug)
         
         if not markets:
             await working_msg.edit_text(
