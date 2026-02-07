@@ -70,7 +70,9 @@ class TradeNotificationService:
             id="poll_trades",
             name="Poll trades and send notifications",
             replace_existing=True,
-            max_instances=1,
+            max_instances=2,  # Allow overlap to prevent "skipped" warnings
+            misfire_grace_time=30,  # Allow 30s late execution
+            coalesce=True,  # Combine missed runs into one
         )
         
         self.scheduler.start()

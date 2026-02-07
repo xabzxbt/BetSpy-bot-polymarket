@@ -14,10 +14,6 @@ from enum import Enum
 import aiohttp
 from aiolimiter import AsyncLimiter
 from loguru import logger
-import base64
-import hmac
-import hashlib
-import time
 
 try:
     from py_clob_client.client import ClobClient
@@ -216,7 +212,7 @@ class MarketIntelligenceEngine:
         self.data_api_url = "https://data-api.polymarket.com"
         self.clob_api_url = "https://clob.polymarket.com"
         
-        # Increased rate limit: 60 requests per minute (was 20)
+        # Rate limit: 60 requests per minute
         self._limiter = AsyncLimiter(60, 60)
         self._session: Optional[aiohttp.ClientSession] = None
         
@@ -225,27 +221,48 @@ class MarketIntelligenceEngine:
         self._trades_api_broken = False
         
         # Initialize Authenticated Client
+        # NOTE: get_trades() is an L2 method and requires:
+        #   1. Private key (key=) for L1 auth
+        #   2. API creds (api_key, secret, passphrase) for L2 auth
+        # Without BOTH, trades endpoint returns 401.
+        # If no private key is available, whale analysis works without trades
+        # and uses only publicly available volume/price data.
         self.clob_client = None
         settings = get_settings()
         
-        if settings.polymarket_api_key and CLOB_CLIENT_AVAILABLE:
+        if CLOB_CLIENT_AVAILABLE and settings.polymarket_api_key and settings.polymarket_secret:
             try:
                 creds = ApiCreds(
                     api_key=settings.polymarket_api_key,
                     api_secret=settings.polymarket_secret,
                     api_passphrase=settings.polymarket_passphrase,
                 )
-                self.clob_client = ClobClient(
-                    host="https://clob.polymarket.com",
-                    key=None,  # Check if key is required; passing None for read-only via API keys
-                    chain_id=137,
-                    creds=creds,
-                )
-                logger.info("✅ Authorized ClobClient initialized for Whale Analysis")
+                # Private key is REQUIRED for L2 methods (get_trades).
+                # Check if POLYMARKET_PRIVATE_KEY is set in env.
+                private_key = getattr(settings, 'polymarket_private_key', '') or ''
+                
+                if private_key:
+                    self.clob_client = ClobClient(
+                        host="https://clob.polymarket.com",
+                        key=private_key,
+                        chain_id=137,  # Polygon mainnet
+                        creds=creds,
+                    )
+                    logger.info("✅ ClobClient initialized with L2 auth (Private Key + API Creds)")
+                else:
+                    # Without private key, L2 methods (get_trades) will fail with 401.
+                    # We skip ClobClient entirely and rely on public data only.
+                    logger.warning(
+                        "⚠️ POLYMARKET_PRIVATE_KEY not set. "
+                        "Whale Analysis via trades is DISABLED (L2 auth requires private key). "
+                        "Bot will work using public volume/price data only."
+                    )
             except Exception as e:
                 logger.error(f"❌ Failed to init ClobClient: {e}")
-        elif settings.polymarket_api_key and not CLOB_CLIENT_AVAILABLE:
-            logger.warning("⚠️ API keys found but 'py-clob-client' not installed. Install it to enable Whale Analysis!")
+        elif not CLOB_CLIENT_AVAILABLE:
+            logger.warning("⚠️ py-clob-client not installed. Whale trade analysis disabled.")
+        else:
+            logger.info("ℹ️ No Polymarket API keys configured. Using public data only.")
     
     async def init(self) -> None:
         """Initialize HTTP session."""
@@ -599,115 +616,76 @@ class MarketIntelligenceEngine:
         
         return market
     
-    def _generate_signature(self, timestamp: str, method: str, request_path: str) -> str:
-        """Generate Polymarket API signature."""
-        settings = get_settings()
-        secret = settings.polymarket_secret
-        
-        if not secret:
-            return ""
-            
-        try:
-            # Fix base64 padding if needed
-            secret = secret.strip()
-            missing_padding = len(secret) % 4
-            if missing_padding:
-                secret += '=' * (4 - missing_padding)
-            
-            # Decode secret using URL-safe decoding (Polymarket uses URL-safe base64)
-            secret_bytes = base64.urlsafe_b64decode(secret)
-            
-            # Prepare message
-            message = f"{timestamp}{method}{request_path}"
-            
-            # Generate HMAC
-            signature = hmac.new(
-                secret_bytes,
-                message.encode('utf-8'),
-                hashlib.sha256
-            ).digest()
-            
-            return base64.b64encode(signature).decode('utf-8')
-        except Exception as e:
-            logger.error(f"Signature generation failed: {e}")
-            return ""
-
     async def _fetch_market_trades(self, condition_id: str, limit: int = 100) -> List[Dict]:
-        """Fetch recent trades for a market using authenticated HTTP request."""
-        if not condition_id:
-            return []
-            
-        # Circuit breaker logic
-        if self._trades_api_broken or self._unauthorized_count > 5:
-            if not self._trades_api_broken:
-                logger.warning("Disabling Whale Analysis (API blocked)")
-                self._trades_api_broken = True
-            return []
+        """
+        Fetch recent trades for a market.
         
-        settings = get_settings()
-        
-        # Manually construct query string to ensure order matches signature
-        path_query = f"/trades?limit={limit}&market={condition_id}"
-        url = f"{self.clob_api_url}{path_query}"
-        
-        # We don't use params dict to avoid aiohttp reordering/encoding differences
-        # params = {"market": condition_id, "limit": str(limit)}
-
-        headers = {}
-        # Add Authentication Headers if keys are present
-        if settings.polymarket_api_key and settings.polymarket_secret:
-            timestamp = str(int(time.time()))
-            signature = self._generate_signature(timestamp, "GET", path_query)
-            
-            if signature:
-                headers = {
-                    "POLYMARKET-API-KEY": settings.polymarket_api_key,
-                    "POLYMARKET-API-PASSPHRASE": settings.polymarket_passphrase,
-                    "POLYMARKET-API-TIMESTAMP": timestamp,
-                    "POLYMARKET-API-SIGNATURE": signature,
-                }
-
-        try:
-            # Use raw session directly to control headers
-            if not self._session:
-                await self.init()
+        Uses ClobClient L2 auth if available (requires private key + API creds).
+        Falls back to empty list if no auth — whale analysis will be skipped
+        gracefully without disabling the entire feature permanently.
+        """
+        if self.clob_client:
+            try:
+                loop = asyncio.get_running_loop()
                 
-            async with self._limiter:
-                # Pass url directly with query params included
-                async with self._session.get(url, headers=headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return data if isinstance(data, list) else []
-                    elif response.status == 401:
-                        self._unauthorized_count += 1
-                        logger.warning(f"Auth failed for trades: {response.status}")
+                def fetch_trades_safe():
+                    try:
+                        params = TradeParams(market=condition_id)
+                        result = self.clob_client.get_trades(params)
+                        # Reset error count on success
+                        return result
+                    except Exception as e:
+                        error_str = str(e)
+                        if "401" in error_str or "Unauthorized" in error_str:
+                            logger.debug(f"ClobClient 401 for trades (expected without valid L2 creds): {e}")
+                        else:
+                            logger.warning(f"ClobClient.get_trades error: {e}")
                         return []
-                    else:
-                        logger.warning(f"Failed to fetch trades: {response.status}")
-                        return []
-        except Exception as e:
-            logger.error(f"Error fetching trades: {e}")
-            return []
+
+                trades = await loop.run_in_executor(None, fetch_trades_safe)
+                
+                # Apply limit
+                if trades and len(trades) > limit:
+                    trades = trades[:limit]
+                    
+                return trades if trades else []
+                
+            except Exception as e:
+                logger.warning(f"Executor error fetching trades: {e}")
+                return []
+        
+        # No ClobClient available — skip trades silently.
+        # This is the normal case when POLYMARKET_PRIVATE_KEY is not set.
+        # Whale analysis will show "data unavailable" instead of crashing.
+        return []
     
     async def _fetch_price_history(self, condition_id: str) -> Dict:
-        """Fetch price history for a market."""
-        # Try to get historical prices from timeseries endpoint
+        """Fetch price history for a market using public CLOB timeseries endpoint."""
+        # prices-history is a public endpoint, no auth needed
         url = f"{self.clob_api_url}/prices-history"
         params = {
             "market": condition_id,
             "interval": "1d",
-            "fidelity": 60,  # minutes
+            "fidelity": 60,
         }
         
         data = await self._request(url, params)
         
         result = {}
-        if data and isinstance(data, list) and len(data) > 0:
+        if data and isinstance(data, dict):
+            # API may return {"history": [...]} or direct list
+            prices = data.get("history", data) if isinstance(data, dict) else data
+            if isinstance(prices, list) and len(prices) > 0:
+                if len(prices) >= 24:
+                    result["price_24h"] = float(prices[-24].get("p", prices[-24].get("price", 0.5)))
+                if len(prices) >= 168:
+                    result["price_7d"] = float(prices[-168].get("p", prices[-168].get("price", 0.5)))
+        elif data and isinstance(data, list) and len(data) > 0:
             prices = data
             if len(prices) >= 24:
-                result["price_24h"] = float(prices[-24].get("price", 0.5))
-            if len(prices) >= 168:  # 7 days
-                result["price_7d"] = float(prices[-168].get("price", 0.5))
+                result["price_24h"] = float(prices[-24].get("p", prices[-24].get("price", 0.5)))
+            if len(prices) >= 168:
+                result["price_7d"] = float(prices[-168].get("p", prices[-168].get("price", 0.5)))
         
         return result
     
@@ -855,9 +833,7 @@ class MarketIntelligenceEngine:
         # Entry price (current price)
         if side == "YES":
             entry_price = market.yes_price
-            # Target: move toward 0.70-0.85 range
             target_price = min(0.85, entry_price * 1.3)
-            # Stop loss: 15-20% below entry
             stop_loss_price = max(0.05, entry_price * 0.80)
         else:
             entry_price = market.no_price
@@ -873,16 +849,19 @@ class MarketIntelligenceEngine:
         reasons = []
         warnings = []
         
-        # Whale analysis
-        whale_pct = market.whale_consensus if side == "YES" else (1 - market.whale_consensus)
-        whale_pct_str = f"{whale_pct*100:.0f}%"
-        
-        if whale_pct >= 0.75:
-            reasons.append(f"🐋 Сильний консенсус китів: {whale_pct_str} на {side}")
-        elif whale_pct >= 0.60:
-            reasons.append(f"🐋 Помірний консенсус китів: {whale_pct_str} на {side}")
+        # Whale analysis — DEFENSIVE: whale_consensus can be None
+        if market.whale_consensus is not None:
+            whale_pct = market.whale_consensus if side == "YES" else (1 - market.whale_consensus)
+            whale_pct_str = f"{whale_pct*100:.0f}%"
+            
+            if whale_pct >= 0.75:
+                reasons.append(f"🐋 Сильний консенсус китів: {whale_pct_str} на {side}")
+            elif whale_pct >= 0.60:
+                reasons.append(f"🐋 Помірний консенсус китів: {whale_pct_str} на {side}")
+            else:
+                warnings.append(f"⚠️ Слабкий консенсус китів: {whale_pct_str}")
         else:
-            warnings.append(f"⚠️ Слабкий консенсус китів: {whale_pct_str}")
+            warnings.append("⚠️ Дані китів недоступні — аналіз на основі volume/price")
         
         # Volume
         if market.volume_24h >= 100000:

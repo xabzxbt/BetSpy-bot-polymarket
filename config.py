@@ -69,6 +69,10 @@ class Settings(BaseSettings):
         default="",
         description="Polymarket CLOB API Passphrase",
     )
+    polymarket_private_key: str = Field(
+        default="",
+        description="Polygon wallet private key (required for L2 auth / whale trade analysis)",
+    )
 
     # Polling Configuration
     polling_interval_seconds: int = Field(

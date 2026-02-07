@@ -189,9 +189,10 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
     lbl_retail = get_text("lbl_retail", lang)
     if market.retail_total_volume > 0:
         retail_yes_pct = (market.retail_yes_volume / market.retail_total_volume) * 100
+        retail_no_pct = 100 - retail_yes_pct
         text += f"{lbl_retail}\n"
         text += f"├ 🟢 YES: {retail_yes_pct:.0f}%\n"
-        text += f"└ 🔴 NO: {100-retail_yes_pct:.0f}%\n\n"
+        text += f"└ 🔴 NO: {retail_no_pct:.0f}%\n\n"
     
     # Price history
     if market.price_24h_ago > 0:
@@ -221,11 +222,16 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
     # Score breakdown
     lbl_score = get_text("lbl_score_breakdown", lang)
     text += f"{lbl_score}\n"
-    text += f"├ Whale Consensus: {market.signal_score * 0.4:.0f}/40\n"
-    text += f"├ Volume: ~{market.signal_score * 0.2:.0f}/20\n"
-    text += f"├ Trend: ~{market.signal_score * 0.2:.0f}/20\n"
-    text += f"├ Liquidity: ~{market.signal_score * 0.1:.0f}/10\n"
-    text += f"└ Time Value: ~{market.signal_score * 0.1:.0f}/10\n\n"
+    
+    # Show meaningful breakdown based on available data
+    whale_status = "✅" if market.whale_consensus is not None else "❌ N/A"
+    vol_tier = "High" if market.volume_24h >= 100000 else ("Med" if market.volume_24h >= 25000 else "Low")
+    liq_tier = "Good" if market.liquidity >= 25000 else ("OK" if market.liquidity >= 10000 else "Low")
+    
+    text += f"├ 🐋 Whale data: {whale_status}\n"
+    text += f"├ 📊 Volume: {vol_tier} ({format_volume(market.volume_24h)})\n"
+    text += f"├ 💧 Liquidity: {liq_tier} ({format_volume(market.liquidity)})\n"
+    text += f"└ 🎯 Total: {market.signal_score}/100\n\n"
     
     # Recommendation box
     lbl_rec_title = get_text("lbl_recommendation", lang)
@@ -236,8 +242,15 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
         bet_text = get_text("lbl_bet_yes" if rec.side == "YES" else "lbl_bet_no", lang)
         text += f"{bet_text}\n\n"
         text += f"├ Entry: {format_price(rec.entry_price)}\n"
-        text += f"├ Target: {format_price(rec.target_price)} (+{((rec.target_price/rec.entry_price)-1)*100:.0f}%)\n"
-        text += f"├ Stop-loss: {format_price(rec.stop_loss_price)} (-{(1-(rec.stop_loss_price/rec.entry_price))*100:.0f}%)\n"
+        # Defensive: avoid division by zero
+        if rec.entry_price > 0:
+            target_pct = ((rec.target_price / rec.entry_price) - 1) * 100
+            stop_pct = (1 - (rec.stop_loss_price / rec.entry_price)) * 100
+        else:
+            target_pct = 0
+            stop_pct = 0
+        text += f"├ Target: {format_price(rec.target_price)} (+{target_pct:.0f}%)\n"
+        text += f"├ Stop-loss: {format_price(rec.stop_loss_price)} (-{stop_pct:.0f}%)\n"
         text += f"└ Risk/Reward: 1:{rec.risk_reward_ratio:.1f}\n\n"
     else:
         text += f"{get_text('lbl_dont_bet', lang)}\n\n"
@@ -584,7 +597,8 @@ async def callback_market_detail(callback: CallbackQuery) -> None:
             )
             
         except Exception as e:
-            logger.error(f"Error in market detail: {e}")
+            import traceback
+            logger.error(f"Error in market detail: {e}\n{traceback.format_exc()}")
             try:
                 await callback.message.edit_text(
                     "❌ Помилка при отриманні даних.",
