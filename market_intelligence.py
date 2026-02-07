@@ -17,7 +17,7 @@ from loguru import logger
 
 try:
     from py_clob_client.client import ClobClient
-    from py_clob_client.clob_types import ApiCreds
+    from py_clob_client.clob_types import ApiCreds, TradeParams
     from py_clob_client.constants import POLYGON
     CLOB_CLIENT_AVAILABLE = True
 except ImportError:
@@ -600,10 +600,29 @@ class MarketIntelligenceEngine:
             try:
                 loop = asyncio.get_running_loop()
                 # Run synchronous ClobClient in executor to not block async loop
+                def fetch_trades_safe():
+                    try:
+                        # Correct usage according to docs: pass TradeParams object
+                        # Note: 'limit' is not supported in TradeParams based on docs, so we filter later if needed
+                        params = TradeParams(market=condition_id)
+                        return self.clob_client.get_trades(params)
+                    except Exception as e:
+                        logger.warning(f"ClobClient.get_trades failed with TradeParams: {e}")
+                        # Fallback for older versions or if dict required
+                        try:
+                            return self.clob_client.get_trades({"market": condition_id})
+                        except:
+                            return []
+
                 trades = await loop.run_in_executor(
                     None, 
-                    lambda: self.clob_client.get_trades(market=condition_id, limit=limit)
+                    fetch_trades_safe
                 )
+                
+                # Apply limit manually since API might not support it
+                if trades and len(trades) > limit:
+                    trades = trades[:limit]
+                    
                 return trades
             except Exception as e:
                 logger.warning(f"Authorized ClobClient error: {e}")
