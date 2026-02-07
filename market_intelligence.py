@@ -645,15 +645,19 @@ class MarketIntelligenceEngine:
             return []
         
         settings = get_settings()
-        path = f"/trades?market={condition_id}&limit={limit}" # Limit supported in raw API
-        url = f"{self.clob_api_url}/trades"
-        params = {"market": condition_id, "limit": str(limit)}
+        
+        # Manually construct query string to ensure order matches signature
+        path_query = f"/trades?limit={limit}&market={condition_id}"
+        url = f"{self.clob_api_url}{path_query}"
+        
+        # We don't use params dict to avoid aiohttp reordering/encoding differences
+        # params = {"market": condition_id, "limit": str(limit)}
 
         headers = {}
         # Add Authentication Headers if keys are present
         if settings.polymarket_api_key and settings.polymarket_secret:
             timestamp = str(int(time.time()))
-            signature = self._generate_signature(timestamp, "GET", path)
+            signature = self._generate_signature(timestamp, "GET", path_query)
             
             if signature:
                 headers = {
@@ -669,7 +673,8 @@ class MarketIntelligenceEngine:
                 await self.init()
                 
             async with self._limiter:
-                async with self._session.get(url, params=params, headers=headers) as response:
+                # Pass url directly with query params included
+                async with self._session.get(url, headers=headers) as response:
                     if response.status == 200:
                         data = await response.json()
                         return data if isinstance(data, list) else []
