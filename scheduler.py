@@ -11,8 +11,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from aiogram import Bot
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from loguru import logger
 
 from config import get_settings
@@ -27,9 +28,12 @@ class WalletSubscription:
     wallet_id: int
     wallet_address: str
     nickname: str
+    user_id: int
     user_telegram_id: int
     user_language: str
     last_trade_timestamp: Optional[int]
+    min_trade_amount: float
+    is_paused: bool
 
 
 class TradeNotificationService:
@@ -82,7 +86,7 @@ class TradeNotificationService:
         logger.info("Trade polling scheduler stopped")
     
     async def _get_all_subscriptions(self) -> List[WalletSubscription]:
-        """Get all wallet subscriptions with user info."""
+        """Get all wallet subscriptions with user info (excluding blocked users)."""
         async with self.session_factory() as session:
             stmt = (
                 select(
@@ -90,10 +94,14 @@ class TradeNotificationService:
                     TrackedWallet.wallet_address,
                     TrackedWallet.nickname,
                     TrackedWallet.last_trade_timestamp,
+                    TrackedWallet.min_trade_amount,
+                    TrackedWallet.is_paused,
+                    User.id.label("user_id"),
                     User.telegram_id,
                     User.language,
                 )
                 .join(User, TrackedWallet.user_id == User.id)
+                .where(User.is_blocked == False)  # Exclude blocked users
             )
             
             result = await session.execute(stmt)
@@ -106,8 +114,11 @@ class TradeNotificationService:
                     wallet_address=row[1],
                     nickname=row[2],
                     last_trade_timestamp=row[3],
-                    user_telegram_id=row[4],
-                    user_language=row[5],
+                    min_trade_amount=row[4] or 0.0,
+                    is_paused=row[5] or False,
+                    user_id=row[6],
+                    user_telegram_id=row[7],
+                    user_language=row[8],
                 ))
             
             return subscriptions
@@ -129,6 +140,17 @@ class TradeNotificationService:
                     await session.commit()
         except Exception as e:
             logger.error(f"Failed to update timestamp for wallet {wallet_id}: {e}")
+    
+    async def _mark_user_blocked(self, user_id: int) -> None:
+        """Mark user as blocked when they block the bot."""
+        try:
+            async with self.session_factory() as session:
+                stmt = update(User).where(User.id == user_id).values(is_blocked=True)
+                await session.execute(stmt)
+                await session.commit()
+                logger.info(f"Marked user {user_id} as blocked")
+        except Exception as e:
+            logger.error(f"Failed to mark user {user_id} as blocked: {e}")
     
     async def _poll_and_notify(self) -> None:
         """Main polling job."""
@@ -204,13 +226,6 @@ class TradeNotificationService:
             
             logger.info(f"Found {len(new_trades)} NEW trades for {wallet_address[:10]}...")
             
-            # Filter by minimum amount
-            min_amount = self.settings.min_trade_amount_usdc
-            new_trades = [t for t in new_trades if t.usdc_size >= min_amount]
-            
-            if not new_trades:
-                return
-            
             # Process each new trade
             latest_timestamp = max_timestamp
             
@@ -222,10 +237,24 @@ class TradeNotificationService:
                 if trade.transaction_hash in self._processed_trades:
                     continue
                 
-                # Notify all subscribers
+                # Notify subscribers (each may have different min_amount)
                 for sub in subscriptions:
                     if not self._running:
                         break
+                    
+                    # Skip if wallet is paused
+                    if sub.is_paused:
+                        continue
+                    
+                    # Check per-wallet min amount, fallback to global setting
+                    min_amount = sub.min_trade_amount
+                    if min_amount <= 0:
+                        min_amount = self.settings.min_trade_amount_usdc
+                    
+                    # Skip if trade is below minimum
+                    if trade.usdc_size < min_amount:
+                        continue
+                    
                     await self._send_notification(trade, sub)
                 
                 # Mark as processed
@@ -277,6 +306,27 @@ class TradeNotificationService:
             # Small delay to avoid Telegram rate limits
             await asyncio.sleep(0.05)
             
+        except TelegramForbiddenError:
+            # User blocked the bot
+            logger.warning(
+                f"User {subscription.user_telegram_id} blocked the bot. "
+                f"Marking as blocked."
+            )
+            await self._mark_user_blocked(subscription.user_id)
+            
+        except TelegramBadRequest as e:
+            # Handle other Telegram errors
+            if "chat not found" in str(e).lower():
+                logger.warning(
+                    f"Chat not found for user {subscription.user_telegram_id}. "
+                    f"Marking as blocked."
+                )
+                await self._mark_user_blocked(subscription.user_id)
+            else:
+                logger.error(
+                    f"Telegram error for user {subscription.user_telegram_id}: {e}"
+                )
+                
         except Exception as e:
             logger.error(
                 f"Failed to notify user {subscription.user_telegram_id} "

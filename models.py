@@ -5,7 +5,8 @@ SQLAlchemy 2.0 async models for the Polymarket Whale Tracker.
 from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import (
-    String, BigInteger, DateTime, ForeignKey, Index, UniqueConstraint, func
+    String, BigInteger, DateTime, ForeignKey, Index, UniqueConstraint, func,
+    Float, Boolean
 )
 from sqlalchemy.orm import (
     DeclarativeBase, Mapped, mapped_column, relationship
@@ -27,6 +28,10 @@ class User(Base):
     username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     first_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     language: Mapped[str] = mapped_column(String(5), default="en", nullable=False)
+    
+    # Flag to track if user blocked the bot
+    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), 
         server_default=func.now(),
@@ -65,6 +70,21 @@ class TrackedWallet(Base):
     )
     wallet_address: Mapped[str] = mapped_column(String(42), nullable=False, index=True)
     nickname: Mapped[str] = mapped_column(String(100), nullable=False)
+    
+    # Per-wallet settings
+    min_trade_amount: Mapped[float] = mapped_column(
+        Float, 
+        default=0.0, 
+        nullable=False,
+        comment="Minimum trade amount in USDC to notify (0 = use global setting)"
+    )
+    is_paused: Mapped[bool] = mapped_column(
+        Boolean, 
+        default=False, 
+        nullable=False,
+        comment="Pause notifications for this wallet"
+    )
+    
     last_trade_timestamp: Mapped[Optional[int]] = mapped_column(
         BigInteger, 
         nullable=True,

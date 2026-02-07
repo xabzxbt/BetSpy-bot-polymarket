@@ -118,10 +118,11 @@ def get_wallet_list_keyboard(
     builder = InlineKeyboardBuilder()
     
     for wallet in wallets:
-        short_addr = f"{wallet.wallet_address[:6]}...{wallet.wallet_address[-4:]}"
+        # Show pause icon if paused
+        status_icon = "⏸️" if wallet.is_paused else "👤"
         builder.row(
             InlineKeyboardButton(
-                text=f"👤 {wallet.nickname}",
+                text=f"{status_icon} {wallet.nickname}",
                 callback_data=f"wallet:view:{wallet.id}"
             )
         )
@@ -144,42 +145,153 @@ def get_wallet_list_keyboard(
 
 def get_wallet_details_keyboard(
     lang: str,
-    wallet_id: int
+    wallet_id: int,
+    wallet_address: str = ""
 ) -> InlineKeyboardMarkup:
     """Keyboard for wallet details view."""
     builder = InlineKeyboardBuilder()
     
+    # Row 1: View data
     builder.row(
         InlineKeyboardButton(
             text=get_text("btn_view_positions", lang),
             callback_data=f"wallet:positions:{wallet_id}"
+        ),
+        InlineKeyboardButton(
+            text=get_text("btn_recent_trades", lang),
+            callback_data=f"wallet:trades:{wallet_id}"
         )
     )
+    
+    # Row 2: Stats
     builder.row(
         InlineKeyboardButton(
             text=get_text("btn_view_detailed_stats", lang),
             callback_data=f"wallet:stats_range:{wallet_id}"
         )
     )
+    
+    # Row 3: Profile link (if address provided)
+    if wallet_address:
+        builder.row(
+            InlineKeyboardButton(
+                text=get_text("btn_view_profile", lang),
+                url=get_profile_url(wallet_address)
+            )
+        )
+    
+    # Row 4: Settings & Remove
     builder.row(
         InlineKeyboardButton(
-            text=get_text("btn_recent_trades", lang),
-            callback_data=f"wallet:trades:{wallet_id}"
-        )
-    )
-    # Debug button - only show for admin/debug purposes
-    # Uncomment the next line if you want to enable debug mode
-    # builder.row(InlineKeyboardButton(text=get_text("btn_debug_wallet", lang), callback_data=f"wallet:debug:{wallet_id}"))
-    builder.row(
+            text=get_text("btn_wallet_settings", lang),
+            callback_data=f"wallet:settings:{wallet_id}"
+        ),
         InlineKeyboardButton(
             text=get_text("btn_remove_wallet", lang),
             callback_data=f"wallet:remove:{wallet_id}"
         )
     )
+    
+    # Row 5: Back
     builder.row(
         InlineKeyboardButton(
             text=get_text("btn_back", lang),
             callback_data="menu:my_wallets"
+        )
+    )
+    
+    return builder.as_markup()
+
+
+def get_wallet_settings_keyboard(
+    lang: str,
+    wallet_id: int,
+    is_paused: bool
+) -> InlineKeyboardMarkup:
+    """Keyboard for wallet settings."""
+    builder = InlineKeyboardBuilder()
+    
+    # Pause/Resume button
+    if is_paused:
+        builder.row(
+            InlineKeyboardButton(
+                text=get_text("btn_resume_wallet", lang),
+                callback_data=f"wallet:resume:{wallet_id}"
+            )
+        )
+    else:
+        builder.row(
+            InlineKeyboardButton(
+                text=get_text("btn_pause_wallet", lang),
+                callback_data=f"wallet:pause:{wallet_id}"
+            )
+        )
+    
+    # Min amount button
+    builder.row(
+        InlineKeyboardButton(
+            text=get_text("btn_set_min_amount", lang),
+            callback_data=f"wallet:min_amount:{wallet_id}"
+        )
+    )
+    
+    # Back button
+    builder.row(
+        InlineKeyboardButton(
+            text=get_text("btn_back", lang),
+            callback_data=f"wallet:view:{wallet_id}"
+        )
+    )
+    
+    return builder.as_markup()
+
+
+def get_min_amount_keyboard(
+    lang: str,
+    wallet_id: int
+) -> InlineKeyboardMarkup:
+    """Keyboard for selecting minimum trade amount."""
+    builder = InlineKeyboardBuilder()
+    
+    # Amount options
+    builder.row(
+        InlineKeyboardButton(
+            text=get_text("btn_min_amount_0", lang),
+            callback_data=f"set_min:0:{wallet_id}"
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=get_text("btn_min_amount_100", lang),
+            callback_data=f"set_min:100:{wallet_id}"
+        ),
+        InlineKeyboardButton(
+            text=get_text("btn_min_amount_500", lang),
+            callback_data=f"set_min:500:{wallet_id}"
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=get_text("btn_min_amount_1000", lang),
+            callback_data=f"set_min:1000:{wallet_id}"
+        ),
+        InlineKeyboardButton(
+            text=get_text("btn_min_amount_5000", lang),
+            callback_data=f"set_min:5000:{wallet_id}"
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=get_text("btn_min_amount_10000", lang),
+            callback_data=f"set_min:10000:{wallet_id}"
+        )
+    )
+    
+    # Back button
+    builder.row(
+        InlineKeyboardButton(
+            text=get_text("btn_back", lang),
+            callback_data=f"wallet:settings:{wallet_id}"
         )
     )
     
@@ -304,3 +416,16 @@ def get_stats_range_keyboard(lang: str, wallet_id: int) -> InlineKeyboardMarkup:
     )
     
     return builder.as_markup()
+
+
+def get_profile_url(wallet_address: str) -> str:
+    """Generate Polymarket profile URL with referral code."""
+    from config import get_settings
+    settings = get_settings()
+    
+    base_url = f"https://polymarket.com/profile/{wallet_address}"
+    
+    if settings.polymarket_referral_code:
+        return f"{base_url}?via={settings.polymarket_referral_code}"
+    
+    return base_url

@@ -31,6 +31,8 @@ from keyboards import (
     get_settings_keyboard,
     get_settings_language_keyboard,
     get_stats_range_keyboard,
+    get_wallet_settings_keyboard,
+    get_min_amount_keyboard,
 )
 from config import get_settings
 
@@ -453,6 +455,11 @@ async def callback_wallet_view(callback: CallbackQuery) -> None:
         
         date_str = wallet.created_at.strftime("%d.%m.%Y")
         
+        # Show pause status if paused
+        status_text = ""
+        if wallet.is_paused:
+            status_text = "\n\n⏸️ " + get_text("wallet_paused", user.language)
+        
         await callback.message.edit_text(
             get_text(
                 "wallet_details",
@@ -460,8 +467,8 @@ async def callback_wallet_view(callback: CallbackQuery) -> None:
                 name=wallet.nickname,
                 address=wallet.wallet_address,
                 date=date_str
-            ),
-            reply_markup=get_wallet_details_keyboard(user.language, wallet_id),
+            ) + status_text,
+            reply_markup=get_wallet_details_keyboard(user.language, wallet_id, wallet.wallet_address),
             parse_mode=ParseMode.HTML,
         )
     
@@ -948,6 +955,216 @@ async def callback_wallet_confirm_remove(callback: CallbackQuery) -> None:
         await callback.message.edit_text(
             get_text("wallet_removed", user.language, name=wallet_name),
             reply_markup=get_back_to_menu_keyboard(user.language),
+            parse_mode=ParseMode.HTML,
+        )
+    
+    await callback.answer()
+
+
+# ==================== WALLET SETTINGS ====================
+
+@router.callback_query(F.data.startswith("wallet:settings:"))
+async def callback_wallet_settings(callback: CallbackQuery) -> None:
+    """Show wallet settings menu."""
+    wallet_id = int(callback.data.split(":")[2])
+    
+    async with db.session() as session:
+        user_repo = UserRepository(session)
+        
+        user = await user_repo.get_or_create(
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+            first_name=callback.from_user.first_name,
+        )
+        
+        # Get wallet
+        from sqlalchemy import select
+        from models import TrackedWallet
+        
+        stmt = select(TrackedWallet).where(
+            TrackedWallet.id == wallet_id,
+            TrackedWallet.user_id == user.id
+        )
+        result = await session.execute(stmt)
+        wallet = result.scalar_one_or_none()
+        
+        if not wallet:
+            await callback.answer("Wallet not found")
+            return
+        
+        # Format min amount text
+        if wallet.min_trade_amount > 0:
+            min_amount_text = f"${wallet.min_trade_amount:,.0f}+"
+        else:
+            min_amount_text = get_text("min_amount_all", user.language)
+        
+        # Status text
+        status_text = get_text("wallet_paused" if wallet.is_paused else "wallet_active", user.language)
+        
+        await callback.message.edit_text(
+            get_text(
+                "wallet_settings_menu",
+                user.language,
+                name=wallet.nickname,
+                address=wallet.wallet_address,
+                status=status_text,
+                min_amount=min_amount_text,
+            ),
+            reply_markup=get_wallet_settings_keyboard(user.language, wallet_id, wallet.is_paused),
+            parse_mode=ParseMode.HTML,
+        )
+    
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("wallet:pause:"))
+async def callback_wallet_pause(callback: CallbackQuery) -> None:
+    """Pause notifications for wallet."""
+    wallet_id = int(callback.data.split(":")[2])
+    
+    async with db.session() as session:
+        user_repo = UserRepository(session)
+        
+        user = await user_repo.get_or_create(
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+            first_name=callback.from_user.first_name,
+        )
+        
+        # Get and update wallet
+        from sqlalchemy import select
+        from models import TrackedWallet
+        
+        stmt = select(TrackedWallet).where(
+            TrackedWallet.id == wallet_id,
+            TrackedWallet.user_id == user.id
+        )
+        result = await session.execute(stmt)
+        wallet = result.scalar_one_or_none()
+        
+        if not wallet:
+            await callback.answer("Wallet not found")
+            return
+        
+        wallet.is_paused = True
+        await session.commit()
+        
+        await callback.message.edit_text(
+            get_text("wallet_pause_success", user.language, name=wallet.nickname),
+            reply_markup=get_wallet_settings_keyboard(user.language, wallet_id, True),
+            parse_mode=ParseMode.HTML,
+        )
+    
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("wallet:resume:"))
+async def callback_wallet_resume(callback: CallbackQuery) -> None:
+    """Resume notifications for wallet."""
+    wallet_id = int(callback.data.split(":")[2])
+    
+    async with db.session() as session:
+        user_repo = UserRepository(session)
+        
+        user = await user_repo.get_or_create(
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+            first_name=callback.from_user.first_name,
+        )
+        
+        # Get and update wallet
+        from sqlalchemy import select
+        from models import TrackedWallet
+        
+        stmt = select(TrackedWallet).where(
+            TrackedWallet.id == wallet_id,
+            TrackedWallet.user_id == user.id
+        )
+        result = await session.execute(stmt)
+        wallet = result.scalar_one_or_none()
+        
+        if not wallet:
+            await callback.answer("Wallet not found")
+            return
+        
+        wallet.is_paused = False
+        await session.commit()
+        
+        await callback.message.edit_text(
+            get_text("wallet_resume_success", user.language, name=wallet.nickname),
+            reply_markup=get_wallet_settings_keyboard(user.language, wallet_id, False),
+            parse_mode=ParseMode.HTML,
+        )
+    
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("wallet:min_amount:"))
+async def callback_wallet_min_amount(callback: CallbackQuery) -> None:
+    """Show min amount selection."""
+    wallet_id = int(callback.data.split(":")[2])
+    
+    async with db.session() as session:
+        user_repo = UserRepository(session)
+        
+        user = await user_repo.get_or_create(
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+            first_name=callback.from_user.first_name,
+        )
+        
+        await callback.message.edit_text(
+            get_text("select_min_amount", user.language),
+            reply_markup=get_min_amount_keyboard(user.language, wallet_id),
+            parse_mode=ParseMode.HTML,
+        )
+    
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("set_min:"))
+async def callback_set_min_amount(callback: CallbackQuery) -> None:
+    """Set minimum trade amount for wallet."""
+    parts = callback.data.split(":")
+    amount = float(parts[1])
+    wallet_id = int(parts[2])
+    
+    async with db.session() as session:
+        user_repo = UserRepository(session)
+        
+        user = await user_repo.get_or_create(
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+            first_name=callback.from_user.first_name,
+        )
+        
+        # Get and update wallet
+        from sqlalchemy import select
+        from models import TrackedWallet
+        
+        stmt = select(TrackedWallet).where(
+            TrackedWallet.id == wallet_id,
+            TrackedWallet.user_id == user.id
+        )
+        result = await session.execute(stmt)
+        wallet = result.scalar_one_or_none()
+        
+        if not wallet:
+            await callback.answer("Wallet not found")
+            return
+        
+        wallet.min_trade_amount = amount
+        await session.commit()
+        
+        # Format amount text
+        if amount > 0:
+            amount_text = f"${amount:,.0f}+"
+        else:
+            amount_text = get_text("min_amount_all", user.language)
+        
+        await callback.message.edit_text(
+            get_text("min_amount_updated", user.language, amount=amount_text, name=wallet.nickname),
+            reply_markup=get_wallet_settings_keyboard(user.language, wallet_id, wallet.is_paused),
             parse_mode=ParseMode.HTML,
         )
     
