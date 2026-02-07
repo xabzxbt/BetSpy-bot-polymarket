@@ -447,6 +447,10 @@ class MarketIntelligenceEngine:
             
             days_to_close = (end_date - now).days
             
+            # Filter out long-term markets (> 35 days)
+            if days_to_close > 35:
+                return None
+            
             # Parse prices
             outcomes = data.get("outcomes", ["Yes", "No"])
             outcome_prices = data.get("outcomePrices", [])
