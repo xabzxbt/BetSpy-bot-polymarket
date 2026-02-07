@@ -5,7 +5,7 @@ All configuration is loaded from environment variables.
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, field_validator
 from functools import lru_cache
 
 
@@ -23,6 +23,15 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = Field(..., description="PostgreSQL connection URL")
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def fix_database_url(cls, v: str) -> str:
+        if v and v.startswith("postgres://"):
+            return v.replace("postgres://", "postgresql+asyncpg://", 1)
+        if v and v.startswith("postgresql://") and "+asyncpg" not in v:
+             return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
 
     # Polymarket API URLs
     polymarket_data_api_url: str = Field(
