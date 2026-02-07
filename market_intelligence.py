@@ -352,9 +352,20 @@ class MarketIntelligenceEngine:
         
         data = await self._request(url, params)
         
-        if not data or len(data) == 0:
-            # 2. If empty, try as market slug directly
-            logger.info(f"No markets found for event_slug={slug}, trying as market slug...")
+        # Validate event_slug response
+        has_valid_event_match = False
+        if data:
+            for item in data:
+                if item.get("eventSlug") == slug:
+                    has_valid_event_match = True
+                    break
+        
+        if not data or not has_valid_event_match:
+            # 2. If empty or junk response, try as market slug directly
+            if data:
+                 logger.info(f"API returned {len(data)} items but none matched event_slug={slug}. Likely trending fallback. Ignoring.")
+            
+            logger.info(f"Trying as market slug: {slug}")
             params = {
                 "slug": slug,
                 "active": "true",
@@ -385,17 +396,14 @@ class MarketIntelligenceEngine:
                 # If we don't have a market_slug, return all markets associated with this event/slug
                 # We trust the API returned relevant results for the query
                 
-                # Double check to prevent completely unrelated junk if API is fuzzy
-                if is_event_slug_match and item_event_slug != slug:
-                     # Only strict check if we are sure it was an event_slug query
-                     # But sometimes event_slug in API response differs slightly? 
-                     # Let's be permissive if data is returned appropriately.
-                     pass 
-                
-                if not is_event_slug_match and item_slug != slug and item_event_slug != slug:
-                    # If we searched by slug, and neither slug matches, skip
-                    if item.get("id") != slug: # Check ID too just in case
-                         continue
+                if is_event_slug_match:
+                    # Strict check: item must belong to the requested event
+                    if item_event_slug != slug:
+                        continue
+                else:
+                     # Strict check: item must match the requested slug (or its event)
+                    if item_slug != slug and item_event_slug != slug and item.get("id") != slug:
+                        continue
                 
                 # If market_slug is provided, filter by it
                 if market_slug and item_slug != market_slug:
