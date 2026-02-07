@@ -67,211 +67,113 @@ def format_volume(volume: float) -> str:
 
 
 def format_market_card(market: MarketStats, index: int, lang: str) -> str:
-    """Format a market as a card for the list view."""
+    """Format a market as a compact card for the list view."""
     signal_emoji = format_signal_emoji(market.signal_strength)
     
     # Whale indicator
     if market.whale_consensus is not None:
-        whale_pct = market.whale_consensus if market.recommended_side == "YES" else (1 - market.whale_consensus)
-        whale_str = f"{whale_pct*100:.0f}%"
+        whale_dir = "YES" if market.whale_consensus >= 0.5 else "NO"
+        whale_str = f"{whale_dir}"
     else:
         whale_str = "—"
     
-    # Time indicator
+    # Time
     if market.days_to_close == 0:
-        time_str = get_text("lbl_today", lang)
+        time_str = "⏰ Сьогодні"
     elif market.days_to_close == 1:
-        time_str = get_text("lbl_tomorrow", lang)
+        time_str = "⏰ Завтра"
     else:
-        time_str = get_text("lbl_days_left", lang, days=market.days_to_close)
+        time_str = f"📅 {market.days_to_close} дн."
     
-    # Category emoji & name
-    cat_emoji_map = {
-        "politics": "🏛️",
-        "sports": "⚽",
-        "pop-culture": "🎬",
-        "business": "💼",
-        "crypto": "₿",
-        "science": "🔬",
-        "gaming": "🎮",
-        "entertainment": "🎭",
-        "world": "🌍",
-        "tech": "💻",
-    }
-    cat_emoji = cat_emoji_map.get(market.category, "📊")
-    
-    # Escape HTML special characters in question to prevent parsing errors
-    safe_question = html.escape(market.question[:50])
-    ellipsis = "..." if len(market.question) > 50 else ""
-    
-    lbl_vol = get_text("lbl_vol", lang)
-    lbl_whales = get_text("lbl_whales", lang)
-    lbl_signal = get_text("lbl_signal", lang)
+    safe_question = html.escape(market.question[:55])
+    ellipsis = "..." if len(market.question) > 55 else ""
     
     text = (
-        f"<b>{index}. {cat_emoji} {safe_question}{ellipsis}</b>\n"
-        f"├ {lbl_vol} {format_volume(market.volume_24h)} (24h)\n"
-        f"├ 🟢 YES {format_price(market.yes_price)} | 🔴 NO {format_price(market.no_price)}\n"
-        f"├ {lbl_whales} {whale_str} {market.recommended_side}\n"
-        f"├ {time_str}\n"
-        f"└ {signal_emoji} <b>{lbl_signal} {market.signal_score}/100 → {market.recommended_side}</b>\n"
+        f"<b>{index}. {safe_question}{ellipsis}</b>\n"
+        f"   💰 YES {format_price(market.yes_price)} · NO {format_price(market.no_price)}"
+        f"  📊 {format_volume(market.volume_24h)}\n"
+        f"   🐋 {whale_str}  {time_str}\n"
+        f"   {signal_emoji} <b>{market.signal_score}/100 → {market.recommended_side}</b>\n"
     )
     
     return text
 
 
 def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str) -> str:
-    """Format detailed market analysis."""
+    """Format detailed market analysis — clean, compact UI."""
     signal_emoji = format_signal_emoji(market.signal_strength)
-    
-    # Category emoji
-    cat_emoji_map = {
-        "politics": "🏛️",
-        "sports": "⚽",
-        "pop-culture": "🎬",
-        "business": "💼",
-        "crypto": "₿",
-        "science": "🔬",
-        "gaming": "🎮",
-        "entertainment": "🎭",
-        "world": "🌍",
-        "tech": "💻",
-    }
-    cat_emoji = cat_emoji_map.get(market.category, "📊")
-    
-    # Escape HTML special characters
     safe_question = html.escape(market.question)
     
-    # Build the detailed view
-    text = f"{cat_emoji} <b>{safe_question}</b>\n\n"
+    # Header
+    text = f"<b>{safe_question}</b>\n"
+    text += f"{'─'*28}\n\n"
     
-    # Signal summary
-    lbl_signal = get_text("lbl_signal", lang)
-    lbl_rec = get_text("lbl_rec", lang)
+    # === PRICES ===
+    text += f"💰 YES: <b>{format_price(market.yes_price)}</b>  ·  NO: <b>{format_price(market.no_price)}</b>\n"
+    text += f"📊 Vol 24h: {format_volume(market.volume_24h)}  ·  Total: {format_volume(market.volume_total)}\n"
     
-    text += f"{'═'*30}\n"
-    text += f"{signal_emoji} <b>{lbl_signal} {market.signal_score}/100</b>\n"
-    text += f"{lbl_rec} <b>{rec.side}</b> @ {format_price(rec.entry_price)}\n"
-    text += f"{'═'*30}\n\n"
+    # Liquidity
+    if market.liquidity > 0:
+        text += f"💧 Ліквідність: {format_volume(market.liquidity)}\n"
     
-    # Price info
-    lbl_prices = get_text("lbl_prices", lang)
-    text += f"{lbl_prices}\n"
-    text += f"├ 🟢 YES: {format_price(market.yes_price)}\n"
-    text += f"└ 🔴 NO: {format_price(market.no_price)}\n\n"
+    # Time
+    if market.days_to_close == 0:
+        text += f"⏰ Закривається <b>сьогодні</b>\n"
+    elif market.days_to_close == 1:
+        text += f"⏰ Закривається <b>завтра</b>\n"
+    else:
+        end_str = market.end_date.strftime("%d.%m.%Y")
+        text += f"⏰ {end_str} ({market.days_to_close} дн.)\n"
     
-    # Volume stats
-    lbl_volume = get_text("lbl_volume_title", lang)
-    text += f"{lbl_volume}\n"
-    text += f"├ 24h: {format_volume(market.volume_24h)}\n"
-    text += f"└ Total: {format_volume(market.volume_total)}\n\n"
+    text += "\n"
     
-    # Whale Analysis
-    text += f"🐋 <b>{get_text('lbl_whale_analysis', lang)}</b>\n"
-    
+    # === WHALE ANALYSIS ===
+    text += f"🐋 <b>АНАЛІЗ КИТІВ</b>\n"
     if market.whale_consensus is not None:
         consensus_pct = int(market.whale_consensus * 100)
-        # Visual bar
         bar_len = 10
         filled = int(market.whale_consensus * bar_len)
         bar = "▓" * filled + "░" * (bar_len - filled)
         
         text += f"YES {consensus_pct}% {bar} {100-consensus_pct}% NO\n"
-        
-        if market.whale_yes_volume > 0 or market.whale_no_volume > 0:
-            text += f"Vol: {format_volume(market.whale_total_volume)} (Yes: {market.whale_yes_count} / No: {market.whale_no_count})\n"
-        else:
-            text += get_text("lbl_not_enough_data", lang) + "\n"
+        text += f"Об'єм: {format_volume(market.whale_total_volume)}"
+        text += f" ({market.whale_yes_count}↑ / {market.whale_no_count}↓)\n"
     else:
-        text += f"<i>Немає великих угод (>${MarketIntelligenceEngine.WHALE_THRESHOLD}) за 24h</i>\n"
-    text += "\n" # Add a newline for spacing after whale analysis
+        text += f"<i>Немає угод >${MarketIntelligenceEngine.WHALE_THRESHOLD}$ за 24h</i>\n"
     
-    # Retail analysis
-    lbl_retail = get_text("lbl_retail", lang)
-    if market.retail_total_volume > 0:
-        retail_yes_pct = (market.retail_yes_volume / market.retail_total_volume) * 100
-        retail_no_pct = 100 - retail_yes_pct
-        text += f"{lbl_retail}\n"
-        text += f"├ 🟢 YES: {retail_yes_pct:.0f}%\n"
-        text += f"└ 🔴 NO: {retail_no_pct:.0f}%\n\n"
+    text += "\n"
     
-    # Price history
-    if market.price_24h_ago > 0:
-        change_24h = market.price_change_24h * 100
-        sign = "+" if change_24h > 0 else ""
-        lbl_trend = get_text("lbl_trend", lang)
-        text += f"{lbl_trend}\n"
-        text += f"├ 24h: {sign}{change_24h:.1f}%\n"
-        if market.price_7d_ago > 0:
-            change_7d = market.price_change_7d * 100
-            sign = "+" if change_7d > 0 else ""
-            text += f"└ 7d: {sign}{change_7d:.1f}%\n\n"
-        else:
-            text += "\n"
+    # === SIGNAL ===
+    text += f"{'─'*28}\n"
+    text += f"{signal_emoji} <b>Сигнал: {market.signal_score}/100</b>\n\n"
     
-    # Time to close
-    lbl_closing = get_text("lbl_closing", lang)
-    text += f"{lbl_closing}\n"
-    if market.days_to_close == 0:
-        text += f"└ {get_text('lbl_today', lang)}\n\n"
-    elif market.days_to_close == 1:
-        text += f"└ {get_text('lbl_tomorrow', lang)}\n\n"
-    else:
-        end_str = market.end_date.strftime("%d.%m.%Y")
-        text += f"└ {end_str} ({get_text('lbl_days_left', lang, days=market.days_to_close)})\n\n"
-    
-    # Score breakdown
-    lbl_score = get_text("lbl_score_breakdown", lang)
-    text += f"{lbl_score}\n"
-    
-    # Show meaningful breakdown based on available data
-    whale_status = "✅" if market.whale_consensus is not None else "❌ N/A"
-    vol_tier = "High" if market.volume_24h >= 100000 else ("Med" if market.volume_24h >= 25000 else "Low")
-    liq_tier = "Good" if market.liquidity >= 25000 else ("OK" if market.liquidity >= 10000 else "Low")
-    
-    text += f"├ 🐋 Whale data: {whale_status}\n"
-    text += f"├ 📊 Volume: {vol_tier} ({format_volume(market.volume_24h)})\n"
-    text += f"├ 💧 Liquidity: {liq_tier} ({format_volume(market.liquidity)})\n"
-    text += f"└ 🎯 Total: {market.signal_score}/100\n\n"
-    
-    # Recommendation box
-    lbl_rec_title = get_text("lbl_recommendation", lang)
-    text += f"{'═'*30}\n"
-    text += f"{lbl_rec_title}\n\n"
-    
+    # === RECOMMENDATION ===
     if rec.should_bet:
-        bet_text = get_text("lbl_bet_yes" if rec.side == "YES" else "lbl_bet_no", lang)
-        text += f"{bet_text}\n\n"
-        text += f"├ Entry: {format_price(rec.entry_price)}\n"
-        # Defensive: avoid division by zero
+        text += f"✅ <b>Рекомендація: {rec.side} @ {format_price(rec.entry_price)}</b>\n"
         if rec.entry_price > 0:
             target_pct = ((rec.target_price / rec.entry_price) - 1) * 100
             stop_pct = (1 - (rec.stop_loss_price / rec.entry_price)) * 100
         else:
             target_pct = 0
             stop_pct = 0
-        text += f"├ Target: {format_price(rec.target_price)} (+{target_pct:.0f}%)\n"
-        text += f"├ Stop-loss: {format_price(rec.stop_loss_price)} (-{stop_pct:.0f}%)\n"
-        text += f"└ Risk/Reward: 1:{rec.risk_reward_ratio:.1f}\n\n"
+        text += f"🎯 Ціль: {format_price(rec.target_price)} (+{target_pct:.0f}%)"
+        text += f"  ·  🛑 Стоп: {format_price(rec.stop_loss_price)} (-{stop_pct:.0f}%)\n"
+        text += f"⚖️ Ризик/Прибуток: 1:{rec.risk_reward_ratio:.1f}\n"
     else:
-        text += f"{get_text('lbl_dont_bet', lang)}\n\n"
+        text += f"❌ <b>НЕ СТАВИТИ</b>\n"
     
-    # Reasons
+    text += "\n"
+    
+    # Pros/Cons compact
     if rec.reasons:
-        text += f"{get_text('lbl_pros', lang)}\n"
-        for reason in rec.reasons:
-            text += f"  {reason}\n"
-        text += "\n"
-    
-    # Warnings
+        for r in rec.reasons:
+            text += f"✅ {r}\n"
     if rec.warnings:
-        text += f"{get_text('lbl_cons', lang)}\n"
-        for warning in rec.warnings:
-            text += f"  {warning}\n"
-            
+        for w in rec.warnings:
+            text += f"{w}\n"
+    
     # Link
-    link_text = get_text("lbl_open_polymarket", lang, url=market.market_url)
-    text += f"\n{link_text}"
+    text += f"\n🔗 <a href='{market.market_url}'>Відкрити на Polymarket</a>"
     
     return text
 

@@ -217,14 +217,8 @@ class MarketIntelligenceEngine:
         self._limiter = AsyncLimiter(60, 60)
         self._session: Optional[aiohttp.ClientSession] = None
         
-        # Circuit breaker for auth errors
-        self._unauthorized_count = 0
-        self._trades_api_broken = False
-        
-        # Initialize ClobClient
-        # Public methods (get_market_trades_events, get_last_trade_price) 
-        # work WITHOUT any auth — just host + chain_id.
-        # L2 auth (private key + creds) only needed if you want user-specific trades.
+        # Initialize ClobClient for public read methods (get_price, get_last_trade_price)
+        # Trade data is fetched via data-api.polymarket.com/trades (no auth needed)
         self.clob_client = None
         settings = get_settings()
         
@@ -273,8 +267,6 @@ class MarketIntelligenceEngine:
                         await asyncio.sleep(5)
                         return None
                     else:
-                        if response.status == 401:
-                            self._unauthorized_count += 1
                         logger.warning(f"API error {response.status}: {url}")
                         return None
             except asyncio.TimeoutError:
@@ -557,14 +549,12 @@ class MarketIntelligenceEngine:
         retail_no_vol = 0.0
         
         for trade in trades:
-            # Public trade events use different field names
-            amount = 0.0
+            # Data API /trades returns: size (token amount), price (per token)
+            # USDC value = size * price
             try:
-                size_str = trade.get("size", "0")
-                price_str = trade.get("price", "0")
-                size = float(size_str) if size_str else 0
-                price = float(price_str) if price_str else 0
-                amount = size * price  # Calculate USDC value
+                size = float(trade.get("size", 0) or 0)
+                price = float(trade.get("price", 0) or 0)
+                amount = size * price  # USDC value of the trade
             except (ValueError, TypeError):
                 continue
             
@@ -572,9 +562,13 @@ class MarketIntelligenceEngine:
                 continue
             
             side = str(trade.get("side", "")).upper()
-            outcome_index = trade.get("outcome_index", trade.get("outcomeIndex", 0))
+            outcome_index = int(trade.get("outcomeIndex", 0) or 0)
             
-            # Determine YES or NO
+            # Determine YES or NO direction
+            # BUY + outcomeIndex=0 = buying YES tokens = bullish YES
+            # BUY + outcomeIndex=1 = buying NO tokens = bullish NO
+            # SELL + outcomeIndex=0 = selling YES tokens = bearish YES (bullish NO)
+            # SELL + outcomeIndex=1 = selling NO tokens = bearish NO (bullish YES)
             is_yes = (side == "BUY" and outcome_index == 0) or (side == "SELL" and outcome_index == 1)
             
             if amount >= self.WHALE_THRESHOLD:
@@ -612,60 +606,28 @@ class MarketIntelligenceEngine:
         
         return market
     
-    async def _fetch_market_trades_public(self, market: MarketStats, limit: int = 200) -> List[Dict]:
+    async def _fetch_market_trades_public(self, market: MarketStats, limit: int = 500) -> List[Dict]:
         """
-        Fetch recent trades using PUBLIC API — NO authentication needed.
+        Fetch recent trades for a market using the PUBLIC Data API.
         
-        Uses ClobClient.get_market_trades_events() which is a public method.
-        Falls back to direct HTTP call to /market-trades-events endpoint.
+        Endpoint: GET https://data-api.polymarket.com/trades
+        Params:
+          - market: conditionId (0x-prefixed)
+          - limit: max 10000
+          - takerOnly: true (default)
+        
+        This is a PUBLIC endpoint. No authentication required.
+        Returns: [{proxyWallet, side, size, price, outcomeIndex, outcome, ...}]
         """
-        condition_id = market.condition_id
-        
-        # Method 1: Use ClobClient public method (no auth required)
-        if self.clob_client or CLOB_CLIENT_AVAILABLE:
-            try:
-                # Create a read-only client if we don't have one
-                client = self.clob_client
-                if client is None:
-                    client = ClobClient(
-                        host="https://clob.polymarket.com",
-                        chain_id=137,
-                    )
-                
-                loop = asyncio.get_running_loop()
-                
-                def fetch_public_trades():
-                    try:
-                        # get_market_trades_events is a PUBLIC method
-                        result = client.get_market_trades_events(condition_id)
-                        if result and isinstance(result, list):
-                            return result[:limit]
-                        elif result and isinstance(result, dict):
-                            data = result.get("data", result)
-                            return data[:limit] if isinstance(data, list) else []
-                        return []
-                    except Exception as e:
-                        logger.debug(f"get_market_trades_events failed: {e}")
-                        return []
-                
-                trades = await loop.run_in_executor(None, fetch_public_trades)
-                if trades:
-                    return trades
-                    
-            except Exception as e:
-                logger.debug(f"ClobClient public trade events error: {e}")
-        
-        # Method 2: Direct HTTP to CLOB market-trades-events endpoint (public)
-        url = f"{self.clob_api_url}/market-trades-events"
-        params = {"condition_id": condition_id}
+        url = f"{self.data_api_url}/trades"
+        params = {
+            "market": market.condition_id,
+            "limit": min(limit, 1500),
+        }
         
         data = await self._request(url, params)
         if data and isinstance(data, list):
-            return data[:limit]
-        elif data and isinstance(data, dict):
-            items = data.get("data", [])
-            return items[:limit] if isinstance(items, list) else []
-        
+            return data
         return []
     
     async def _fetch_price_history(self, condition_id: str) -> Dict:
@@ -741,11 +703,21 @@ class MarketIntelligenceEngine:
             else:
                 market.recommended_side = "NO"
         else:
-            # Fallback to Price Trend
-            if market.price_change_24h > 0:
+            # No whale data: determine side from price levels
+            # If YES is cheap (< 50¢), market says NO is likely → recommend NO
+            # If YES is expensive (> 50¢), market says YES is likely → recommend YES
+            # But we look for VALUE — buy the side the market leans toward at a reasonable price
+            if market.yes_price > 0.5:
                 market.recommended_side = "YES"
-            else:
+            elif market.no_price > 0.5:
                 market.recommended_side = "NO"
+            elif market.price_change_24h > 0.02:
+                market.recommended_side = "YES"
+            elif market.price_change_24h < -0.02:
+                market.recommended_side = "NO"
+            else:
+                # Truly 50/50 — go with volume side (more activity = more conviction)
+                market.recommended_side = "YES" if market.yes_price >= market.no_price else "NO"
                 
             # Boost score to compensate for missing whale metrics (max 60 points available without whales)
             # Multiplier ~1.66
@@ -839,26 +811,51 @@ class MarketIntelligenceEngine:
         should_bet = market.signal_score >= 60
         side = market.recommended_side
         
-        # Entry price (current price)
+        # CRITICAL: Don't recommend a side priced at 0¢ (fully resolved / no upside)
+        # If YES=100¢ the market is basically resolved YES. NO=0¢ has no buyers.
+        # If NO=100¢ the market is basically resolved NO. YES=0¢ has no buyers.
+        if side == "YES" and market.yes_price <= 0.02:
+            # YES is basically 0 — flip to NO if it has value, else don't bet
+            if market.no_price >= 0.05:
+                side = "NO"
+            else:
+                should_bet = False
+        elif side == "NO" and market.no_price <= 0.02:
+            # NO is basically 0 — flip to YES if it has value, else don't bet
+            if market.yes_price >= 0.05:
+                side = "YES"
+            else:
+                should_bet = False
+        
+        # Don't bet on extremely one-sided markets (95%+)
+        if market.yes_price >= 0.95 or market.no_price >= 0.95:
+            should_bet = False
+        
+        # Entry price
         if side == "YES":
             entry_price = market.yes_price
-            target_price = min(0.85, entry_price * 1.3)
-            stop_loss_price = max(0.05, entry_price * 0.80)
         else:
             entry_price = market.no_price
-            target_price = min(0.85, entry_price * 1.3)
-            stop_loss_price = max(0.05, entry_price * 0.80)
+        
+        # Don't recommend entry at 0
+        if entry_price <= 0.01:
+            should_bet = False
+            entry_price = max(entry_price, 0.01)
+        
+        # Target and stop-loss
+        target_price = min(0.90, entry_price * 1.3)
+        stop_loss_price = max(0.02, entry_price * 0.75)
         
         # Risk/Reward ratio
         potential_gain = target_price - entry_price
         potential_loss = entry_price - stop_loss_price
         risk_reward = potential_gain / potential_loss if potential_loss > 0 else 0
         
-        # Build reasons
+        # Build reasons and warnings
         reasons = []
         warnings = []
         
-        # Whale analysis — DEFENSIVE: whale_consensus can be None
+        # Whale analysis
         if market.whale_consensus is not None:
             whale_pct = market.whale_consensus if side == "YES" else (1 - market.whale_consensus)
             whale_pct_str = f"{whale_pct*100:.0f}%"
@@ -888,7 +885,7 @@ class MarketIntelligenceEngine:
         if trend > 0.10:
             reasons.append(f"📈 Сильний тренд: +{trend*100:.1f}% за 24h")
         elif trend > 0:
-            reasons.append(f"📈 Позитивний тренд: +{trend*100:.1f}% за 24h")
+            reasons.append(f"📈 Позитивний тренд: +{trend*100:.1f}%")
         elif trend > -0.05:
             warnings.append("⚠️ Слабкий тренд")
         else:
@@ -896,7 +893,7 @@ class MarketIntelligenceEngine:
         
         # Liquidity
         if market.liquidity < 20000:
-            warnings.append("⚠️ Низька ліквідність — складно вийти")
+            warnings.append("⚠️ Низька ліквідність")
         
         # Time
         if market.days_to_close < 1:
