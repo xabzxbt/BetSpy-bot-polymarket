@@ -14,8 +14,14 @@ from enum import Enum
 import aiohttp
 from aiolimiter import AsyncLimiter
 from loguru import logger
-from py_clob_client.client import ClobClient
-from py_clob_client.constants import POLYGON
+
+try:
+    from py_clob_client.client import ClobClient
+    from py_clob_client.constants import POLYGON
+    CLOB_CLIENT_AVAILABLE = True
+except ImportError:
+    CLOB_CLIENT_AVAILABLE = False
+    logger.warning("py_clob_client not found. Authenticated requests disabled.")
 
 from config import get_settings
 
@@ -216,7 +222,8 @@ class MarketIntelligenceEngine:
         # Initialize Authenticated Client
         self.clob_client = None
         settings = get_settings()
-        if settings.polymarket_api_key:
+        
+        if settings.polymarket_api_key and CLOB_CLIENT_AVAILABLE:
             try:
                 self.clob_client = ClobClient(
                     host="https://clob.polymarket.com",
@@ -228,6 +235,8 @@ class MarketIntelligenceEngine:
                 logger.info("✅ Authorized ClobClient initialized for Whale Analysis")
             except Exception as e:
                 logger.error(f"❌ Failed to init ClobClient: {e}")
+        elif settings.polymarket_api_key and not CLOB_CLIENT_AVAILABLE:
+            logger.warning("⚠️ API keys found but 'py-clob-client' not installed. Install it to enable Whale Analysis!")
     
     async def init(self) -> None:
         """Initialize HTTP session."""
