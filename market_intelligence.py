@@ -14,6 +14,10 @@ from enum import Enum
 import aiohttp
 from aiolimiter import AsyncLimiter
 from loguru import logger
+import base64
+import hmac
+import hashlib
+import time
 
 try:
     from py_clob_client.client import ClobClient
@@ -595,58 +599,84 @@ class MarketIntelligenceEngine:
         
         return market
     
+    def _generate_signature(self, timestamp: str, method: str, request_path: str) -> str:
+        """Generate Polymarket API signature."""
+        settings = get_settings()
+        secret = settings.polymarket_secret
+        
+        if not secret:
+            return ""
+            
+        try:
+            # Decode secret
+            secret_bytes = base64.b64decode(secret)
+            
+            # Prepare message
+            message = f"{timestamp}{method}{request_path}"
+            
+            # Generate HMAC
+            signature = hmac.new(
+                secret_bytes,
+                message.encode('utf-8'),
+                hashlib.sha256
+            ).digest()
+            
+            return base64.b64encode(signature).decode('utf-8')
+        except Exception as e:
+            logger.error(f"Signature generation failed: {e}")
+            return ""
+
     async def _fetch_market_trades(self, condition_id: str, limit: int = 100) -> List[Dict]:
-        if self.clob_client:
-            try:
-                loop = asyncio.get_running_loop()
-                # Run synchronous ClobClient in executor to not block async loop
-                def fetch_trades_safe():
-                    try:
-                        # Correct usage according to docs: pass TradeParams object
-                        # Note: 'limit' is not supported in TradeParams based on docs, so we filter later if needed
-                        # FORCE UPDATE TRIGGER
-                        params = TradeParams(market=condition_id)
-                        return self.clob_client.get_trades(params)
-                    except Exception as e:
-                        logger.warning(f"ClobClient.get_trades failed with TradeParams: {e}")
-                        # Fallback for older versions or if dict required
-                        try:
-                            return self.clob_client.get_trades({"market": condition_id})
-                        except:
-                            return []
-
-                trades = await loop.run_in_executor(
-                    None, 
-                    fetch_trades_safe
-                )
-                
-                # Apply limit manually since API might not support it
-                if trades and len(trades) > limit:
-                    trades = trades[:limit]
-                    
-                return trades
-            except Exception as e:
-                logger.warning(f"Authorized ClobClient error: {e}")
-                return []
-
-        # Fallback to public API (likely to fail with 401 if no keys)
-        if self._trades_api_broken or self._unauthorized_count > 3:
+        """Fetch recent trades for a market using authenticated HTTP request."""
+        if not condition_id:
+            return []
+            
+        # Circuit breaker logic
+        if self._trades_api_broken or self._unauthorized_count > 5:
             if not self._trades_api_broken:
-                logger.warning("Disabling Whale Analysis (Public API blocked)")
+                logger.warning("Disabling Whale Analysis (API blocked)")
                 self._trades_api_broken = True
             return []
         
-        # Use CLOB API trades endpoint (not data-api)
+        settings = get_settings()
+        path = f"/trades?market={condition_id}&limit={limit}" # Limit supported in raw API
         url = f"{self.clob_api_url}/trades"
-        params = {
-            "market": condition_id,
-        }
-        
-        data = await self._request(url, params)
-        if data is None:
-            return []
+        params = {"market": condition_id, "limit": str(limit)}
+
+        headers = {}
+        # Add Authentication Headers if keys are present
+        if settings.polymarket_api_key and settings.polymarket_secret:
+            timestamp = str(int(time.time()))
+            signature = self._generate_signature(timestamp, "GET", path)
             
-        return data if isinstance(data, list) else []
+            if signature:
+                headers = {
+                    "POLYMARKET-API-KEY": settings.polymarket_api_key,
+                    "POLYMARKET-API-PASSPHRASE": settings.polymarket_passphrase,
+                    "POLYMARKET-API-TIMESTAMP": timestamp,
+                    "POLYMARKET-API-SIGNATURE": signature,
+                }
+
+        try:
+            # Use raw session directly to control headers
+            if not self._session:
+                await self.init()
+                
+            async with self._limiter:
+                async with self._session.get(url, params=params, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data if isinstance(data, list) else []
+                    elif response.status == 401:
+                        self._unauthorized_count += 1
+                        logger.warning(f"Auth failed for trades: {response.status}")
+                        return []
+                    else:
+                        logger.warning(f"Failed to fetch trades: {response.status}")
+                        return []
+        except Exception as e:
+            logger.error(f"Error fetching trades: {e}")
+            return []
     
     async def _fetch_price_history(self, condition_id: str) -> Dict:
         """Fetch price history for a market."""
