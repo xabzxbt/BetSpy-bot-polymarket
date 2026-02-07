@@ -17,6 +17,7 @@ from loguru import logger
 
 try:
     from py_clob_client.client import ClobClient
+    from py_clob_client.clob_types import ApiCreds
     from py_clob_client.constants import POLYGON
     CLOB_CLIENT_AVAILABLE = True
 except ImportError:
@@ -225,12 +226,16 @@ class MarketIntelligenceEngine:
         
         if settings.polymarket_api_key and CLOB_CLIENT_AVAILABLE:
             try:
+                creds = ApiCreds(
+                    api_key=settings.polymarket_api_key,
+                    api_secret=settings.polymarket_secret,
+                    api_passphrase=settings.polymarket_passphrase,
+                )
                 self.clob_client = ClobClient(
                     host="https://clob.polymarket.com",
-                    key=settings.polymarket_api_key,
-                    secret=settings.polymarket_secret,
-                    passphrase=settings.polymarket_passphrase,
-                    chain_id=137,  # Polygon
+                    key=None,  # Check if key is required; passing None for read-only via API keys
+                    chain_id=137,
+                    creds=creds,
                 )
                 logger.info("✅ Authorized ClobClient initialized for Whale Analysis")
             except Exception as e:
