@@ -194,7 +194,7 @@ async def callback_analyze_link(callback: CallbackQuery, state: FSMContext) -> N
     # Get user language
     async with db.session() as session:
         user_repo = UserRepository(session)
-        user = await user_repo.get(callback.from_user.id)
+        user = await user_repo.get_by_telegram_id(callback.from_user.id)
         lang = user.language if user else "en"
 
     await state.set_state(AnalyzeEventStates.waiting_for_link)
@@ -214,7 +214,7 @@ async def process_analyze_link(message: Message, state: FSMContext) -> None:
     # Get user language
     async with db.session() as session:
         user_repo = UserRepository(session)
-        user = await user_repo.get(message.from_user.id)
+        user = await user_repo.get_by_telegram_id(message.from_user.id)
         lang = user.language if user else "en"
         
     url = message.text.strip()
