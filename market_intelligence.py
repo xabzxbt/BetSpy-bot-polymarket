@@ -342,6 +342,7 @@ class MarketIntelligenceEngine:
         
         data = []
         is_event_slug_match = False
+        from_embedded_event = False  # Flag to skip strict filtering for embedded markets
         
         # 1. First try: treat as event_slug
         params = {
@@ -386,6 +387,7 @@ class MarketIntelligenceEngine:
                         logger.info(f"Found {len(event_markets)} markets in event object for slug {slug}")
                         data = event_markets
                         is_event_slug_match = True
+                        from_embedded_event = True  # Skip strict filtering
                     else:
                         # Try using condition_id or other identifiers
                         event_id = target_event.get("id")
@@ -429,8 +431,9 @@ class MarketIntelligenceEngine:
                 # If we don't have a market_slug, return all markets associated with this event/slug
                 # We trust the API returned relevant results for the query
                 
-                if is_event_slug_match:
+                if is_event_slug_match and not from_embedded_event:
                     # Strict check: item must belong to the requested event
+                    # Skip this check if markets came from embedded event object
                     if item_event_slug != slug:
                         continue
                 else:
