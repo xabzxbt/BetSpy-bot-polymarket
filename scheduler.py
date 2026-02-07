@@ -269,7 +269,7 @@ class TradeNotificationService:
                 if trade.timestamp > latest_timestamp:
                     latest_timestamp = trade.timestamp
             
-            # Send batched notifications with proper rate limiting
+            # Send individual notifications with proper rate limiting
             for user_id, notification_data in subscription_notifications.items():
                 sub = notification_data['sub']
                 trades = notification_data['trades']
@@ -277,12 +277,9 @@ class TradeNotificationService:
                 # Sort trades by timestamp to show in chronological order
                 trades.sort(key=lambda x: x.timestamp)
                 
-                # Split large batches into smaller ones to avoid rate limits
-                max_trades_per_batch = 5
-                for i in range(0, len(trades), max_trades_per_batch):
-                    batch = trades[i:i + max_trades_per_batch]
-                    await self._send_batch_notification(batch, sub)
-                    
+                # Send individual notifications for each trade
+                for trade in trades:
+                    await self._send_notification(trade, sub)
                     # Respect rate limits: 1 message per second per chat
                     await asyncio.sleep(1.5)
             

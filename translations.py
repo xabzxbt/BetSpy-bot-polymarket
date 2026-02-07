@@ -675,32 +675,32 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
     # ==================== TRADE NOTIFICATIONS ====================
     "new_trade": {
         "en": (
-            "🔔 <b>NEW TRADE!</b>\n\n"
+            "👤 <b>NEW TRADE!</b>\n\n"
             "👤 Who: <b>{wallet_name}</b>\n"
-            "📈 Market: <b>{market_title}</b>\n"
+            "📋 Market: {market_title}\n"
             "💰 Action: {side} <b>{outcome}</b>\n"
-            "📊 Amount: <b>{size:.2f}</b> shares\n"
-            "💵 Value: <b>${usdc_size:.2f}</b>\n"
+            "📊 Quantity: <b>{size:,.2f}</b> shares\n"
+            "💵 Amount: <b>${usdc_size:,.2f}</b>\n"
             "💲 Price: <b>${price:.2f}</b>\n\n"
             "👉 <a href=\"{market_link}\">Open on Polymarket</a>"
         ),
         "uk": (
-            "🔔 <b>НОВА УГОДА!</b>\n\n"
+            "👤 <b>НОВА УГОДА!</b>\n\n"
             "👤 Хто: <b>{wallet_name}</b>\n"
-            "📈 Ринок: <b>{market_title}</b>\n"
+            "📋 Ринок: {market_title}\n"
             "💰 Дія: {side} <b>{outcome}</b>\n"
-            "📊 Кількість: <b>{size:.2f}</b> акцій\n"
-            "💵 Сума: <b>${usdc_size:.2f}</b>\n"
+            "📊 Кількість: <b>{size:,.2f}</b> акцій\n"
+            "💵 Сума: <b>${usdc_size:,.2f}</b>\n"
             "💲 Ціна: <b>${price:.2f}</b>\n\n"
             "👉 <a href=\"{market_link}\">Відкрити на Polymarket</a>"
         ),
         "ru": (
-            "🔔 <b>НОВАЯ СДЕЛКА!</b>\n\n"
+            "👤 <b>НОВАЯ СДЕЛКА!</b>\n\n"
             "👤 Кто: <b>{wallet_name}</b>\n"
-            "📈 Рынок: <b>{market_title}</b>\n"
+            "📋 Рынок: {market_title}\n"
             "💰 Действие: {side} <b>{outcome}</b>\n"
-            "📊 Количество: <b>{size:.2f}</b> акций\n"
-            "💵 Сумма: <b>${usdc_size:.2f}</b>\n"
+            "📊 Количество: <b>{size:,.2f}</b> акций\n"
+            "💵 Сумма: <b>${usdc_size:,.2f}</b>\n"
             "💲 Цена: <b>${price:.2f}</b>\n\n"
             "👉 <a href=\"{market_link}\">Открыть на Polymarket</a>"
         ),
