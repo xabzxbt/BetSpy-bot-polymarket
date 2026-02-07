@@ -17,12 +17,10 @@ from loguru import logger
 
 try:
     from py_clob_client.client import ClobClient
-    from py_clob_client.clob_types import ApiCreds, TradeParams
-    from py_clob_client.constants import POLYGON
     CLOB_CLIENT_AVAILABLE = True
 except ImportError:
     CLOB_CLIENT_AVAILABLE = False
-    logger.warning("py_clob_client not found. Authenticated requests disabled.")
+    logger.warning("py_clob_client not found. Using HTTP fallback for trade data.")
 
 from config import get_settings
 
@@ -102,6 +100,9 @@ class MarketStats:
     # Price history
     price_24h_ago: float = 0.0
     price_7d_ago: float = 0.0
+    
+    # CLOB token IDs (needed for public trade events API)
+    clob_token_ids: List[str] = field(default_factory=list)
     
     # Computed scores
     whale_consensus: Optional[float] = None  # None defines no data
@@ -220,49 +221,25 @@ class MarketIntelligenceEngine:
         self._unauthorized_count = 0
         self._trades_api_broken = False
         
-        # Initialize Authenticated Client
-        # NOTE: get_trades() is an L2 method and requires:
-        #   1. Private key (key=) for L1 auth
-        #   2. API creds (api_key, secret, passphrase) for L2 auth
-        # Without BOTH, trades endpoint returns 401.
-        # If no private key is available, whale analysis works without trades
-        # and uses only publicly available volume/price data.
+        # Initialize ClobClient
+        # Public methods (get_market_trades_events, get_last_trade_price) 
+        # work WITHOUT any auth — just host + chain_id.
+        # L2 auth (private key + creds) only needed if you want user-specific trades.
         self.clob_client = None
         settings = get_settings()
         
-        if CLOB_CLIENT_AVAILABLE and settings.polymarket_api_key and settings.polymarket_secret:
+        if CLOB_CLIENT_AVAILABLE:
             try:
-                creds = ApiCreds(
-                    api_key=settings.polymarket_api_key,
-                    api_secret=settings.polymarket_secret,
-                    api_passphrase=settings.polymarket_passphrase,
+                # Create read-only client for public methods
+                self.clob_client = ClobClient(
+                    host="https://clob.polymarket.com",
+                    chain_id=137,
                 )
-                # Private key is REQUIRED for L2 methods (get_trades).
-                # Check if POLYMARKET_PRIVATE_KEY is set in env.
-                private_key = getattr(settings, 'polymarket_private_key', '') or ''
-                
-                if private_key:
-                    self.clob_client = ClobClient(
-                        host="https://clob.polymarket.com",
-                        key=private_key,
-                        chain_id=137,  # Polygon mainnet
-                        creds=creds,
-                    )
-                    logger.info("✅ ClobClient initialized with L2 auth (Private Key + API Creds)")
-                else:
-                    # Without private key, L2 methods (get_trades) will fail with 401.
-                    # We skip ClobClient entirely and rely on public data only.
-                    logger.warning(
-                        "⚠️ POLYMARKET_PRIVATE_KEY not set. "
-                        "Whale Analysis via trades is DISABLED (L2 auth requires private key). "
-                        "Bot will work using public volume/price data only."
-                    )
+                logger.info("✅ ClobClient initialized (public read-only mode)")
             except Exception as e:
                 logger.error(f"❌ Failed to init ClobClient: {e}")
-        elif not CLOB_CLIENT_AVAILABLE:
-            logger.warning("⚠️ py-clob-client not installed. Whale trade analysis disabled.")
         else:
-            logger.info("ℹ️ No Polymarket API keys configured. Using public data only.")
+            logger.warning("⚠️ py-clob-client not installed. Using HTTP fallback for trade data.")
     
     async def init(self) -> None:
         """Initialize HTTP session."""
@@ -500,6 +477,15 @@ class MarketIntelligenceEngine:
             if isinstance(tags, str):
                 tags = [tags]
             
+            # Parse clobTokenIds (needed for public trade events API)
+            clob_token_ids = data.get("clobTokenIds", []) or []
+            if isinstance(clob_token_ids, str):
+                import json as _json
+                try:
+                    clob_token_ids = _json.loads(clob_token_ids)
+                except:
+                    clob_token_ids = []
+            
             # Determine category from tags
             category = self._detect_category(tags, data.get("question", ""))
             
@@ -512,12 +498,13 @@ class MarketIntelligenceEngine:
                 no_price=no_price,
                 volume_24h=volume_24h,
                 volume_total=volume_total,
-                volume_change_pct=0.0,  # Will be calculated
+                volume_change_pct=0.0,
                 liquidity=liquidity,
                 end_date=end_date,
                 days_to_close=days_to_close,
                 category=category,
                 tags=tags,
+                clob_token_ids=clob_token_ids,
             )
             
         except Exception as e:
@@ -559,8 +546,8 @@ class MarketIntelligenceEngine:
     async def _enrich_market_data(self, market: MarketStats) -> MarketStats:
         """Enrich market with whale/retail data and price history."""
         
-        # Fetch recent trades for whale analysis
-        trades = await self._fetch_market_trades(market.condition_id)
+        # Fetch recent trades using PUBLIC API (no auth needed)
+        trades = await self._fetch_market_trades_public(market)
         
         whale_yes_vol = 0.0
         whale_no_vol = 0.0
@@ -570,15 +557,24 @@ class MarketIntelligenceEngine:
         retail_no_vol = 0.0
         
         for trade in trades:
-            amount = trade.get("usdcSize", 0) or trade.get("size", 0)
-            if not amount:
+            # Public trade events use different field names
+            amount = 0.0
+            try:
+                size_str = trade.get("size", "0")
+                price_str = trade.get("price", "0")
+                size = float(size_str) if size_str else 0
+                price = float(price_str) if price_str else 0
+                amount = size * price  # Calculate USDC value
+            except (ValueError, TypeError):
                 continue
             
-            amount = float(amount)
-            side = trade.get("side", "").upper()
-            outcome_index = trade.get("outcomeIndex", 0)
+            if amount <= 0:
+                continue
             
-            # Determine if YES or NO based on side and outcome
+            side = str(trade.get("side", "")).upper()
+            outcome_index = trade.get("outcome_index", trade.get("outcomeIndex", 0))
+            
+            # Determine YES or NO
             is_yes = (side == "BUY" and outcome_index == 0) or (side == "SELL" and outcome_index == 1)
             
             if amount >= self.WHALE_THRESHOLD:
@@ -606,7 +602,7 @@ class MarketIntelligenceEngine:
         if total_whale > 0:
             market.whale_consensus = whale_yes_vol / total_whale
         else:
-            market.whale_consensus = None  # No whale data
+            market.whale_consensus = None
         
         # Fetch price history
         price_history = await self._fetch_price_history(market.condition_id)
@@ -616,47 +612,60 @@ class MarketIntelligenceEngine:
         
         return market
     
-    async def _fetch_market_trades(self, condition_id: str, limit: int = 100) -> List[Dict]:
+    async def _fetch_market_trades_public(self, market: MarketStats, limit: int = 200) -> List[Dict]:
         """
-        Fetch recent trades for a market.
+        Fetch recent trades using PUBLIC API — NO authentication needed.
         
-        Uses ClobClient L2 auth if available (requires private key + API creds).
-        Falls back to empty list if no auth — whale analysis will be skipped
-        gracefully without disabling the entire feature permanently.
+        Uses ClobClient.get_market_trades_events() which is a public method.
+        Falls back to direct HTTP call to /market-trades-events endpoint.
         """
-        if self.clob_client:
+        condition_id = market.condition_id
+        
+        # Method 1: Use ClobClient public method (no auth required)
+        if self.clob_client or CLOB_CLIENT_AVAILABLE:
             try:
+                # Create a read-only client if we don't have one
+                client = self.clob_client
+                if client is None:
+                    client = ClobClient(
+                        host="https://clob.polymarket.com",
+                        chain_id=137,
+                    )
+                
                 loop = asyncio.get_running_loop()
                 
-                def fetch_trades_safe():
+                def fetch_public_trades():
                     try:
-                        params = TradeParams(market=condition_id)
-                        result = self.clob_client.get_trades(params)
-                        # Reset error count on success
-                        return result
-                    except Exception as e:
-                        error_str = str(e)
-                        if "401" in error_str or "Unauthorized" in error_str:
-                            logger.debug(f"ClobClient 401 for trades (expected without valid L2 creds): {e}")
-                        else:
-                            logger.warning(f"ClobClient.get_trades error: {e}")
+                        # get_market_trades_events is a PUBLIC method
+                        result = client.get_market_trades_events(condition_id)
+                        if result and isinstance(result, list):
+                            return result[:limit]
+                        elif result and isinstance(result, dict):
+                            data = result.get("data", result)
+                            return data[:limit] if isinstance(data, list) else []
                         return []
-
-                trades = await loop.run_in_executor(None, fetch_trades_safe)
+                    except Exception as e:
+                        logger.debug(f"get_market_trades_events failed: {e}")
+                        return []
                 
-                # Apply limit
-                if trades and len(trades) > limit:
-                    trades = trades[:limit]
+                trades = await loop.run_in_executor(None, fetch_public_trades)
+                if trades:
+                    return trades
                     
-                return trades if trades else []
-                
             except Exception as e:
-                logger.warning(f"Executor error fetching trades: {e}")
-                return []
+                logger.debug(f"ClobClient public trade events error: {e}")
         
-        # No ClobClient available — skip trades silently.
-        # This is the normal case when POLYMARKET_PRIVATE_KEY is not set.
-        # Whale analysis will show "data unavailable" instead of crashing.
+        # Method 2: Direct HTTP to CLOB market-trades-events endpoint (public)
+        url = f"{self.clob_api_url}/market-trades-events"
+        params = {"condition_id": condition_id}
+        
+        data = await self._request(url, params)
+        if data and isinstance(data, list):
+            return data[:limit]
+        elif data and isinstance(data, dict):
+            items = data.get("data", [])
+            return items[:limit] if isinstance(items, list) else []
+        
         return []
     
     async def _fetch_price_history(self, condition_id: str) -> Dict:

@@ -19,6 +19,7 @@ from repository import UserRepository
 from translations import get_text
 from market_intelligence import (
     market_intelligence, 
+    MarketIntelligenceEngine,
     Category, 
     TimeFrame, 
     SignalStrength,
@@ -166,7 +167,7 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
     text += f"└ Total: {format_volume(market.volume_total)}\n\n"
     
     # Whale Analysis
-    text += f"🐋 <b>{get_text('intel_whale_analysis', lang)}</b>\n"
+    text += f"🐋 <b>{get_text('lbl_whale_analysis', lang)}</b>\n"
     
     if market.whale_consensus is not None:
         consensus_pct = int(market.whale_consensus * 100)
@@ -182,7 +183,7 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
         else:
             text += get_text("lbl_not_enough_data", lang) + "\n"
     else:
-        text += "<i>Дані про активність китів тимчасово недоступні (Data unavailable).</i>\n"
+        text += f"<i>Немає великих угод (>${MarketIntelligenceEngine.WHALE_THRESHOLD}) за 24h</i>\n"
     text += "\n" # Add a newline for spacing after whale analysis
     
     # Retail analysis
