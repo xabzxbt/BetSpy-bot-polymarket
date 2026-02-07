@@ -755,7 +755,7 @@ class MarketIntelligenceEngine:
         change_24h = market.price_change_24h
         
         # Align direction
-        if market.whale_consensus < 0.5:
+        if market.whale_consensus is not None and market.whale_consensus < 0.5:
             change_24h = -change_24h
         
         # Ideal trend: steady growth +5% to +15%
