@@ -522,27 +522,15 @@ class MarketIntelligenceEngine:
         
         return market
     
-    async def _fetch_market_trades(self, condition_id: str, limit: int = 500) -> List[Dict]:
-        """Fetch recent trades for a market."""
+    async def _fetch_market_trades(self, condition_id: str, limit: int = 100) -> List[Dict]:
+        """Fetch recent trades for a market from CLOB API."""
         if not condition_id:
             return []
         
-        # Try the activity endpoint first (more reliable)
-        url = f"{self.data_api_url}/activity"
+        # Use CLOB API trades endpoint (not data-api)
+        url = f"{self.clob_api_url}/trades"
         params = {
             "market": condition_id,
-            "limit": limit,
-        }
-        
-        data = await self._request(url, params)
-        if data and isinstance(data, list):
-            return data
-        
-        # Fallback to trades endpoint
-        url = f"{self.data_api_url}/trades"
-        params = {
-            "market": condition_id,
-            "limit": limit,
         }
         
         data = await self._request(url, params)

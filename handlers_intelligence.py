@@ -30,6 +30,7 @@ from keyboards_intelligence import (
     get_category_keyboard,
     get_market_detail_keyboard,
     get_signals_keyboard,
+    get_cached_market,
 )
 
 
@@ -529,12 +530,13 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
                 )
 
 
-@router.callback_query(F.data.startswith("intel:detail:"))
+@router.callback_query(F.data.startswith("intel:m:"))
 async def callback_market_detail(callback: CallbackQuery) -> None:
     """Show detailed market analysis."""
     logger.info(f"Received callback: {callback.data} from user {callback.from_user.id}")
     
-    condition_id = callback.data.split(":")[2]
+    # Extract the cache key from callback data (intel:m:12345)
+    cache_key = callback.data.split(":")[2]
     
     async with db.session() as session:
         user_repo = UserRepository(session)
@@ -549,44 +551,25 @@ async def callback_market_detail(callback: CallbackQuery) -> None:
         except Exception as e:
             logger.warning(f"Could not answer callback: {e}")
         
-        # Show loading
-        try:
-            await callback.message.edit_text(
-                "🔄 Завантажую детальний аналіз...",
-                parse_mode=ParseMode.HTML,
-            )
-        except Exception:
-            # If message edit fails (timeout), send new message
-            await callback.message.answer(
-                "🔄 Завантажую детальний аналіз...",
-                parse_mode=ParseMode.HTML,
-            )
+        # Get market from cache
+        market = get_cached_market(cache_key)
+        
+        if not market:
+            try:
+                await callback.message.edit_text(
+                    "❌ Ринок не знайдено. Спробуй оновити список.",
+                    reply_markup=get_category_keyboard(user.language),
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception:
+                await callback.message.answer(
+                    "❌ Ринок не знайдено. Спробуй оновити список.",
+                    reply_markup=get_category_keyboard(user.language),
+                    parse_mode=ParseMode.HTML,
+                )
             return
         
         try:
-            await market_intelligence.init()
-            
-            # Fetch all markets to find this one
-            # In production, you'd cache this or fetch by ID
-            markets = await market_intelligence.fetch_trending_markets(
-                category=Category.ALL,
-                timeframe=TimeFrame.MONTH,
-                limit=50,
-            )
-            
-            market = None
-            for m in markets:
-                if m.condition_id == condition_id:
-                    market = m
-                    break
-            
-            if not market:
-                await callback.message.edit_text(
-                    "❌ Ринок не знайдено",
-                    parse_mode=ParseMode.HTML,
-                )
-                return
-            
             # Generate recommendation
             rec = market_intelligence.generate_recommendation(market)
             

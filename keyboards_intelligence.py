@@ -2,11 +2,46 @@
 Keyboard builders for BetSpy Market Intelligence features.
 """
 
-from typing import List
+from typing import List, Dict
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from market_intelligence import MarketStats, Category, TimeFrame
+
+
+# Cache for markets to use short indices instead of long condition_ids
+# Key: short index (string), Value: MarketStats
+_market_cache: Dict[str, MarketStats] = {}
+_cache_counter = 0
+
+
+def cache_markets(markets: List[MarketStats]) -> List[str]:
+    """
+    Cache markets and return list of short keys.
+    This avoids BUTTON_DATA_INVALID error from long condition_ids.
+    """
+    global _cache_counter, _market_cache
+    
+    keys = []
+    for market in markets:
+        _cache_counter += 1
+        # Use short numeric key (max 8 chars)
+        key = str(_cache_counter % 100000000)
+        _market_cache[key] = market
+        keys.append(key)
+    
+    # Clean old entries if cache gets too large
+    if len(_market_cache) > 1000:
+        # Keep only the last 500 entries
+        items = list(_market_cache.items())
+        _market_cache = dict(items[-500:])
+    
+    return keys
+
+
+def get_cached_market(key: str) -> MarketStats:
+    """Get market from cache by short key."""
+    return _market_cache.get(key)
 
 
 def get_category_keyboard(lang: str) -> InlineKeyboardMarkup:
@@ -80,12 +115,15 @@ def get_trending_keyboard(
     """Keyboard with market selection buttons."""
     builder = InlineKeyboardBuilder()
     
+    # Cache markets and get short keys
+    keys = cache_markets(markets[:10])
+    
     # Market buttons (up to 10)
     row_buttons = []
-    for i, market in enumerate(markets[:10], 1):
+    for i, key in enumerate(keys, 1):
         btn = InlineKeyboardButton(
             text=f"{i}",
-            callback_data=f"intel:detail:{market.condition_id}"
+            callback_data=f"intel:m:{key}"  # Short format: intel:m:12345
         )
         row_buttons.append(btn)
         
@@ -128,12 +166,15 @@ def get_signals_keyboard(
     """Keyboard for signals view."""
     builder = InlineKeyboardBuilder()
     
+    # Cache markets and get short keys
+    keys = cache_markets(markets[:10])
+    
     # Market buttons
     row_buttons = []
-    for i, market in enumerate(markets[:10], 1):
+    for i, key in enumerate(keys, 1):
         btn = InlineKeyboardButton(
             text=f"{i}",
-            callback_data=f"intel:detail:{market.condition_id}"
+            callback_data=f"intel:m:{key}"  # Short format
         )
         row_buttons.append(btn)
         
@@ -181,14 +222,6 @@ def get_market_detail_keyboard(
             url=market.market_url
         ),
     )
-    
-    # Set alert (future feature)
-    # builder.row(
-    #     InlineKeyboardButton(
-    #         text="🔔 Сповіщати про зміни",
-    #         callback_data=f"intel:alert:{market.condition_id}"
-    #     ),
-    # )
     
     # Back to list
     builder.row(
