@@ -605,6 +605,240 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "ru": "📭 Нет последних сделок для этого кошелька.",
     },
     
+    
+    # ==================== INTELLIGENCE / CATEGORIES ====================
+    "intel_title": {
+        "en": "📊 <b>MARKET SIGNALS</b>",
+        "uk": "📊 <b>СИГНАЛИ РИНКІВ</b>",
+        "ru": "📊 <b>СИГНАЛЫ РЫНКОВ</b>",
+    },
+    "intel_choose_category": {
+        "en": "Choose a category to find top opportunities:",
+        "uk": "Обери категорію для пошуку можливостей:",
+        "ru": "Выберите категорию для поиска возможностей:",
+    },
+    "intel_header_category": {
+        "en": "{emoji} <b>SIGNALS: {category}</b>",
+        "uk": "{emoji} <b>СИГНАЛИ: {category}</b>",
+        "ru": "{emoji} <b>СИГНАЛЫ: {category}</b>",
+    },
+    "intel_page_info": {
+        "en": "<i>Page {page}/{total_pages} | Total: {total_items}</i>",
+        "uk": "<i>Сторінка {page}/{total_pages} | Всього: {total_items}</i>",
+        "ru": "<i>Страница {page}/{total_pages} | Всего: {total_items}</i>",
+    },
+    "intel_click_hint": {
+        "en": "💡 <i>Click number for details</i>",
+        "uk": "💡 <i>Натисни на номер для деталей</i>",
+        "ru": "💡 <i>Нажми на номер для деталей</i>",
+    },
+    "intel_footer_links": {
+        "en": "🔗 <b>Market Links:</b>",
+        "uk": "🔗 <b>Посилання на ринки:</b>",
+        "ru": "🔗 <b>Ссылки на рынки:</b>",
+    },
+    "intel_link_text": {
+        "en": "Go to market ↗️",
+        "uk": "Перейти до ринку ↗️",
+        "ru": "Перейти к рынку ↗️",
+    },
+    
+    # Category Names
+    "cat_politics": {
+        "en": "Politics",
+        "uk": "Політика",
+        "ru": "Политика",
+    },
+    "cat_sports": {
+        "en": "Sports",
+        "uk": "Спорт",
+        "ru": "Спорт",
+    },
+    "cat_pop_culture": {
+        "en": "Pop Culture",
+        "uk": "Поп-культура",
+        "ru": "Поп-культура",
+    },
+    "cat_business": {
+        "en": "Business",
+        "uk": "Бізнес",
+        "ru": "Бизнес",
+    },
+    "cat_crypto": {
+        "en": "Crypto",
+        "uk": "Крипто",
+        "ru": "Крипто",
+    },
+    "cat_science": {
+        "en": "Science",
+        "uk": "Наука",
+        "ru": "Наука",
+    },
+    "cat_gaming": {
+        "en": "Gaming",
+        "uk": "Ігри",
+        "ru": "Игры",
+    },
+    "cat_entertainment": {
+        "en": "Entertainment",
+        "uk": "Розваги",
+        "ru": "Развлечения",
+    },
+    "cat_world": {
+        "en": "World",
+        "uk": "Світ",
+        "ru": "Мир",
+    },
+    "cat_tech": {
+        "en": "Tech",
+        "uk": "Технології",
+        "ru": "Технологии",
+    },
+    "cat_all": {
+        "en": "All Categories",
+        "uk": "Всі категорії",
+        "ru": "Все категории",
+    },
+    "cat_economics": { # Fallback / alias
+         "en": "Economics",
+         "uk": "Економіка",
+         "ru": "Экономика",
+    },
+    "cat_economics": { # Fallback / alias
+         "en": "Economics",
+         "uk": "Економіка",
+         "ru": "Экономика",
+    },
+    
+    # Market Card Labels
+    "lbl_vol": {
+        "en": "💰 Vol:",
+        "uk": "💰 Обсяг:",
+        "ru": "💰 Объем:",
+    },
+    "lbl_whales": {
+        "en": "🐋 Whales:",
+        "uk": "🐋 Кити:",
+        "ru": "🐋 Киты:",
+    },
+    "lbl_signal": {
+        "en": "Signal:",
+        "uk": "Сигнал:",
+        "ru": "Сигнал:",
+    },
+    "lbl_rec": {
+        "en": "💡 Recommendation:",
+        "uk": "💡 Рекомендація:",
+        "ru": "💡 Рекомендация:",
+    },
+    "lbl_prices": {
+        "en": "💰 PRICES:",
+        "uk": "💰 ЦІНИ:",
+        "ru": "💰 ЦЕНЫ:",
+    },
+    "lbl_today": {
+        "en": "🕐 Today",
+        "uk": "🕐 Сьогодні",
+        "ru": "🕐 Сегодня",
+    },
+    "lbl_tomorrow": {
+        "en": "🕐 Tomorrow",
+        "uk": "🕐 Завтра",
+        "ru": "🕐 Завтра",
+    },
+    "lbl_days_left": {
+        "en": "🕐 {days} days",
+        "uk": "🕐 {days} дн.",
+        "ru": "🕐 {days} дн.",
+    },
+    "lbl_days_left": {
+        "en": "🕐 {days} days",
+        "uk": "🕐 {days} дн.",
+        "ru": "🕐 {days} дн.",
+    },
+    
+    # Detailed Analysis Labels
+    "lbl_volume_title": {
+        "en": "📊 <b>VOLUME:</b>",
+        "uk": "📊 <b>ОБСЯГ:</b>",
+        "ru": "📊 <b>ОБЪЕМ:</b>",
+    },
+    "lbl_whale_analysis": {
+        "en": "🐋 <b>WHALE ANALYSIS:</b>",
+        "uk": "🐋 <b>АНАЛІЗ КИТІВ:</b>",
+        "ru": "🐋 <b>АНАЛИЗ КИТОВ:</b>",
+    },
+    "lbl_retail": {
+        "en": "👥 <b>RETAIL:</b>",
+        "uk": "👥 <b>РІТЕЙЛ:</b>",
+        "ru": "👥 <b>РИТЕЙЛ:</b>",
+    },
+    "lbl_trend": {
+        "en": "📈 <b>TREND:</b>",
+        "uk": "📈 <b>ТРЕНД:</b>",
+        "ru": "📈 <b>ТРЕНД:</b>",
+    },
+    "lbl_closing": {
+        "en": "⏰ <b>CLOSING:</b>",
+        "uk": "⏰ <b>ЗАКРИТТЯ:</b>",
+        "ru": "⏰ <b>ЗАКРЫТИЕ:</b>",
+    },
+    "lbl_score_breakdown": {
+        "en": "📊 <b>SCORE BREAKDOWN:</b>",
+        "uk": "📊 <b>ДЕТАЛІ ОЦІНКИ:</b>",
+        "ru": "📊 <b>ДЕТАЛИ ОЦЕНКИ:</b>",
+    },
+    "lbl_recommendation": {
+        "en": "💡 <b>RECOMMENDATION:</b>",
+        "uk": "💡 <b>РЕКОМЕНДАЦІЯ:</b>",
+        "ru": "💡 <b>РЕКОМЕНДАЦИЯ:</b>",
+    },
+    "lbl_bet_yes": {
+        "en": "✅ <b>BET: YES</b>",
+        "uk": "✅ <b>СТАВИТИ: YES</b>",
+        "ru": "✅ <b>СТАВИТЬ: YES</b>",
+    },
+    "lbl_bet_no": {
+        "en": "✅ <b>BET: NO</b>",
+        "uk": "✅ <b>СТАВИТИ: NO</b>",
+        "ru": "✅ <b>СТАВИТЬ: NO</b>",
+    },
+    "lbl_dont_bet": {
+        "en": "❌ <b>DO NOT BET</b>",
+        "uk": "❌ <b>НЕ СТАВИТИ</b>",
+        "ru": "❌ <b>НЕ СТАВИТЬ</b>",
+    },
+    "lbl_pros": {
+        "en": "✅ <b>Pros:</b>",
+        "uk": "✅ <b>Плюси:</b>",
+        "ru": "✅ <b>Плюсы:</b>",
+    },
+    "lbl_cons": {
+        "en": "⚠️ <b>Risks:</b>",
+        "uk": "⚠️ <b>Ризики:</b>",
+        "ru": "⚠️ <b>Риски:</b>",
+    },
+    "lbl_open_polymarket": {
+        "en": "🔗 <a href='{url}'>Open on Polymarket ↗️</a>",
+        "uk": "🔗 <a href='{url}'>Відкрити на Polymarket ↗️</a>",
+        "ru": "🔗 <a href='{url}'>Открыть на Polymarket ↗️</a>",
+    },
+    "lbl_whales_yes": {
+        "en": "├ Whales YES: {count}",
+        "uk": "├ Кити YES: {count}",
+        "ru": "├ Киты YES: {count}",
+    },
+    "lbl_whales_no": {
+        "en": "└ Whales NO: {count}",
+        "uk": "└ Кити NO: {count}",
+        "ru": "└ Киты NO: {count}",
+    },
+    "lbl_not_enough_data": {
+        "en": "└ Not enough data",
+        "uk": "└ Недостатньо даних",
+        "ru": "└ Недостаточно данных",
+    },
+    
     # ==================== SETTINGS ====================
     "settings_menu": {
         "en": "⚙️ <b>Settings</b>\n\nCurrent language: 🇬🇧 English",
@@ -710,6 +944,28 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "en": "🔴 SELL",
         "uk": "🔴 ПРОДАЖ",
         "ru": "🔴 ПРОДАЖА",
+    },
+    
+    "btn_prev_page": {
+        "en": "⬅️ Prev",
+        "uk": "⬅️ Попер.",
+        "ru": "⬅️ Пред.",
+    },
+    "btn_next_page": {
+        "en": "Next ➡️",
+        "uk": "Наст. ➡️",
+        "ru": "След. ➡️",
+    },
+    "btn_refresh": {
+        "en": "🔄 Refresh",
+        "uk": "🔄 Оновити",
+        "ru": "🔄 Обновить",
+    },
+    
+    "no_signals": {
+        "en": "<b>No active signals found.</b>\nTry later or check another category.",
+        "uk": "<b>Не знайдено активних сигналів.</b>\nСпробуй пізніше або іншу категорію.",
+        "ru": "<b>Не найдено активных сигналов.</b>\nПопробуй позже или другую категорию.",
     },
     
     # ==================== ERRORS ====================

@@ -7,6 +7,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from market_intelligence import MarketStats, Category, TimeFrame
+from translations import get_text
 
 
 # Cache for markets to use short indices instead of long condition_ids
@@ -50,36 +51,36 @@ def get_category_keyboard(lang: str) -> InlineKeyboardMarkup:
     
     # Row 1: Politics, Sports
     builder.row(
-        InlineKeyboardButton(text="🏛️ Політика", callback_data="intel:cat:politics"),
-        InlineKeyboardButton(text="⚽ Спорт", callback_data="intel:cat:sports"),
+        InlineKeyboardButton(text=f"🏛️ {get_text('cat_politics', lang)}", callback_data="intel:cat:politics"),
+        InlineKeyboardButton(text=f"⚽ {get_text('cat_sports', lang)}", callback_data="intel:cat:sports"),
     )
     # Row 2: Pop Culture, Business
     builder.row(
-        InlineKeyboardButton(text="🎬 Поп-культура", callback_data="intel:cat:pop-culture"),
-        InlineKeyboardButton(text="💼 Бізнес", callback_data="intel:cat:business"),
+        InlineKeyboardButton(text=f"🎬 {get_text('cat_pop_culture', lang)}", callback_data="intel:cat:pop-culture"),
+        InlineKeyboardButton(text=f"💼 {get_text('cat_business', lang)}", callback_data="intel:cat:business"),
     )
     # Row 3: Crypto, Science
     builder.row(
-        InlineKeyboardButton(text="₿ Крипто", callback_data="intel:cat:crypto"),
-        InlineKeyboardButton(text="🔬 Наука", callback_data="intel:cat:science"),
+        InlineKeyboardButton(text=f"₿ {get_text('cat_crypto', lang)}", callback_data="intel:cat:crypto"),
+        InlineKeyboardButton(text=f"🔬 {get_text('cat_science', lang)}", callback_data="intel:cat:science"),
     )
     # Row 4: Gaming, Entertainment
     builder.row(
-        InlineKeyboardButton(text="🎮 Ігри", callback_data="intel:cat:gaming"),
-        InlineKeyboardButton(text="🎭 Розваги", callback_data="intel:cat:entertainment"),
+        InlineKeyboardButton(text=f"🎮 {get_text('cat_gaming', lang)}", callback_data="intel:cat:gaming"),
+        InlineKeyboardButton(text=f"🎭 {get_text('cat_entertainment', lang)}", callback_data="intel:cat:entertainment"),
     )
     # Row 5: World, Tech
     builder.row(
-        InlineKeyboardButton(text="🌍 Світ", callback_data="intel:cat:world"),
-        InlineKeyboardButton(text="💻 Технології", callback_data="intel:cat:tech"),
+        InlineKeyboardButton(text=f"🌍 {get_text('cat_world', lang)}", callback_data="intel:cat:world"),
+        InlineKeyboardButton(text=f"💻 {get_text('cat_tech', lang)}", callback_data="intel:cat:tech"),
     )
     # Row 6: All categories
     builder.row(
-        InlineKeyboardButton(text="📊 Всі категорії", callback_data="intel:cat:all"),
+        InlineKeyboardButton(text=f"📊 {get_text('cat_all', lang)}", callback_data="intel:cat:all"),
     )
     # Row 7: Back to main menu
     builder.row(
-        InlineKeyboardButton(text="🏠 Головне меню", callback_data="menu:main"),
+        InlineKeyboardButton(text=f"🏠 {get_text('btn_back_to_menu', lang)}", callback_data="menu:main"),
     )
     
     return builder.as_markup()
@@ -125,7 +126,7 @@ def get_trending_keyboard(
     if page > 1:
         nav_row.append(
             InlineKeyboardButton(
-                text="⬅️ Попер.", 
+                text=get_text("btn_prev_page", lang), 
                 callback_data=f"intel:p:{category}:{timeframe}:{page-1}"
             )
         )
@@ -141,7 +142,7 @@ def get_trending_keyboard(
     if page < total_pages:
         nav_row.append(
             InlineKeyboardButton(
-                text="Наст. ➡️", 
+                text=get_text("btn_next_page", lang), 
                 callback_data=f"intel:p:{category}:{timeframe}:{page+1}"
             )
         )
@@ -151,7 +152,7 @@ def get_trending_keyboard(
     # Refresh & Back
     builder.row(
         InlineKeyboardButton(
-            text="🔄 Оновити",
+            text=get_text("btn_refresh", lang),
             callback_data=f"intel:time:{category}:{timeframe}:{page}"  # Include page to refresh current view
         ),
     )
@@ -159,19 +160,16 @@ def get_trending_keyboard(
     # Navigation
     builder.row(
         InlineKeyboardButton(
-            text="🔙 Категорії",
+            text=f"🔙 {get_text('btn_trending', lang)}",
             callback_data="intel:back_categories"
         ),
         InlineKeyboardButton(
-            text="🏠 Меню",
+            text=f"🏠 {get_text('btn_back_to_menu', lang)}",
             callback_data="menu:main"
         ),
     )
     
     return builder.as_markup()
-
-
-
 
 
 def get_market_detail_keyboard(
@@ -184,7 +182,7 @@ def get_market_detail_keyboard(
     # Open market link
     builder.row(
         InlineKeyboardButton(
-            text="💰 Відкрити на Polymarket",
+            text=get_text("intel_link_text", lang), # NEW key needed
             url=market.market_url
         ),
     )
@@ -192,11 +190,11 @@ def get_market_detail_keyboard(
     # Back to list
     builder.row(
         InlineKeyboardButton(
-            text="⬅️ До списку",
+            text=f"⬅️ {get_text('btn_trending', lang)}",
             callback_data="intel:back_categories"
         ),
         InlineKeyboardButton(
-            text="🏠 Меню",
+            text=f"🏠 {get_text('btn_back_to_menu', lang)}",
             callback_data="menu:main"
         ),
     )

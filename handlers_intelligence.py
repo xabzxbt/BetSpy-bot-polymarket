@@ -75,16 +75,14 @@ def format_market_card(market: MarketStats, index: int, lang: str) -> str:
     
     # Time indicator
     if market.days_to_close == 0:
-        time_str = "🕐 Сьогодні"
+        time_str = get_text("lbl_today", lang)
     elif market.days_to_close == 1:
-        time_str = "🕐 Завтра"
-    elif market.days_to_close <= 7:
-        time_str = f"🕐 {market.days_to_close} днів"
+        time_str = get_text("lbl_tomorrow", lang)
     else:
-        time_str = f"🕐 {market.days_to_close} днів"
+        time_str = get_text("lbl_days_left", lang, days=market.days_to_close)
     
-    # Category emoji - all Polymarket categories
-    cat_emoji = {
+    # Category emoji & name
+    cat_emoji_map = {
         "politics": "🏛️",
         "sports": "⚽",
         "pop-culture": "🎬",
@@ -95,19 +93,24 @@ def format_market_card(market: MarketStats, index: int, lang: str) -> str:
         "entertainment": "🎭",
         "world": "🌍",
         "tech": "💻",
-    }.get(market.category, "📊")
+    }
+    cat_emoji = cat_emoji_map.get(market.category, "📊")
     
     # Escape HTML special characters in question to prevent parsing errors
     safe_question = html.escape(market.question[:50])
     ellipsis = "..." if len(market.question) > 50 else ""
     
+    lbl_vol = get_text("lbl_vol", lang)
+    lbl_whales = get_text("lbl_whales", lang)
+    lbl_signal = get_text("lbl_signal", lang)
+    
     text = (
         f"<b>{index}. {cat_emoji} {safe_question}{ellipsis}</b>\n"
-        f"├ 💰 Vol: {format_volume(market.volume_24h)} (24h)\n"
+        f"├ {lbl_vol} {format_volume(market.volume_24h)} (24h)\n"
         f"├ 🟢 YES {format_price(market.yes_price)} | 🔴 NO {format_price(market.no_price)}\n"
-        f"├ 🐋 Кити: {whale_str} {market.recommended_side}\n"
+        f"├ {lbl_whales} {whale_str} {market.recommended_side}\n"
         f"├ {time_str}\n"
-        f"└ {signal_emoji} <b>Signal: {market.signal_score}/100 → {market.recommended_side}</b>\n"
+        f"└ {signal_emoji} <b>{lbl_signal} {market.signal_score}/100 → {market.recommended_side}</b>\n"
     )
     
     return text
@@ -117,8 +120,8 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
     """Format detailed market analysis."""
     signal_emoji = format_signal_emoji(market.signal_strength)
     
-    # Category emoji - all Polymarket categories
-    cat_emoji = {
+    # Category emoji
+    cat_emoji_map = {
         "politics": "🏛️",
         "sports": "⚽",
         "pop-culture": "🎬",
@@ -129,46 +132,54 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
         "entertainment": "🎭",
         "world": "🌍",
         "tech": "💻",
-    }.get(market.category, "📊")
+    }
+    cat_emoji = cat_emoji_map.get(market.category, "📊")
     
-    # Escape HTML special characters in question
+    # Escape HTML special characters
     safe_question = html.escape(market.question)
     
     # Build the detailed view
     text = f"{cat_emoji} <b>{safe_question}</b>\n\n"
     
     # Signal summary
+    lbl_signal = get_text("lbl_signal", lang)
+    lbl_rec = get_text("lbl_rec", lang)
+    
     text += f"{'═'*30}\n"
-    text += f"{signal_emoji} <b>SIGNAL: {market.signal_score}/100</b>\n"
-    text += f"💡 Рекомендація: <b>{rec.side}</b> @ {format_price(rec.entry_price)}\n"
+    text += f"{signal_emoji} <b>{lbl_signal} {market.signal_score}/100</b>\n"
+    text += f"{lbl_rec} <b>{rec.side}</b> @ {format_price(rec.entry_price)}\n"
     text += f"{'═'*30}\n\n"
     
     # Price info
-    text += "💰 <b>ЦІНИ:</b>\n"
+    lbl_prices = get_text("lbl_prices", lang)
+    text += f"{lbl_prices}\n"
     text += f"├ 🟢 YES: {format_price(market.yes_price)}\n"
     text += f"└ 🔴 NO: {format_price(market.no_price)}\n\n"
     
     # Volume stats
-    text += "📊 <b>VOLUME:</b>\n"
+    lbl_volume = get_text("lbl_volume_title", lang)
+    text += f"{lbl_volume}\n"
     text += f"├ 24h: {format_volume(market.volume_24h)}\n"
     text += f"└ Total: {format_volume(market.volume_total)}\n\n"
     
     # Whale analysis
-    text += "🐋 <b>WHALE ANALYSIS:</b>\n"
+    lbl_whale = get_text("lbl_whale_analysis", lang)
+    text += f"{lbl_whale}\n"
     if market.whale_total_volume > 0:
         yes_pct = market.whale_consensus * 100
         no_pct = 100 - yes_pct
         text += f"├ 🟢 YES: {yes_pct:.0f}% ({format_volume(market.whale_yes_volume)})\n"
         text += f"├ 🔴 NO: {no_pct:.0f}% ({format_volume(market.whale_no_volume)})\n"
-        text += f"├ Кити YES: {market.whale_yes_count}\n"
-        text += f"└ Кити NO: {market.whale_no_count}\n\n"
+        text += get_text("lbl_whales_yes", lang, count=market.whale_yes_count) + "\n"
+        text += get_text("lbl_whales_no", lang, count=market.whale_no_count) + "\n\n"
     else:
-        text += "└ Недостатньо даних\n\n"
+        text += get_text("lbl_not_enough_data", lang) + "\n\n"
     
     # Retail analysis
+    lbl_retail = get_text("lbl_retail", lang)
     if market.retail_total_volume > 0:
         retail_yes_pct = (market.retail_yes_volume / market.retail_total_volume) * 100
-        text += "👥 <b>RETAIL:</b>\n"
+        text += f"{lbl_retail}\n"
         text += f"├ 🟢 YES: {retail_yes_pct:.0f}%\n"
         text += f"└ 🔴 NO: {100-retail_yes_pct:.0f}%\n\n"
     
@@ -176,7 +187,8 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
     if market.price_24h_ago > 0:
         change_24h = market.price_change_24h * 100
         sign = "+" if change_24h > 0 else ""
-        text += "📈 <b>ТРЕНД:</b>\n"
+        lbl_trend = get_text("lbl_trend", lang)
+        text += f"{lbl_trend}\n"
         text += f"├ 24h: {sign}{change_24h:.1f}%\n"
         if market.price_7d_ago > 0:
             change_7d = market.price_change_7d * 100
@@ -186,17 +198,19 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
             text += "\n"
     
     # Time to close
-    text += "⏰ <b>ЗАКРИТТЯ:</b>\n"
+    lbl_closing = get_text("lbl_closing", lang)
+    text += f"{lbl_closing}\n"
     if market.days_to_close == 0:
-        text += "└ Сьогодні!\n\n"
+        text += f"└ {get_text('lbl_today', lang)}\n\n"
     elif market.days_to_close == 1:
-        text += "└ Завтра\n\n"
+        text += f"└ {get_text('lbl_tomorrow', lang)}\n\n"
     else:
         end_str = market.end_date.strftime("%d.%m.%Y")
-        text += f"└ {end_str} ({market.days_to_close} днів)\n\n"
+        text += f"└ {end_str} ({get_text('lbl_days_left', lang, days=market.days_to_close)})\n\n"
     
     # Score breakdown
-    text += "📊 <b>SCORE BREAKDOWN:</b>\n"
+    lbl_score = get_text("lbl_score_breakdown", lang)
+    text += f"{lbl_score}\n"
     text += f"├ Whale Consensus: {market.signal_score * 0.4:.0f}/40\n"
     text += f"├ Volume: ~{market.signal_score * 0.2:.0f}/20\n"
     text += f"├ Trend: ~{market.signal_score * 0.2:.0f}/20\n"
@@ -204,48 +218,54 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
     text += f"└ Time Value: ~{market.signal_score * 0.1:.0f}/10\n\n"
     
     # Recommendation box
+    lbl_rec_title = get_text("lbl_recommendation", lang)
     text += f"{'═'*30}\n"
-    text += "💡 <b>РЕКОМЕНДАЦІЯ:</b>\n\n"
+    text += f"{lbl_rec_title}\n\n"
     
     if rec.should_bet:
-        text += f"✅ <b>СТАВИТИ: {rec.side}</b>\n\n"
+        bet_text = get_text("lbl_bet_yes" if rec.side == "YES" else "lbl_bet_no", lang)
+        text += f"{bet_text}\n\n"
         text += f"├ Entry: {format_price(rec.entry_price)}\n"
         text += f"├ Target: {format_price(rec.target_price)} (+{((rec.target_price/rec.entry_price)-1)*100:.0f}%)\n"
         text += f"├ Stop-loss: {format_price(rec.stop_loss_price)} (-{(1-(rec.stop_loss_price/rec.entry_price))*100:.0f}%)\n"
         text += f"└ Risk/Reward: 1:{rec.risk_reward_ratio:.1f}\n\n"
     else:
-        text += "❌ <b>НЕ СТАВИТИ</b>\n\n"
+        text += f"{get_text('lbl_dont_bet', lang)}\n\n"
     
     # Reasons
     if rec.reasons:
-        text += "✅ <b>Плюси:</b>\n"
+        text += f"{get_text('lbl_pros', lang)}\n"
         for reason in rec.reasons:
             text += f"  {reason}\n"
         text += "\n"
     
     # Warnings
     if rec.warnings:
-        text += "⚠️ <b>Ризики:</b>\n"
+        text += f"{get_text('lbl_cons', lang)}\n"
         for warning in rec.warnings:
             text += f"  {warning}\n"
             
     # Link
-    text += f"\n🔗 <a href='{market.market_url}'>Відкрити на Polymarket ↗️</a>"
+    link_text = get_text("lbl_open_polymarket", lang, url=market.market_url)
+    text += f"\n{link_text}"
     
     return text
 
 
-def format_market_links_footer(markets: list, start_index: int) -> str:
+def format_market_links_footer(markets: list, start_index: int, lang: str) -> str:
     """Format footer with links to each market."""
     if not markets:
         return ""
         
-    text = "\n🔗 <b>Посилання на ринки:</b>\n"
+    term_links = get_text("intel_footer_links", lang)
+    term_go_to = get_text("intel_link_text", lang)
+    
+    text = f"\n{term_links}\n"
     for i, market in enumerate(markets):
         idx = start_index + i
-        # Use HTML link
-        text += f"{idx}. <a href='{market.market_url}'>Перейти до ринку ↗️</a>\n"
+        text += f"{idx}. <a href='{market.market_url}'>{term_go_to}</a>\n"
     return text
+
 
 
 # ==================== COMMAND HANDLERS ====================
@@ -262,16 +282,18 @@ async def cmd_trending(message: Message) -> None:
         )
         
         try:
+            title = get_text("intel_title", user.language)
+            subtitle = get_text("intel_choose_category", user.language)
+            
             await message.answer(
-                "� <b>СИГНАЛИ РИНКІВ</b>\n\n"
-                "Обери категорію та часовий проміжок:",
+                f"{title}\n\n{subtitle}",
                 reply_markup=get_category_keyboard(user.language),
                 parse_mode=ParseMode.HTML,
             )
         except Exception as e:
             logger.error(f"Error in /trending: {e}")
             await message.answer(
-                "❌ Помилка при завантаженні даних. Спробуй пізніше.",
+                get_text("error_generic", user.language),
                 parse_mode=ParseMode.HTML,
             )
 
@@ -368,14 +390,15 @@ async def show_markets_page(
             pass
         
         # Show loading
+        loading_text = get_text("loading", user.language)
         try:
             await callback.message.edit_text(
-                "🔄 Аналізую ринки...\n\n<i>Це може зайняти декілька секунд...</i>",
+                f"{loading_text}\n\n<i>This may take a few seconds...</i>", # TODO: Translate hint
                 parse_mode=ParseMode.HTML,
             )
         except Exception:
             await callback.message.answer(
-                "🔄 Аналізую ринки...\n\n<i>Це може зайняти декілька секунд...</i>",
+                f"{loading_text}\n\n<i>This may take a few seconds...</i>",
                 parse_mode=ParseMode.HTML,
             )
         
@@ -397,24 +420,41 @@ async def show_markets_page(
                 )
                 timeframe = TimeFrame.MONTH
             
+            # Category mappings
+            cat_emoji_map = {
+                Category.POLITICS: "🏛️",
+                Category.SPORTS: "⚽",
+                Category.POP_CULTURE: "🎬",
+                Category.BUSINESS: "💼",
+                Category.CRYPTO: "₿",
+                Category.SCIENCE: "🔬",
+                Category.GAMING: "🎮",
+                Category.ENTERTAINMENT: "🎭",
+                Category.WORLD: "🌍",
+                Category.TECH: "💻",
+                Category.ALL: "📊",
+            }
+            emoji = cat_emoji_map.get(category, "📊")
+            
+            cat_key_map = {
+                Category.POLITICS: "cat_politics",
+                Category.SPORTS: "cat_sports",
+                Category.POP_CULTURE: "cat_pop_culture",
+                Category.BUSINESS: "cat_business",
+                Category.CRYPTO: "cat_crypto",
+                Category.SCIENCE: "cat_science",
+                Category.GAMING: "cat_gaming",
+                Category.ENTERTAINMENT: "cat_entertainment",
+                Category.WORLD: "cat_world",
+                Category.TECH: "cat_tech",
+                Category.ALL: "cat_all",
+            }
+            cat_key = cat_key_map.get(category, "cat_all")
+            cat_name = get_text(cat_key, user.language)
+            
             if not markets:
-                cat_emoji = {
-                    Category.POLITICS: "🏛️",
-                    Category.SPORTS: "⚽",
-                    Category.POP_CULTURE: "🎬",
-                    Category.BUSINESS: "💼",
-                    Category.CRYPTO: "₿",
-                    Category.SCIENCE: "🔬",
-                    Category.GAMING: "🎮",
-                    Category.ENTERTAINMENT: "🎭",
-                    Category.WORLD: "🌍",
-                    Category.TECH: "💻",
-                    Category.ALL: "📊",
-                }.get(category, "📊")
-                
                 await callback.message.edit_text(
-                    f"{cat_emoji} <b>Не знайдено активних сигналів.</b>\n\n"
-                    "Спробуйте пізніше або іншу категорію.",
+                    get_text("no_signals", user.language),
                     reply_markup=get_category_keyboard(user.language),
                     parse_mode=ParseMode.HTML,
                 )
@@ -433,37 +473,11 @@ async def show_markets_page(
             
             markets_page = markets[start_idx:end_idx]
             
-            # Format display
-            cat_emoji = {
-                Category.POLITICS: "🏛️",
-                Category.SPORTS: "⚽",
-                Category.POP_CULTURE: "🎬",
-                Category.BUSINESS: "💼",
-                Category.CRYPTO: "₿",
-                Category.SCIENCE: "🔬",
-                Category.GAMING: "🎮",
-                Category.ENTERTAINMENT: "🎭",
-                Category.WORLD: "🌍",
-                Category.TECH: "💻",
-                Category.ALL: "📊",
-            }.get(category, "📊")
+            # Header
+            header = get_text("intel_header_category", user.language, emoji=emoji, category=cat_name.upper())
+            page_info = get_text("intel_page_info", user.language, page=page, total_pages=total_pages, total_items=total_items)
             
-            cat_name = {
-                Category.POLITICS: "Політика",
-                Category.SPORTS: "Спорт",
-                Category.POP_CULTURE: "Pop Culture",
-                Category.BUSINESS: "Бізнес",
-                Category.CRYPTO: "Крипто",
-                Category.SCIENCE: "Наука",
-                Category.GAMING: "Ігри",
-                Category.ENTERTAINMENT: "Розваги",
-                Category.WORLD: "Світ",
-                Category.TECH: "Технології",
-                Category.ALL: "Всі",
-            }.get(category, "Всі")
-            
-            text = f"{cat_emoji} <b>СИГНАЛИ: {cat_name.upper()}</b>\n"
-            text += f"<i>Сторінка {page}/{total_pages} | Всього: {total_items}</i>\n\n"
+            text = f"{header}\n{page_info}\n\n"
             
             # Cards
             for i, market in enumerate(markets_page):
@@ -472,9 +486,10 @@ async def show_markets_page(
                 text += "\n"
             
             # Footer links
-            text += format_market_links_footer(markets_page, start_idx + 1)
+            text += format_market_links_footer(markets_page, start_idx + 1, user.language)
             
-            text += "\n💡 <i>Натисни на номер для детального аналізу</i>"
+            hint = get_text("intel_click_hint", user.language)
+            text += f"\n{hint}"
             
             await callback.message.edit_text(
                 text,
@@ -494,7 +509,7 @@ async def show_markets_page(
             logger.error(f"Error fetching markets: {e}")
             try:
                 await callback.message.edit_text(
-                    "❌ Помилка при завантаженні даних.\nСпробуйте оновити або змінити категорію.",
+                    get_text("error_generic", user.language),
                     reply_markup=get_category_keyboard(user.language),
                     parse_mode=ParseMode.HTML,
                 )
