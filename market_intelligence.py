@@ -374,6 +374,9 @@ class MarketIntelligenceEngine:
         markets = []
         for item in data:
             try:
+                item_event_slug = item.get("eventSlug", "")
+                item_slug = item.get("slug", "")
+
                 # FILTERING LOGIC
                 # If we have a market_slug, ONLY return that market
                 if market_slug and item_slug != market_slug:

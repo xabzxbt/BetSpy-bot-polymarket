@@ -250,3 +250,4 @@ libraries/
 
 # Ignore the database file that might be created locally
 bot_database.db
+git_push_script.bat
