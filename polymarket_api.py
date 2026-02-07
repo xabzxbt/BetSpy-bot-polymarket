@@ -22,7 +22,7 @@ from tenacity import (
 )
 from loguru import logger
 
-from config import get_settings
+from config import get_settings, get_referral_link
 
 
 # =========================
@@ -71,9 +71,8 @@ class Trade:
 
     @property
     def market_link(self) -> str:
-        """Get link to the market on Polymarket."""
-        base_url = "https://polymarket.com/event"
-        return f"{base_url}/{self.event_slug}/{self.slug}"
+        """Get link to the market on Polymarket with referral code."""
+        return get_referral_link(self.event_slug, self.slug)
 
     @property
     def formatted_time(self) -> str:
@@ -128,9 +127,8 @@ class Position:
 
     @property
     def market_link(self) -> str:
-        """Get link to the market on Polymarket."""
-        base_url = "https://polymarket.com/event"
-        return f"{base_url}/{self.event_slug}/{self.slug}"
+        """Get link to the market on Polymarket with referral code."""
+        return get_referral_link(self.event_slug, self.slug)
 
 
 @dataclass

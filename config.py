@@ -41,6 +41,12 @@ class Settings(BaseSettings):
         description="Polymarket User PnL base URL (USER_PNL_URL from frontend)",
     )
 
+    # Referral Code for Polymarket links
+    polymarket_referral_code: str = Field(
+        default="",
+        description="Polymarket referral code (e.g., xabzxbt-t1f3)",
+    )
+
     # Polling Configuration
     polling_interval_seconds: int = Field(
         default=60,
@@ -88,3 +94,23 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get cached settings instance."""
     return Settings()
+
+
+def get_referral_link(event_slug: str, market_slug: str) -> str:
+    """
+    Generate Polymarket link with referral code.
+    
+    Args:
+        event_slug: Event slug from API
+        market_slug: Market slug from API
+        
+    Returns:
+        Full URL with referral code if configured
+    """
+    settings = get_settings()
+    base_url = f"https://polymarket.com/event/{event_slug}/{market_slug}"
+    
+    if settings.polymarket_referral_code:
+        return f"{base_url}?via={settings.polymarket_referral_code}"
+    
+    return base_url
