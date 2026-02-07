@@ -275,14 +275,50 @@ async def process_analyze_link(message: Message, state: FSMContext) -> None:
             await state.clear()
             return
             
-        # We found markets. Show the best one (highest volume/liquidity)
-        best_market = markets[0]
-        
-        # Determine strict analysis/recommendation
-        rec = market_intelligence.generate_recommendation(best_market)
-        
-        # Format text
-        text = format_market_detail(best_market, rec, lang)
+        # Check if this is a multi-outcome event
+        if len(markets) > 1:
+            # Multi-outcome event: show TOP-3
+            top_markets = markets[:3]
+            
+            # Header explaining this is a multi-outcome event
+            text = f"📊 <b>Подія з {len(markets)} учасниками</b>\n"
+            text += f"Показуємо ТОП-3 за обсягом торгів:\n"
+            text += f"{'─'*28}\n\n"
+            
+            for i, market in enumerate(top_markets, 1):
+                rec = market_intelligence.generate_recommendation(market)
+                
+                # Compact format for each outcome
+                signal_emoji = "🟢" if market.signal_score >= 70 else "🟡" if market.signal_score >= 50 else "🔴"
+                
+                text += f"<b>{i}. {market.question[:80]}{'...' if len(market.question) > 80 else ''}</b>\n"
+                text += f"💰 YES: {int(market.yes_price*100)}¢ · NO: {int(market.no_price*100)}¢\n"
+                text += f"📊 Vol: ${market.volume_24h/1000:.1f}K · {signal_emoji} Сигнал: {market.signal_score}/100\n"
+                
+                # Whale info if available
+                wa = market.whale_analysis
+                if wa and wa.is_significant:
+                    whale_side = wa.dominance_side
+                    whale_pct = int(wa.dominance_pct)
+                    text += f"🐋 Smart Money: {whale_pct}% {whale_side}\n"
+                
+                # Recommendation
+                if rec.should_bet:
+                    text += f"✅ Рекомендація: <b>{rec.side}</b>\n"
+                else:
+                    text += f"❌ Не ставити\n"
+                
+                text += "\n"
+            
+            # Footer with link
+            if markets:
+                event_url = f"https://polymarket.com/event/{markets[0].event_slug}"
+                text += f"🔗 <a href='{event_url}'>Відкрити подію на Polymarket</a>"
+        else:
+            # Single outcome: show detailed view
+            best_market = markets[0]
+            rec = market_intelligence.generate_recommendation(best_market)
+            text = format_market_detail(best_market, rec, lang)
         
         await working_msg.edit_text(
             text,
