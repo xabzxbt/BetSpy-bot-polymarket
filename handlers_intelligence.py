@@ -331,6 +331,8 @@ async def cmd_signals(message: Message) -> None:
 @router.callback_query(F.data.startswith("intel:cat:"))
 async def callback_category_select(callback: CallbackQuery) -> None:
     """Handle category selection."""
+    logger.info(f"Received callback: {callback.data} from user {callback.from_user.id}")
+    
     category_str = callback.data.split(":")[2]
     
     try:
@@ -355,6 +357,11 @@ async def callback_category_select(callback: CallbackQuery) -> None:
         }.get(category, "📊 Всі")
         
         try:
+            await callback.answer()  # Always answer the callback first
+        except Exception as e:
+            logger.warning(f"Could not answer callback: {e}")
+        
+        try:
             await callback.message.edit_text(
                 f"🔥 <b>TRENDING MARKETS</b>\n\n"
                 f"Категорія: <b>{cat_name}</b>\n\n"
@@ -371,13 +378,13 @@ async def callback_category_select(callback: CallbackQuery) -> None:
                 reply_markup=get_timeframe_keyboard(user.language, category_str),
                 parse_mode=ParseMode.HTML,
             )
-    
-    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("intel:time:"))
 async def callback_timeframe_select(callback: CallbackQuery) -> None:
     """Handle timeframe selection and show markets."""
+    logger.info(f"Received callback: {callback.data} from user {callback.from_user.id}")
+    
     parts = callback.data.split(":")
     category_str = parts[2]
     timeframe_str = parts[3]
@@ -400,6 +407,11 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
             first_name=callback.from_user.first_name,
         )
         
+        try:
+            await callback.answer()  # Always answer the callback first
+        except Exception as e:
+            logger.warning(f"Could not answer callback: {e}")
+        
         # Show loading
         try:
             await callback.message.edit_text(
@@ -408,7 +420,6 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
             )
         except Exception as e:
             # If message edit fails (timeout), send new message
-            await callback.answer("⏳ Завантаження, зачекайте...", show_alert=False)
             await callback.message.answer(
                 "🔄 Аналізую ринки...\n\n<i>Це може зайняти декілька секунд...</i>",
                 parse_mode=ParseMode.HTML,
@@ -465,7 +476,6 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
                     reply_markup=get_category_keyboard(user.language),
                     parse_mode=ParseMode.HTML,
                 )
-                await callback.answer()
                 return
             
             # Format markets list with pagination - only show first 10
@@ -517,13 +527,13 @@ async def callback_timeframe_select(callback: CallbackQuery) -> None:
                     f"❌ Помилка при отриманні даних.\n\n<code>{str(e)[:200]}</code>\n\nСпробуй пізніше.",
                     parse_mode=ParseMode.HTML,
                 )
-    
-    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("intel:detail:"))
 async def callback_market_detail(callback: CallbackQuery) -> None:
     """Show detailed market analysis."""
+    logger.info(f"Received callback: {callback.data} from user {callback.from_user.id}")
+    
     condition_id = callback.data.split(":")[2]
     
     async with db.session() as session:
@@ -534,6 +544,11 @@ async def callback_market_detail(callback: CallbackQuery) -> None:
             first_name=callback.from_user.first_name,
         )
         
+        try:
+            await callback.answer()  # Always answer the callback first
+        except Exception as e:
+            logger.warning(f"Could not answer callback: {e}")
+        
         # Show loading
         try:
             await callback.message.edit_text(
@@ -542,7 +557,6 @@ async def callback_market_detail(callback: CallbackQuery) -> None:
             )
         except Exception:
             # If message edit fails (timeout), send new message
-            await callback.answer("⏳ Завантаження, зачекайте...", show_alert=False)
             await callback.message.answer(
                 "🔄 Завантажую детальний аналіз...",
                 parse_mode=ParseMode.HTML,
@@ -598,13 +612,13 @@ async def callback_market_detail(callback: CallbackQuery) -> None:
                     "❌ Помилка при отриманні даних.",
                     parse_mode=ParseMode.HTML,
                 )
-    
-    await callback.answer()
 
 
 @router.callback_query(F.data == "intel:back_categories")
 async def callback_back_to_categories(callback: CallbackQuery) -> None:
     """Go back to category selection."""
+    logger.info(f"Received callback: {callback.data} from user {callback.from_user.id}")
+    
     async with db.session() as session:
         user_repo = UserRepository(session)
         user = await user_repo.get_or_create(
@@ -612,6 +626,11 @@ async def callback_back_to_categories(callback: CallbackQuery) -> None:
             username=callback.from_user.username,
             first_name=callback.from_user.first_name,
         )
+        
+        try:
+            await callback.answer()  # Always answer the callback first
+        except Exception as e:
+            logger.warning(f"Could not answer callback: {e}")
         
         try:
             await callback.message.edit_text(
@@ -628,13 +647,13 @@ async def callback_back_to_categories(callback: CallbackQuery) -> None:
                 reply_markup=get_category_keyboard(user.language),
                 parse_mode=ParseMode.HTML,
             )
-    
-    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("intel:back_time:"))
 async def callback_back_to_timeframe(callback: CallbackQuery) -> None:
     """Go back to timeframe selection."""
+    logger.info(f"Received callback: {callback.data} from user {callback.from_user.id}")
+    
     category_str = callback.data.split(":")[2]
     
     async with db.session() as session:
@@ -659,6 +678,11 @@ async def callback_back_to_timeframe(callback: CallbackQuery) -> None:
         }.get(category, "📊 Всі")
         
         try:
+            await callback.answer()  # Always answer the callback first
+        except Exception as e:
+            logger.warning(f"Could not answer callback: {e}")
+        
+        try:
             await callback.message.edit_text(
                 f"🔥 <b>TRENDING MARKETS</b>\n\n"
                 f"Категорія: <b>{cat_name}</b>\n\n"
@@ -675,8 +699,13 @@ async def callback_back_to_timeframe(callback: CallbackQuery) -> None:
                 reply_markup=get_timeframe_keyboard(user.language, category_str),
                 parse_mode=ParseMode.HTML,
             )
-    
-    await callback.answer()
+
+
+# Catch-all callback handler for debugging
+@router.callback_query()
+async def catch_all_callbacks(callback: CallbackQuery):
+    logger.warning(f"Unhandled callback: {callback.data} from user {callback.from_user.id}")
+    await callback.answer("⚠️ Handler not found")
 
 
 def setup_intelligence_handlers(dp) -> None:

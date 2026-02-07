@@ -269,7 +269,7 @@ class TradeNotificationService:
                 if trade.timestamp > latest_timestamp:
                     latest_timestamp = trade.timestamp
             
-            # Send batched notifications
+            # Send batched notifications with proper rate limiting
             for user_id, notification_data in subscription_notifications.items():
                 sub = notification_data['sub']
                 trades = notification_data['trades']
@@ -277,10 +277,14 @@ class TradeNotificationService:
                 # Sort trades by timestamp to show in chronological order
                 trades.sort(key=lambda x: x.timestamp)
                 
-                await self._send_batch_notification(trades, sub)
-                
-                # Small delay between batch notifications to avoid rate limits
-                await asyncio.sleep(0.1)
+                # Split large batches into smaller ones to avoid rate limits
+                max_trades_per_batch = 5
+                for i in range(0, len(trades), max_trades_per_batch):
+                    batch = trades[i:i + max_trades_per_batch]
+                    await self._send_batch_notification(batch, sub)
+                    
+                    # Respect rate limits: 1 message per second per chat
+                    await asyncio.sleep(1.5)
             
             # Update timestamp for all subscriptions
             if latest_timestamp > max_timestamp:
@@ -395,6 +399,23 @@ class TradeNotificationService:
                     f"Marking as blocked."
                 )
                 await self._mark_user_blocked(subscription.user_id)
+            elif "Flood control" in str(e).lower() or "Too Many Requests" in str(e).lower():
+                logger.warning(
+                    f"Rate limited for user {subscription.user_telegram_id}: {e}. Waiting..."
+                )
+                # Wait for the suggested retry time or default to 5 seconds
+                retry_after = getattr(e, 'retry_after', 5)
+                await asyncio.sleep(retry_after)
+                # Try to send the message again
+                try:
+                    await self.bot.send_message(
+                        chat_id=subscription.user_telegram_id,
+                        text=message,
+                        parse_mode=ParseMode.HTML,
+                        disable_web_page_preview=True,
+                    )
+                except Exception as retry_e:
+                    logger.error(f"Retry failed for user {subscription.user_telegram_id}: {retry_e}")
             else:
                 logger.error(
                     f"Telegram error for user {subscription.user_telegram_id}: {e}"
