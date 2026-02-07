@@ -14,6 +14,7 @@ from loguru import logger
 import html
 import math
 
+import time
 from database import db
 from repository import UserRepository
 from translations import get_text
@@ -129,7 +130,62 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
     
     # === WHALE ANALYSIS ===
     text += f"🐋 <b>АНАЛІЗ КИТІВ</b>\n"
-    if market.whale_consensus is not None:
+    
+    if market.whale_analysis and market.whale_analysis.is_significant:
+        wa = market.whale_analysis
+        
+        if wa.dominance_side == "NEUTRAL":
+            sentiment_text = f"⚖️ {wa.sentiment}"
+        else:
+            sentiment_text = f"💎 {wa.sentiment}" if "Strong" in wa.sentiment else f"{wa.sentiment}"
+            
+        # 1. Headline: Smart Money
+        text += f"💡 Smart Money: <b>{sentiment_text}</b> ({wa.dominance_pct:.0f}%)\n"
+        
+        # 2. Visual Bar
+        bar_len = 10
+        if wa.total_volume > 0:
+            yes_share = wa.yes_volume / wa.total_volume
+            filled = int(yes_share * bar_len)
+        else:
+            filled = 5 # neutral
+            
+        bar = "▓" * filled + "░" * (bar_len - filled)
+        text += f"YES {bar} NO\n\n"
+        
+        # 3. Key Stats
+        # Max ticket
+        if wa.top_trade_size > 0:
+            text += f"🏆 Top Trade: <b>${format_volume(wa.top_trade_size)}</b> on {wa.top_trade_side}\n"
+            
+        # Last activity
+        if wa.last_trade_timestamp > 0:
+            # Simple assumption: trade ts is seconds or ms?
+            # API usually returns seconds or iso string.
+            # Assuming seconds for now based on typical graphQL/Rest APIs, but check.
+            # If date is current year, it's seconds.
+            now = time.time()
+            diff = now - wa.last_trade_timestamp
+            
+            if diff < 60:
+                time_str = "just now"
+            elif diff < 3600:
+                time_str = f"{int(diff/60)}m ago"
+            elif diff < 86400:
+                time_str = f"{int(diff/3600)}h ago"
+            else:
+                time_str = "1d+ ago"
+                
+            text += f"⏱ Last Activity: {time_str} on {wa.last_trade_side}\n"
+
+        text += "\n"
+        # 4. Volume Breakdown
+        text += f"📈 <b>YES:</b> ${format_volume(wa.yes_volume)} ({wa.yes_count} trades)\n"
+        text += f"📉 <b>NO:</b>  ${format_volume(wa.no_volume)} ({wa.no_count} trades)\n"
+        text += f"Total Vol: ${format_volume(wa.total_volume)}\n"
+
+    elif market.whale_consensus is not None:
+        # Legacy fallback
         consensus_pct = int(market.whale_consensus * 100)
         bar_len = 10
         filled = int(market.whale_consensus * bar_len)
@@ -139,7 +195,7 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
         text += f"Об'єм: {format_volume(market.whale_total_volume)}"
         text += f" ({market.whale_yes_count}↑ / {market.whale_no_count}↓)\n"
     else:
-        text += f"<i>Немає угод >${MarketIntelligenceEngine.WHALE_THRESHOLD}$ за 24h</i>\n"
+        text += f"<i>Немає значної активності китів (<$1000)</i>\n"
     
     text += "\n"
     

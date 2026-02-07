@@ -60,6 +60,29 @@ class SignalStrength(Enum):
 
 
 @dataclass
+class WhaleAnalysis:
+    """Structured analysis of whale activity."""
+    yes_volume: float = 0.0
+    no_volume: float = 0.0
+    yes_count: int = 0
+    no_count: int = 0
+    total_volume: float = 0.0
+    dominance_side: str = "NEUTRAL" # YES, NO, NEUTRAL
+    dominance_pct: float = 0.0
+    sentiment: str = "NEUTRAL"
+    
+    # Granular details
+    top_trade_size: float = 0.0
+    top_trade_side: str = ""
+    last_trade_timestamp: int = 0
+    last_trade_side: str = ""
+    
+    @property
+    def is_significant(self) -> bool:
+        return self.total_volume > 1000 # Minimum threshold to show specific analysis
+
+
+@dataclass
 class MarketStats:
     """Statistics for a single market."""
     condition_id: str
@@ -96,6 +119,9 @@ class MarketStats:
     # Retail analysis
     retail_yes_volume: float = 0.0
     retail_no_volume: float = 0.0
+
+    # New Structured Analysis
+    whale_analysis: Optional[WhaleAnalysis] = None
     
     # Price history
     price_24h_ago: float = 0.0
@@ -623,6 +649,12 @@ class MarketIntelligenceEngine:
         whale_no_vol = 0.0
         whale_yes_count = 0
         whale_no_count = 0
+        
+        top_trade_size = 0.0
+        top_trade_side = ""
+        last_trade_ts = 0
+        last_trade_side = ""
+        
         retail_yes_vol = 0.0
         retail_no_vol = 0.0
         
@@ -656,6 +688,17 @@ class MarketIntelligenceEngine:
                 else:
                     whale_no_vol += amount
                     whale_no_count += 1
+                
+                # Check for top trade
+                if amount > top_trade_size:
+                    top_trade_size = amount
+                    top_trade_side = "YES" if is_yes else "NO"
+                
+                # Check for last trade timestamp
+                ts = int(trade.get("timestamp", 0) or 0)
+                if ts > last_trade_ts:
+                    last_trade_ts = ts
+                    last_trade_side = "YES" if is_yes else "NO"
             else:
                 if is_yes:
                     retail_yes_vol += amount
@@ -682,7 +725,60 @@ class MarketIntelligenceEngine:
             market.price_24h_ago = price_history.get("price_24h", market.yes_price)
             market.price_7d_ago = price_history.get("price_7d", market.yes_price)
         
+        # Run analysis
+        self._analyze_whales(market, top_trade_size, top_trade_side, last_trade_ts, last_trade_side)
+            
         return market
+
+    def _analyze_whales(self, market: MarketStats, 
+                       top_size: float = 0, top_side: str = "",
+                       last_ts: int = 0, last_side: str = "") -> None:
+        """Perform structured whale analysis and populate market.whale_analysis."""
+        yes_vol = market.whale_yes_volume
+        no_vol = market.whale_no_volume
+        total_vol = yes_vol + no_vol
+        
+        yes_count = market.whale_yes_count
+        no_count = market.whale_no_count
+        
+        analysis = WhaleAnalysis(
+            yes_volume=yes_vol,
+            no_volume=no_vol,
+            yes_count=yes_count,
+            no_count=no_count,
+            total_volume=total_vol,
+            top_trade_size=top_size,
+            top_trade_side=top_side,
+            last_trade_timestamp=last_ts,
+            last_trade_side=last_side
+        )
+        
+        if total_vol > 0:
+            yes_pct = (yes_vol / total_vol) * 100
+            no_pct = (no_vol / total_vol) * 100
+            
+            if yes_pct > no_pct:
+                analysis.dominance_side = "YES"
+                analysis.dominance_pct = yes_pct
+            else:
+                analysis.dominance_side = "NO"
+                analysis.dominance_pct = no_pct
+                
+            # Determine sentiment
+            if analysis.dominance_pct >= 80:
+                analysis.sentiment = f"💎 Strong {analysis.dominance_side}"
+            elif analysis.dominance_pct >= 60:
+                analysis.sentiment = f"bullish {analysis.dominance_side}"
+            elif analysis.dominance_pct >= 55:
+                analysis.sentiment = f"leaning {analysis.dominance_side}"
+            else:
+                analysis.sentiment = "Neutral / Mixed"
+        else:
+            analysis.dominance_side = "NEUTRAL"
+            analysis.dominance_pct = 0
+            analysis.sentiment = "No Activity"
+            
+        market.whale_analysis = analysis
     
     async def _fetch_market_trades_public(self, market: MarketStats, limit: int = 500) -> List[Dict]:
         """
@@ -828,15 +924,28 @@ class MarketIntelligenceEngine:
         if total_whale < self.WHALE_THRESHOLD:
             return 0  # Changed from 5 to 0 because low volume is not a signal
         
-        consensus = market.whale_consensus
-        deviation = abs(consensus - 0.5)
+        # Use structured analysis if available
+        if market.whale_analysis:
+            dominance = market.whale_analysis.dominance_pct
+            side = market.whale_analysis.dominance_side
+            
+            # 50% is neutral (0.5). We want deviation from 0.5
+            # If dominance is 80%, deviation is 0.3
+            if dominance >= 50:
+                 deviation = (dominance - 50) / 100
+            else:
+                 deviation = (50 - dominance) / 100
+        else:
+            # Fallback to legacy
+            consensus = market.whale_consensus
+            deviation = abs(consensus - 0.5)
         
         # Exponential scoring for high consensus
-        if deviation >= 0.30: return 45      # Super strong consensus
-        elif deviation >= 0.25: return 35    # Strong consensus
-        elif deviation >= 0.20: return 25    # Good consensus
-        elif deviation >= 0.15: return 15    # Moderate consensus
-        elif deviation >= 0.10: return 10    # Weak consensus
+        if deviation >= 0.30: return 45      # Super strong consensus (80%+)
+        elif deviation >= 0.25: return 35    # Strong consensus (75%+)
+        elif deviation >= 0.20: return 25    # Good consensus (70%+)
+        elif deviation >= 0.15: return 15    # Moderate consensus (65%+)
+        elif deviation >= 0.10: return 10    # Weak consensus (60%+)
         else: return 0
     
     def _calc_volume_score(self, market: MarketStats) -> float:
@@ -934,16 +1043,31 @@ class MarketIntelligenceEngine:
         warnings = []
         
         # Whale analysis
-        if market.whale_consensus is not None:
-            whale_pct = market.whale_consensus if side == "YES" else (1 - market.whale_consensus)
-            whale_pct_str = f"{whale_pct*100:.0f}%"
+        # Whale analysis - Conflict Check
+        if market.whale_analysis and market.whale_analysis.is_significant:
+            wa = market.whale_analysis
+            whale_side = wa.dominance_side
             
-            if whale_pct >= 0.75:
-                reasons.append(f"🐋 Сильний консенсус китів: {whale_pct_str} на {side}")
-            elif whale_pct >= 0.60:
-                reasons.append(f"🐋 Помірний консенсус китів: {whale_pct_str} на {side}")
-            else:
-                warnings.append(f"⚠️ Слабкий консенсус китів: {whale_pct_str}")
+            # Check for conflict: Signal says YES, Whales say NO (or vice versa)
+            if should_bet:
+                if side == "YES" and whale_side == "NO" and wa.dominance_pct >= 60:
+                     warnings.append(f"⚠️ Увага: Smart Money ставлять проти тренду (на NO)")
+                     risk_reward *= 0.8 # Penalize R:R
+                elif side == "NO" and whale_side == "YES" and wa.dominance_pct >= 60:
+                     warnings.append(f"⚠️ Увага: Smart Money ставлять проти тренду (на YES)")
+                     risk_reward *= 0.8
+            
+            # Add supportive reason if aligned
+            if whale_side == side and wa.dominance_pct >= 60:
+                reasons.append(f"🐋 Smart Money на вашому боці ({wa.dominance_pct:.0f}% {side})")
+                
+        elif market.whale_consensus is not None:
+             # Legacy
+             whale_pct = market.whale_consensus if side == "YES" else (1 - market.whale_consensus)
+             if whale_pct >= 0.60:
+                reasons.append(f"🐋 Консенсус китів: {whale_pct*100:.0f}% на {side}")
+             elif whale_pct <= 0.40:
+                warnings.append(f"⚠️ Кити ставлять проти ({100-whale_pct*100:.0f}% на інше)")
         else:
             warnings.append("⚠️ Дані китів недоступні — аналіз на основі volume/price")
         
