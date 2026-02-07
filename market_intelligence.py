@@ -88,6 +88,25 @@ class WhaleAnalysis:
     def is_significant(self) -> bool:
         return self.total_volume > 1000 # Minimum threshold to show specific analysis
 
+    @property
+    def large_whale_share_pct(self) -> float:
+        """Percentage of total whale volume that comes from large whales ($2000+)."""
+        if self.total_volume > 0:
+            return (self.large_volume / self.total_volume) * 100
+        return 0.0
+
+    @property
+    def duration_text(self) -> str:
+        """Formatted string for analysis duration (e.g. 'in last 4h')."""
+        if self.analysis_duration <= 0:
+            return ""
+        if self.analysis_duration < 3600:
+            return f"in last {int(self.analysis_duration/60)}m"
+        elif self.analysis_duration < 86400:
+            return f"in last {int(self.analysis_duration/3600)}h"
+        else:
+            return f"in last {int(self.analysis_duration/86400)}d"
+
 
 @dataclass
 class MarketStats:
