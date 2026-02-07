@@ -122,10 +122,23 @@ async def main() -> None:
     
     try:
         logger.info("Starting bot polling...")
-        await dp.start_polling(
-            bot,
-            allowed_updates=dp.resolve_used_update_types(),
-        )
+        while True:
+            try:
+                await dp.start_polling(
+                    bot,
+                    allowed_updates=dp.resolve_used_update_types(),
+                    polling_timeout=30,
+                )
+                break  # Exit loop if polling ends normally
+            except Exception as e:
+                if "terminated by other getUpdates request" in str(e):
+                    logger.error(f"Polling conflict detected: {e}")
+                    logger.error("Another bot instance may be running. Shutting down to prevent conflicts.")
+                    break
+                else:
+                    logger.error(f"Polling error: {e}")
+                    logger.info("Restarting polling in 5 seconds...")
+                    await asyncio.sleep(5)
     finally:
         # Cleanup
         logger.info("Cleaning up...")

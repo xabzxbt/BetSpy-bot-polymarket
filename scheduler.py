@@ -226,9 +226,11 @@ class TradeNotificationService:
             
             logger.info(f"Found {len(new_trades)} NEW trades for {wallet_address[:10]}...")
             
-            # Process each new trade
+            # Group trades by subscription to batch notifications
             latest_timestamp = max_timestamp
             
+            # Prepare notifications for each subscription
+            subscription_notifications = {}
             for trade in new_trades:
                 if not self._running:
                     break
@@ -237,7 +239,7 @@ class TradeNotificationService:
                 if trade.transaction_hash in self._processed_trades:
                     continue
                 
-                # Notify subscribers (each may have different min_amount)
+                # Check each subscription to see if they should be notified
                 for sub in subscriptions:
                     if not self._running:
                         break
@@ -255,7 +257,10 @@ class TradeNotificationService:
                     if trade.usdc_size < min_amount:
                         continue
                     
-                    await self._send_notification(trade, sub)
+                    # Add trade to this subscription's notifications
+                    if sub.user_telegram_id not in subscription_notifications:
+                        subscription_notifications[sub.user_telegram_id] = {'sub': sub, 'trades': []}
+                    subscription_notifications[sub.user_telegram_id]['trades'].append(trade)
                 
                 # Mark as processed
                 self._processed_trades[trade.transaction_hash] = trade.timestamp
@@ -263,6 +268,19 @@ class TradeNotificationService:
                 # Track latest timestamp
                 if trade.timestamp > latest_timestamp:
                     latest_timestamp = trade.timestamp
+            
+            # Send batched notifications
+            for user_id, notification_data in subscription_notifications.items():
+                sub = notification_data['sub']
+                trades = notification_data['trades']
+                
+                # Sort trades by timestamp to show in chronological order
+                trades.sort(key=lambda x: x.timestamp)
+                
+                await self._send_batch_notification(trades, sub)
+                
+                # Small delay between batch notifications to avoid rate limits
+                await asyncio.sleep(0.1)
             
             # Update timestamp for all subscriptions
             if latest_timestamp > max_timestamp:
@@ -332,6 +350,61 @@ class TradeNotificationService:
                 f"Failed to notify user {subscription.user_telegram_id} "
                 f"about trade {trade.transaction_hash[:10]}...: {e}"
             )
+
+    async def _send_batch_notification(
+        self,
+        trades: List[Trade],
+        subscription: WalletSubscription,
+    ) -> None:
+        """Send batch notification to a user for multiple trades."""
+        if not self._running or not trades:
+            return
+            
+        try:
+            message = self._format_batch_trade_notification(
+                trades=trades,
+                wallet_name=subscription.nickname,
+                lang=subscription.user_language,
+            )
+            
+            await self.bot.send_message(
+                chat_id=subscription.user_telegram_id,
+                text=message,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+            
+            logger.info(
+                f"Sent batch notification to user {subscription.user_telegram_id} "
+                f"for wallet {subscription.nickname} with {len(trades)} trades"
+            )
+            
+        except TelegramForbiddenError:
+            # User blocked the bot
+            logger.warning(
+                f"User {subscription.user_telegram_id} blocked the bot. "
+                f"Marking as blocked."
+            )
+            await self._mark_user_blocked(subscription.user_id)
+            
+        except TelegramBadRequest as e:
+            # Handle other Telegram errors
+            if "chat not found" in str(e).lower():
+                logger.warning(
+                    f"Chat not found for user {subscription.user_telegram_id}. "
+                    f"Marking as blocked."
+                )
+                await self._mark_user_blocked(subscription.user_id)
+            else:
+                logger.error(
+                    f"Telegram error for user {subscription.user_telegram_id}: {e}"
+                )
+                
+        except Exception as e:
+            logger.error(
+                f"Failed to send batch notification to user {subscription.user_telegram_id} "
+                f"for {len(trades)} trades: {e}"
+            )
     
     def _format_trade_notification(
         self,
@@ -354,6 +427,52 @@ class TradeNotificationService:
             price=trade.price,
             market_link=trade.market_link,
         )
+
+    def _format_batch_trade_notification(
+        self,
+        trades: List[Trade],
+        wallet_name: str,
+        lang: str,
+    ) -> str:
+        """Format batch trade notification message."""
+        if not trades:
+            return ""
+        
+        # Get the first trade to use as the base for the message
+        first_trade = trades[0]
+        side_text = get_side_text(first_trade.side, lang)
+        
+        # Calculate total USDC amount and number of trades
+        total_usdc = sum(trade.usdc_size for trade in trades)
+        trade_count = len(trades)
+        
+        # Get the most recent trade timestamp for the header
+        latest_timestamp = max(trade.timestamp for trade in trades)
+        import datetime
+        latest_time = datetime.datetime.fromtimestamp(latest_timestamp).strftime('%H:%M')
+        
+        # Create the header with summary
+        header = f"🐋 <b>НОВІ УГОДИ ({trade_count})</b>\n"
+        header += f"├ <b>{wallet_name}</b>\n"
+        header += f"├ Угода: {latest_time}\n"
+        header += f"├ Всього: ${total_usdc:.2f} USDC\n"
+        header += f"└ Трейди: {trade_count}\n\n"
+        
+        # Add individual trades (limit to 5 to avoid too long messages)
+        body = "<b>ДЕТАЛІ:</b>\n"
+        for i, trade in enumerate(trades[:5]):  # Limit to first 5 trades in the message
+            side_text = get_side_text(trade.side, lang)
+            body += f"├ {side_text} {trade.title[:30]}{'...' if len(trade.title) > 30 else ''}\n"
+            body += f"├ Сума: ${trade.usdc_size:.2f} USDC\n"
+            body += f"└ Ціна: {trade.price:.4f}\n\n"
+        
+        # If there are more than 5 trades, add a note
+        if len(trades) > 5:
+            body += f"<i>+ще {len(trades) - 5} угод(и)...</i>\n\n"
+        
+        footer = "💡 Перевір свій кабінет для детального аналізу"
+        
+        return header + body + footer
     
     def _cleanup_processed_cache(self) -> None:
         """Remove old entries from cache."""
