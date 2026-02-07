@@ -344,10 +344,10 @@ class MarketIntelligenceEngine:
         is_event_slug_match = False
         
         # 1. First try: treat as event_slug
+        # 1. First try: treat as event_slug
         params = {
             "event_slug": slug,
-            "active": "true",
-            "closed": "false",
+            # active/closed removed for broader search
         }
         
         data = await self._request(url, params)
@@ -368,11 +368,18 @@ class MarketIntelligenceEngine:
             logger.info(f"Trying as market slug: {slug}")
             params = {
                 "slug": slug,
-                "active": "true",
-                "closed": "false",
+                # active/closed removed for broader search
             }
             data = await self._request(url, params)
             is_event_slug_match = False 
+            
+            # 3. If STILL empty, try as ID
+            if not data or len(data) == 0:
+                logger.info(f"No markets found for slug={slug}, trying as ID...")
+                params = {
+                    "id": slug,
+                }
+                data = await self._request(url, params)
         else:
             is_event_slug_match = True
             
