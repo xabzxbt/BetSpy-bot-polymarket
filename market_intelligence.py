@@ -172,7 +172,8 @@ class MarketIntelligenceEngine:
         self.data_api_url = "https://data-api.polymarket.com"
         self.clob_api_url = "https://clob.polymarket.com"
         
-        self._limiter = AsyncLimiter(20, 60)  # 20 requests per minute
+        # Increased rate limit: 60 requests per minute (was 20)
+        self._limiter = AsyncLimiter(60, 60)
         self._session: Optional[aiohttp.ClientSession] = None
     
     async def init(self) -> None:
@@ -202,9 +203,16 @@ class MarketIntelligenceEngine:
                 async with self._session.get(url, params=params) as response:
                     if response.status == 200:
                         return await response.json()
+                    elif response.status == 429:
+                        logger.warning(f"Rate limited, waiting 5 seconds...")
+                        await asyncio.sleep(5)
+                        return None
                     else:
                         logger.warning(f"API error {response.status}: {url}")
                         return None
+            except asyncio.TimeoutError:
+                logger.warning(f"Request timeout: {url}")
+                return None
             except Exception as e:
                 logger.error(f"Request failed: {e}")
                 return None
@@ -516,6 +524,21 @@ class MarketIntelligenceEngine:
     
     async def _fetch_market_trades(self, condition_id: str, limit: int = 500) -> List[Dict]:
         """Fetch recent trades for a market."""
+        if not condition_id:
+            return []
+        
+        # Try the activity endpoint first (more reliable)
+        url = f"{self.data_api_url}/activity"
+        params = {
+            "market": condition_id,
+            "limit": limit,
+        }
+        
+        data = await self._request(url, params)
+        if data and isinstance(data, list):
+            return data
+        
+        # Fallback to trades endpoint
         url = f"{self.data_api_url}/trades"
         params = {
             "market": condition_id,

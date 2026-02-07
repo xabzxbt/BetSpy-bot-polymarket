@@ -273,14 +273,14 @@ async def cmd_signals(message: Message) -> None:
             seen = set()
             unique_markets = []
             for m in all_markets:
-                if m.condition_id not in seen:
+                if m.condition_id and m.condition_id not in seen:
                     seen.add(m.condition_id)
                     unique_markets.append(m)
             
             unique_markets.sort(key=lambda m: m.signal_score, reverse=True)
             
-            # Filter only good signals (score >= 60)
-            good_signals = [m for m in unique_markets if m.signal_score >= 60][:10]
+            # Filter only good signals (score >= 50) - lowered from 60 for more results
+            good_signals = [m for m in unique_markets if m.signal_score >= 50][:10]
             
             if not good_signals:
                 await loading_msg.edit_text(
@@ -614,6 +614,106 @@ async def callback_market_detail(callback: CallbackQuery) -> None:
                 )
 
 
+@router.callback_query(F.data == "intel:refresh_signals")
+async def callback_refresh_signals(callback: CallbackQuery) -> None:
+    """Refresh signals view."""
+    logger.info(f"Received callback: {callback.data} from user {callback.from_user.id}")
+    
+    async with db.session() as session:
+        user_repo = UserRepository(session)
+        user = await user_repo.get_or_create(
+            telegram_id=callback.from_user.id,
+            username=callback.from_user.username,
+            first_name=callback.from_user.first_name,
+        )
+        
+        try:
+            await callback.answer("🔄 Оновлюю...")
+        except Exception as e:
+            logger.warning(f"Could not answer callback: {e}")
+        
+        # Show loading
+        try:
+            await callback.message.edit_text(
+                "🔄 Аналізую ринки...",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            pass
+        
+        try:
+            # Fetch markets across all categories, short-term
+            await market_intelligence.init()
+            
+            all_markets = []
+            for timeframe in [TimeFrame.TODAY, TimeFrame.DAYS_2, TimeFrame.DAYS_3, TimeFrame.WEEK]:
+                try:
+                    markets = await market_intelligence.fetch_trending_markets(
+                        category=Category.ALL,
+                        timeframe=timeframe,
+                        limit=10,
+                    )
+                    all_markets.extend(markets)
+                except Exception as e:
+                    logger.warning(f"Error fetching {timeframe}: {e}")
+                    continue
+            
+            # Remove duplicates and sort by score
+            seen = set()
+            unique_markets = []
+            for m in all_markets:
+                if m.condition_id and m.condition_id not in seen:
+                    seen.add(m.condition_id)
+                    unique_markets.append(m)
+            
+            unique_markets.sort(key=lambda m: m.signal_score, reverse=True)
+            
+            # Filter only good signals (score >= 50)
+            good_signals = [m for m in unique_markets if m.signal_score >= 50][:10]
+            
+            if not good_signals:
+                # If no good signals, show top markets anyway
+                good_signals = unique_markets[:10]
+            
+            if not good_signals:
+                await callback.message.edit_text(
+                    "😔 <b>Немає сильних сигналів зараз</b>\n\n"
+                    "Спробуй пізніше або переглянь /trending для всіх ринків.",
+                    reply_markup=get_category_keyboard(user.language),
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+            
+            # Format response - only show first 5 signals
+            limited_signals = good_signals[:5]
+            
+            text = "🎯 <b>TOP SIGNALS</b>\n"
+            text += f"<i>Найкращі можливості прямо зараз (1-5 з {len(good_signals)})</i>\n\n"
+            
+            for i, market in enumerate(limited_signals, 1):
+                text += format_market_card(market, i, user.language)
+                text += "\n"
+            
+            text += "\n💡 <i>Натисни на номер для детального аналізу</i>"
+            
+            await callback.message.edit_text(
+                text,
+                reply_markup=get_signals_keyboard(user.language, limited_signals),
+                parse_mode=ParseMode.HTML,
+            )
+            
+        except Exception as e:
+            logger.error(f"Error refreshing signals: {e}")
+            try:
+                await callback.message.edit_text(
+                    "❌ Помилка при оновленні. Спробуй пізніше.",
+                    reply_markup=get_category_keyboard(user.language),
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception:
+                pass
+
+
 @router.callback_query(F.data == "intel:back_categories")
 async def callback_back_to_categories(callback: CallbackQuery) -> None:
     """Go back to category selection."""
@@ -701,10 +801,10 @@ async def callback_back_to_timeframe(callback: CallbackQuery) -> None:
             )
 
 
-# Catch-all callback handler for debugging
-@router.callback_query()
-async def catch_all_callbacks(callback: CallbackQuery):
-    logger.warning(f"Unhandled callback: {callback.data} from user {callback.from_user.id}")
+# Catch-all callback handler for intel: callbacks that aren't handled
+@router.callback_query(F.data.startswith("intel:"))
+async def catch_intel_callbacks(callback: CallbackQuery):
+    logger.warning(f"Unhandled intel callback: {callback.data} from user {callback.from_user.id}")
     await callback.answer("⚠️ Handler not found")
 
 

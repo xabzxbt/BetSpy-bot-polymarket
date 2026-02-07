@@ -215,11 +215,11 @@ async def callback_signals_redirect(callback: CallbackQuery) -> None:
                     logger.error(f"Error fetching {timeframe}: {e}")
                     continue
             
-            # Remove duplicates and sort by score
+            # Remove duplicates and sort by score (filter empty condition_ids)
             seen = set()
             unique_markets = []
             for m in all_markets:
-                if m.condition_id not in seen:
+                if m.condition_id and m.condition_id not in seen:
                     seen.add(m.condition_id)
                     unique_markets.append(m)
             
