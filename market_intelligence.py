@@ -597,6 +597,7 @@ class MarketIntelligenceEngine:
             # Parse end date
             end_date_str = data.get("endDate") or data.get("end_date_iso")
             if not end_date_str:
+                logger.warning(f"Market rejected: no endDate - {data.get('question', 'N/A')[:50]}")
                 return None
             
             # Handle various date formats
@@ -606,6 +607,7 @@ class MarketIntelligenceEngine:
                 else:
                     end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
             except:
+                logger.warning(f"Market rejected: date parse error - {data.get('question', 'N/A')[:50]}")
                 return None
             
             # Make end_date timezone-naive for comparison
@@ -614,12 +616,14 @@ class MarketIntelligenceEngine:
             
             now = datetime.utcnow()
             if end_date < now:
+                logger.warning(f"Market rejected: already closed - {data.get('question', 'N/A')[:50]}")
                 return None  # Already closed
             
             days_to_close = (end_date - now).days
             
             # Filter out long-term markets (> 35 days)
             if days_to_close > 35:
+                logger.warning(f"Market rejected: long-term ({days_to_close} days) - {data.get('question', 'N/A')[:50]}")
                 return None
             
             # Parse prices
