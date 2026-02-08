@@ -108,21 +108,33 @@ def get_settings() -> Settings:
     return Settings()
 
 
-def get_referral_link(event_slug: str, market_slug: str) -> str:
+def get_referral_link(event_slug: str, market_slug: str = "") -> str:
     """
     Generate Polymarket link with referral code.
     
     Args:
         event_slug: Event slug from API
-        market_slug: Market slug from API
+        market_slug: Market slug from API (optional, can be empty or same as event_slug)
         
     Returns:
         Full URL with referral code if configured
+        
+    URL Format:
+        - If market_slug is empty or same as event_slug: /event/{event_slug}
+        - If market_slug is different: /event/{event_slug}/{market_slug}
     """
     settings = get_settings()
-    base_url = f"https://polymarket.com/event/{event_slug}/{market_slug}"
     
+    # Build base URL - don't duplicate slug if they're the same
+    if not market_slug or market_slug == event_slug:
+        base_url = f"https://polymarket.com/event/{event_slug}"
+    else:
+        base_url = f"https://polymarket.com/event/{event_slug}/{market_slug}"
+    
+    # Add referral code if configured
     if settings.polymarket_referral_code:
-        return f"{base_url}?via={settings.polymarket_referral_code}"
+        # Clean the referral code (remove any trailing dashes or spaces)
+        ref_code = settings.polymarket_referral_code.strip().rstrip('-')
+        return f"{base_url}?via={ref_code}"
     
     return base_url

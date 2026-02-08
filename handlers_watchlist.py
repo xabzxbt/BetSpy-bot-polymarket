@@ -45,7 +45,9 @@ async def callback_watchlist(callback: CallbackQuery) -> None:
     for i, item in enumerate(items[:20], 1):
         q = html.escape(item.question[:60])
         text += f"{i}. <b>{q}</b>\n"
-        text += f"   🔗 <a href='https://polymarket.com/event/{item.event_slug}/{item.market_slug}'>"
+        from config import get_referral_link
+        market_url = get_referral_link(item.event_slug, item.market_slug)
+        text += f"   🔗 <a href='{market_url}'>"
         text += f"Open</a>\n\n"
 
     from aiogram.types import InlineKeyboardButton

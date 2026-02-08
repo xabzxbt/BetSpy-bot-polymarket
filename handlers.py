@@ -314,7 +314,8 @@ async def process_analyze_link(message: Message, state: FSMContext) -> None:
             
             # Footer with link
             if markets:
-                event_url = f"https://polymarket.com/event/{markets[0].event_slug}"
+                from config import get_referral_link
+                event_url = get_referral_link(markets[0].event_slug)
                 text += get_text("multi_market_link", lang, url=event_url)
         else:
             # Single outcome: show detailed view
