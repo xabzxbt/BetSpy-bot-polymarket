@@ -82,17 +82,10 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
                 parse_mode=ParseMode.HTML,
             )
         else:
-            # Existing user - send persistent reply keyboard + welcome
-            settings = get_settings()
+            # Existing user - welcome + persistent keyboard only
             await message.answer(
-                get_text("welcome_main", user.language, limit=settings.max_wallets_per_user),
+                get_text("welcome_main", user.language),
                 reply_markup=get_persistent_menu(user.language),
-                parse_mode=ParseMode.HTML,
-            )
-            # Also send inline quick-actions
-            await message.answer(
-                "👇",
-                reply_markup=get_main_menu_keyboard(user.language),
                 parse_mode=ParseMode.HTML,
             )
 
@@ -1416,3 +1409,5 @@ def setup_handlers(dp) -> None:
     """Register handlers with dispatcher."""
     dp.include_router(router)
     logger.info("Handlers registered")
+
+    

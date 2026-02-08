@@ -1,6 +1,6 @@
 {
   "welcome_choose_language": "🎯 <b>Welcome to BetSpy!</b>\n\nPlease choose your language:",
-  "welcome_main": "🎯 <b>BetSpy</b> — Your Edge on Polymarket\n\nTrack the smartest traders. Copy their moves. Win more.\n\n🔥 <b>What you get:</b>\n├ ⚡ <b>Instant alerts</b> — know when whales trade\n├ 📊 <b>Full analytics</b> — positions, PnL, win rate\n├ ⏸️ <b>Smart filters</b> — set min amount, pause alerts\n└ 🐋 <b>Track {limit} wallets</b> — build your watchlist\n\n💡 <i>Start by adding top traders from the leaderboard!</i>\n\nReady to spy? 👇",
+  "welcome_main": "🎯 <b>BetSpy</b> — Smart Money Intelligence for Polymarket\n\nSee what whales are betting on. Find markets with real edge.\n\n<b>What's inside:</b>\n📊 <b>Market Signals</b> — scored 0-100 based on whale activity\n🔥 <b>Hot Today</b> — trending markets right now\n🔗 <b>Analyze Link</b> — paste any Polymarket link\n⭐ <b>Watchlist</b> — save and track your markets\n📋 <b>Wallet Tracker</b> — follow whale wallets, get trade alerts\n\nUse the buttons below to navigate 👇",
 
   "btn.add_wallet": "➕ Add Wallet",
   "btn.my_wallets": "📋 My Wallets",
