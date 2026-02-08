@@ -1,11 +1,5 @@
 """
 BetSpy Polymarket Bot — Main Entry Point (v3)
-
-Changes from v2:
-- i18n initialized from JSON locale files
-- Reply keyboard handlers for persistent navigation
-- Watchlist + Hot Today features
-- WatchlistItem table auto-created
 """
 
 import asyncio
@@ -45,7 +39,7 @@ async def main() -> None:
     setup_logging()
     settings = get_settings()
 
-    # 1. i18n — load JSON locale files
+    # 1. i18n
     i18n.load()
 
     # 2. Database
@@ -56,8 +50,8 @@ async def main() -> None:
     # 3. Create WatchlistItem table if not exists
     try:
         from services.watchlist_service import WatchlistItem  # noqa
-        async with db.engine.begin() as conn:
-            from models import Base
+        from models import Base
+        async with db._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("DB tables synced (including watchlist)")
     except Exception as e:
@@ -70,15 +64,15 @@ async def main() -> None:
     )
     dp = Dispatcher(storage=MemoryStorage())
 
-    # 5. Register handlers (order matters — reply first, then inline)
+    # 5. Register handlers
     setup_reply_handlers(dp)
     setup_handlers(dp)
     setup_intelligence_handlers(dp)
     setup_watchlist_handlers(dp)
     setup_hot_handlers(dp)
 
-    # 6. Scheduler (notifications)
-    notification_service = init_notification_service(bot)
+    # 6. Scheduler (notifications) — pass both bot and session_factory
+    notification_service = init_notification_service(bot, db._session_factory)
 
     logger.info("Starting bot polling...")
     try:
