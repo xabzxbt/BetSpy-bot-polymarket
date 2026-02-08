@@ -18,7 +18,7 @@ from loguru import logger
 
 from config import get_settings
 from polymarket_api import api_client, Trade
-from models import User, TrackedWallet
+from models import User, TrackedWallet, OpenPosition
 from i18n import get_text, get_side_text
 
 
@@ -153,6 +153,106 @@ class TradeNotificationService:
                 logger.info(f"Marked user {user_id} as blocked")
         except Exception as e:
             logger.error(f"Failed to mark user {user_id} as blocked: {e}")
+    
+    async def _record_buy_trade(self, trade: Trade) -> None:
+        """Record a BUY trade to track the open position."""
+        try:
+            async with self.session_factory() as session:
+                # Look for existing position
+                stmt = select(OpenPosition).where(
+                    OpenPosition.wallet_address == trade.proxy_wallet.lower(),
+                    OpenPosition.condition_id == trade.condition_id,
+                    OpenPosition.outcome == trade.outcome,
+                )
+                result = await session.execute(stmt)
+                position = result.scalar_one_or_none()
+                
+                if position:
+                    # Add to existing position (average in)
+                    position.total_size += trade.size
+                    position.total_cost += trade.usdc_size
+                    position.title = trade.title
+                    position.slug = trade.slug
+                    position.event_slug = trade.event_slug
+                else:
+                    # Create new position
+                    position = OpenPosition(
+                        wallet_address=trade.proxy_wallet.lower(),
+                        condition_id=trade.condition_id,
+                        outcome=trade.outcome,
+                        outcome_index=trade.outcome_index,
+                        total_size=trade.size,
+                        total_cost=trade.usdc_size,
+                        title=trade.title,
+                        slug=trade.slug,
+                        event_slug=trade.event_slug,
+                    )
+                    session.add(position)
+                
+                await session.commit()
+                logger.debug(f"Recorded BUY position: {trade.proxy_wallet[:10]}... {trade.outcome} {trade.size}")
+                
+        except Exception as e:
+            logger.error(f"Failed to record BUY trade: {e}")
+    
+    async def _process_sell_trade(self, trade: Trade) -> Optional[Dict]:
+        """
+        Process a SELL trade and calculate PnL.
+        Returns dict with PnL info if position was found, None otherwise.
+        """
+        try:
+            async with self.session_factory() as session:
+                # Look for existing position
+                stmt = select(OpenPosition).where(
+                    OpenPosition.wallet_address == trade.proxy_wallet.lower(),
+                    OpenPosition.condition_id == trade.condition_id,
+                    OpenPosition.outcome == trade.outcome,
+                )
+                result = await session.execute(stmt)
+                position = result.scalar_one_or_none()
+                
+                if not position or position.total_size <= 0:
+                    return None
+                
+                # Calculate PnL
+                entry_price = position.avg_entry_price
+                exit_price = trade.price
+                
+                # How much of the position is being sold
+                sold_size = min(trade.size, position.total_size)
+                
+                # Cost basis for sold portion
+                cost_basis = sold_size * entry_price
+                sale_proceeds = trade.usdc_size
+                
+                # PnL calculation
+                pnl = sale_proceeds - cost_basis
+                pnl_percent = (pnl / cost_basis * 100) if cost_basis > 0 else 0
+                
+                # Update position
+                position.total_size -= sold_size
+                # Proportionally reduce cost
+                if position.total_size <= 0.001:
+                    # Position fully closed - delete it
+                    await session.delete(position)
+                    logger.debug(f"Closed position: {trade.proxy_wallet[:10]}... {trade.outcome}")
+                else:
+                    # Partial close - reduce cost proportionally
+                    position.total_cost = position.total_size * entry_price
+                
+                await session.commit()
+                
+                return {
+                    "entry_price": entry_price,
+                    "exit_price": exit_price,
+                    "pnl": pnl,
+                    "pnl_percent": pnl_percent,
+                }
+                
+        except Exception as e:
+            logger.error(f"Failed to process SELL trade: {e}")
+            return None
+
     
     async def _poll_and_notify(self) -> None:
         """Main polling job."""
@@ -306,11 +406,39 @@ class TradeNotificationService:
             return
             
         try:
-            message = self._format_trade_notification(
-                trade=trade,
-                wallet_name=subscription.nickname,
-                lang=subscription.user_language,
-            )
+            pnl_info = None
+            
+            # Track position based on trade type
+            if trade.side.upper() == "BUY":
+                # Record the BUY to track open position
+                await self._record_buy_trade(trade)
+                message = self._format_trade_notification(
+                    trade=trade,
+                    wallet_name=subscription.nickname,
+                    lang=subscription.user_language,
+                )
+            else:  # SELL
+                # Process SELL and calculate PnL
+                pnl_info = await self._process_sell_trade(trade)
+                
+                if pnl_info:
+                    # We have entry price - show PnL
+                    message = self._format_close_notification(
+                        trade=trade,
+                        wallet_name=subscription.nickname,
+                        lang=subscription.user_language,
+                        entry_price=pnl_info["entry_price"],
+                        exit_price=pnl_info["exit_price"],
+                        pnl=pnl_info["pnl"],
+                        pnl_percent=pnl_info["pnl_percent"],
+                    )
+                else:
+                    # No entry recorded - show as simple sell
+                    message = self._format_sell_notification(
+                        trade=trade,
+                        wallet_name=subscription.nickname,
+                        lang=subscription.user_language,
+                    )
             
             await self.bot.send_message(
                 chat_id=subscription.user_telegram_id,
@@ -321,7 +449,7 @@ class TradeNotificationService:
             
             logger.info(
                 f"Sent notification to user {subscription.user_telegram_id} "
-                f"for wallet {subscription.nickname}"
+                f"for wallet {subscription.nickname} ({trade.side})"
             )
             
             # Small delay to avoid Telegram rate limits
@@ -437,6 +565,71 @@ class TradeNotificationService:
         
         return get_text(
             "new_trade",
+            lang,
+            wallet_name=wallet_name,
+            market_title=trade.title,
+            side=side_text,
+            outcome=trade.outcome,
+            size=trade.size,
+            usdc_size=trade.usdc_size,
+            price=trade.price,
+            market_link=trade.market_link,
+        )
+    
+    def _format_close_notification(
+        self,
+        trade: Trade,
+        wallet_name: str,
+        lang: str,
+        entry_price: float,
+        exit_price: float,
+        pnl: float,
+        pnl_percent: float,
+    ) -> str:
+        """Format position close notification with PnL."""
+        side_text = get_side_text(trade.side, lang)
+        
+        # Determine emoji based on PnL
+        if pnl > 0:
+            pnl_emoji = "🟢"
+            pnl_sign = "+"
+        elif pnl < 0:
+            pnl_emoji = "🔴"
+            pnl_sign = "-"
+        else:
+            pnl_emoji = "⚪"
+            pnl_sign = ""
+        
+        return get_text(
+            "trade_closed",
+            lang,
+            wallet_name=wallet_name,
+            market_title=trade.title,
+            side=side_text,
+            outcome=trade.outcome,
+            size=trade.size,
+            usdc_size=trade.usdc_size,
+            price=trade.price,
+            entry_price=entry_price,
+            exit_price=exit_price,
+            pnl_emoji=pnl_emoji,
+            pnl_sign=pnl_sign,
+            pnl_abs=abs(pnl),
+            pnl_percent=pnl_percent,
+            market_link=trade.market_link,
+        )
+    
+    def _format_sell_notification(
+        self,
+        trade: Trade,
+        wallet_name: str,
+        lang: str,
+    ) -> str:
+        """Format SELL notification when no entry price is known."""
+        side_text = get_side_text(trade.side, lang)
+        
+        return get_text(
+            "trade_closed_no_entry",
             lang,
             wallet_name=wallet_name,
             market_title=trade.title,

@@ -114,3 +114,57 @@ class TrackedWallet(Base):
         if len(self.wallet_address) > 10:
             return f"{self.wallet_address[:6]}...{self.wallet_address[-4:]}"
         return self.wallet_address
+
+
+class OpenPosition(Base):
+    """
+    Track open positions for PnL calculation.
+    When a wallet buys, we record the entry.
+    When they sell, we calculate PnL based on entry price.
+    """
+    
+    __tablename__ = "open_positions"
+    
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    wallet_address: Mapped[str] = mapped_column(String(42), nullable=False, index=True)
+    condition_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    outcome: Mapped[str] = mapped_column(String(10), nullable=False)  # YES or NO
+    outcome_index: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    
+    # Position details
+    total_size: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    total_cost: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)  # Total USDC spent
+    
+    # Market info for notifications
+    title: Mapped[str] = mapped_column(String(500), nullable=True)
+    slug: Mapped[str] = mapped_column(String(200), nullable=True)
+    event_slug: Mapped[str] = mapped_column(String(200), nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), 
+        server_default=func.now(),
+        nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), 
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False
+    )
+    
+    # Constraints
+    __table_args__ = (
+        UniqueConstraint("wallet_address", "condition_id", "outcome", name="uq_wallet_position"),
+        Index("ix_open_positions_wallet_condition", wallet_address, condition_id),
+    )
+    
+    @property
+    def avg_entry_price(self) -> float:
+        """Calculate average entry price."""
+        if self.total_size > 0:
+            return self.total_cost / self.total_size
+        return 0.0
+    
+    def __repr__(self) -> str:
+        return f"<OpenPosition(wallet={self.wallet_address[:10]}..., condition={self.condition_id[:10]}..., size={self.total_size})>"
+

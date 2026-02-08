@@ -1,7 +1,6 @@
 {
   "welcome_choose_language": "🎯 <b>Welcome to BetSpy!</b>\n\nPlease choose your language:",
   "welcome_main": "🎯 <b>BetSpy</b> — Smart Money Intelligence for Polymarket\n\nSee what whales are betting on. Find markets with real edge.\n\n<b>What's inside:</b>\n📊 <b>Market Signals</b> — scored 0-100 based on whale activity\n🔥 <b>Hot Today</b> — trending markets right now\n🔗 <b>Analyze Link</b> — paste any Polymarket link\n⭐ <b>Watchlist</b> — save and track your markets\n📋 <b>Wallet Tracker</b> — follow whale wallets, get trade alerts\n\nUse the buttons below to navigate 👇",
-
   "btn.add_wallet": "➕ Add Wallet",
   "btn.my_wallets": "📋 My Wallets",
   "btn.trending": "📊 Market Signals",
@@ -16,7 +15,6 @@
   "btn.hot_today": "🔥 Hot Today",
   "btn.prev_page": "◀️",
   "btn.next_page": "▶️",
-
   "reply.signals": "📊 Signals",
   "reply.hot": "🔥 Hot",
   "reply.analyze": "🔗 Analyze",
@@ -24,7 +22,6 @@
   "reply.watchlist": "⭐ Watchlist",
   "reply.settings": "⚙️ Settings",
   "reply.help": "❓ Help",
-
   "btn.view_positions": "📊 Positions",
   "btn.view_pnl": "💰 PnL",
   "btn.view_detailed_stats": "📊 Detailed Stats",
@@ -49,7 +46,6 @@
   "btn.stats_1_week": "📊 1 Week",
   "btn.stats_1_month": "📊 1 Month",
   "btn.stats_all_time": "📊 All Time",
-
   "cat.politics": "Politics",
   "cat.sports": "Sports",
   "cat.pop_culture": "Pop Culture",
@@ -61,29 +57,23 @@
   "cat.world": "World",
   "cat.tech": "Tech",
   "cat.all": "All",
-
   "loading": "⏳ Loading...",
   "error_generic": "❌ Something went wrong. Try again.",
-
   "help_text": "🎯 <b>BetSpy Help</b>\n\n<b>Main Features:</b>\n├ 📊 <b>Market Signals</b> — trending markets with whale analytics\n├ 🔗 <b>Analyze Link</b> — paste a Polymarket link for instant analysis\n├ 📋 <b>My Wallets</b> — track whale wallets, get trade alerts\n└ ⭐ <b>Watchlist</b> — save markets, get summaries\n\n<b>How scoring works:</b>\n├ 🐋 Smart Money Tilt (0-40 pts)\n├ 📈 Volume Momentum (0-25 pts)\n├ 💡 Smart/Retail Ratio (0-15 pts)\n├ 💧 Liquidity (0-10 pts)\n└ ⏱ Activity Recency (0-10 pts)\n\n<b>Commands:</b>\n/start — Main menu\n/help — This help\n\n💡 <i>Use the buttons below to navigate.</i>",
-
   "settings_menu": "⚙️ <b>Settings</b>\n\nChoose what to configure:",
   "select_language": "🌐 <b>Choose your language:</b>",
   "language_changed": "✅ Language changed!",
-
   "prompt_analyze_link": "🔗 <b>Analyze a Market</b>\n\nPaste a Polymarket link:\n<code>https://polymarket.com/event/...</code>\n\nI'll analyze whale activity, volume, and give you a signal.",
   "invalid_link": "❌ Invalid link. Send a Polymarket event URL:\n<code>https://polymarket.com/event/...</code>",
   "analyzing_event": "🔍 Analyzing <b>{slug}</b>...",
   "analysis_error": "❌ Analysis failed. The market may be closed or unavailable.",
   "action_cancelled": "Cancelled.",
-
   "event_finished": "⏰ <b>Event finished</b>\n\nAll markets for this event are already closed.\nTry another active event.",
   "multi_market_header": "📊 <b>Event with {count} markets</b>\nShowing TOP-3 by volume:\n{'─'*28}\n\n",
   "multi_market_signal": "📊 Vol: ${vol}K · {emoji} Signal: {score}/100",
   "multi_market_rec_yes": "✅ Recommendation: <b>{side}</b>",
   "multi_market_rec_no": "❌ Don't bet",
   "multi_market_link": "🔗 <a href='{url}'>Open event on Polymarket</a>",
-
   "add_wallet_prompt": "📍 <b>Add Wallet</b>\n\nPaste an Ethereum wallet address (0x...):",
   "invalid_address": "❌ Invalid address. Must be a 0x... Ethereum address (42 chars).",
   "wallet_already_exists": "⚠️ This wallet is already in your list.",
@@ -92,39 +82,33 @@
   "wallet_added": "✅ Wallet <b>{name}</b> added!\n\n<code>{address}</code>",
   "wallet_removed": "🗑 Wallet <b>{name}</b> removed.",
   "confirm_remove_wallet": "⚠️ Remove wallet <b>{name}</b>?\n\nThis will stop all alerts for this wallet.",
-
   "no_wallets": "📋 You have no tracked wallets yet.\n\nAdd one to start receiving trade alerts!",
   "wallet_list_header": "📋 <b>Your Wallets</b> ({count}/{limit})\n\nTap a wallet to view details:",
   "wallet_details": "👤 <b>{name}</b>\n📍 <code>{address}</code>\n📅 Added: {date}",
   "wallet_paused": "Notifications paused",
-
   "positions_header": "📊 <b>Positions for {name}</b>\n\n",
   "no_positions": "No open positions.",
   "position_item": "📌 <b>{title}</b>\n   {outcome} · {size:.2f} @ {avg_price:.4f}\n   Value: ${current_value:.2f} {pnl_emoji} {pnl:+.2f} ({pnl_percent:+.1f}%)\n\n",
   "positions_summary": "\n💰 <b>Total Value: ${total_value:.2f}</b>",
-
   "recent_trades_header": "📈 <b>Recent Trades for {name}</b>\n\n",
   "no_recent_trades": "No recent trades found.",
   "trade_item": "{side_emoji} {side} <b>{outcome}</b> — {title}\n   ${usdc_size:.2f} @ {price:.4f} · {time}\n\n",
-
   "stats_header": "📊 <b>Stats for {name}</b> ({days}d)\n\n",
   "stat_position_value": "💰 Portfolio: <b>${value:.2f}</b>",
   "interval_pnl_section": "\n📊 <b>{interval} Performance:</b>",
   "gain_label": "{emoji} Gain: ${value}",
   "loss_label": "{emoji} Loss: ${value}",
   "net_total_label": "{emoji} Net: ${value}",
-
   "select_min_amount": "💰 <b>Minimum Trade Amount</b>\n\nOnly get alerts for trades above this amount:",
   "min_amount_updated": "✅ Min amount set to <b>{amount}</b> for {name}",
   "min_amount_all": "All trades",
   "wallet_pause_success": "⏸️ Alerts paused for <b>{name}</b>",
   "wallet_resume_success": "▶️ Alerts resumed for <b>{name}</b>",
-
   "trade.side_buy": "🟢 BUY",
   "trade.side_sell": "🔴 SELL",
-
   "new_trade": "🐋 <b>NEW TRADE</b>\n├ 👤 {wallet_name}\n├ 📊 {market_title}\n├ {side} {outcome}\n├ 📦 {size:.2f} tokens @ {price:.4f}\n├ 💰 ${usdc_size:.2f}\n└ 🔗 <a href='{market_link}'>Open Market</a>",
-
+  "trade_closed": "💰 <b>POSITION CLOSED</b>\n├ 👤 {wallet_name}\n├ 📊 {market_title}\n├ {side} {outcome}\n├ 📦 {size:.2f} tokens @ {price:.4f}\n├ 💵 Sold: ${usdc_size:.2f}\n├ 📈 Entry: {entry_price:.4f} → Exit: {exit_price:.4f}\n├ {pnl_emoji} <b>PnL: {pnl_sign}${pnl_abs:.2f} ({pnl_percent:+.1f}%)</b>\n└ 🔗 <a href='{market_link}'>Open Market</a>",
+  "trade_closed_no_entry": "🔴 <b>SELL</b>\n├ 👤 {wallet_name}\n├ 📊 {market_title}\n├ {side} {outcome}\n├ 📦 {size:.2f} tokens @ {price:.4f}\n├ 💰 ${usdc_size:.2f}\n└ 🔗 <a href='{market_link}'>Open Market</a>",
   "intel.header_category": "{emoji} <b>{category}</b>",
   "intel.page_info": "📄 Page {page}/{total_pages} ({total_items} markets)",
   "intel.click_hint": "💡 Tap a number for detailed analysis",
@@ -133,7 +117,6 @@
   "intel.market_signals_title": "📊 <b>MARKET SIGNALS</b>\n\nChoose a category:",
   "intel.market_not_found": "❌ Market not found. Try refreshing the list.",
   "intel.error_loading": "❌ Error loading market data.",
-
   "detail.smart_money": "🐋 <b>SMART MONEY</b>",
   "detail.smart_money_window": "🐋 <b>SMART MONEY</b> ({window})",
   "detail.no_whale_activity": "<i>No significant whale activity (&lt;$1K)</i>",
@@ -158,17 +141,14 @@
   "detail.rec_target": "🎯 Target: {target} (+{pct}%)  ·  🛑 Stop: {stop} (-{spct}%)",
   "detail.rec_rr": "📊 R:R = {rr}x",
   "detail.rec_no_bet": "❌ <b>Do not bet</b>",
-
   "quality.high_conviction": "💎 High Conviction",
   "quality.moderate_signal": "📊 Moderate Signal",
   "quality.noisy": "🔇 Noisy",
   "quality.low_liquidity": "⚠️ Low Liquidity",
   "quality.avoid": "❌ Avoid",
-
   "card.today": "⏰ Today",
   "card.tomorrow": "⏰ Tomorrow",
   "card.days": "📅 {days}d",
-
   "reason.sm_aligned": "🐋 Smart Money on your side ({pct}% {side})",
   "reason.sm_against": "⚠️ Smart Money betting against ({side})",
   "reason.sm_no_data": "⚠️ Limited Smart Money data",
@@ -182,17 +162,14 @@
   "reason.low_liquidity": "⚠️ Low liquidity — slippage risk",
   "reason.closes_today": "⚠️ Closes today!",
   "reason.long_term": "⚠️ Long term — capital locked",
-
   "watchlist.title": "⭐ <b>Your Watchlist</b>",
   "watchlist.empty": "Your watchlist is empty.\n\nBrowse market signals and tap ⭐ to add markets.",
   "watchlist.added": "⭐ Added to watchlist!",
   "watchlist.removed": "Removed from watchlist.",
   "watchlist.btn_add": "⭐ Add to Watchlist",
   "watchlist.btn_remove": "⭐ Remove from Watchlist",
-
   "alert.price_move": "🚨 <b>PRICE ALERT</b>\n\n{question}\n\nYES moved <b>{direction}{pct}%</b> in {minutes}min\n\nYES: {yes_price} · NO: {no_price}\n\n<a href='{url}'>Open Market</a>",
   "alert.whale_trade": "🐋 <b>WHALE ALERT</b>\n\n${amount} {side} on <b>{question}</b>\n\n<a href='{url}'>Open Market</a>",
-
   "hot.title": "🔥 <b>Hot Today</b>\n\nMarkets with the most volume and whale activity in the last 24h:",
   "hot.empty": "No hot markets right now. Check back later!"
 }

@@ -50,7 +50,7 @@ async def main() -> None:
     # 3. Create WatchlistItem table if not exists
     try:
         from services.watchlist_service import WatchlistItem  # noqa
-        from models import Base
+        from models import Base, OpenPosition  # noqa - ensure OpenPosition table is created
         async with db._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("DB tables synced (including watchlist)")
