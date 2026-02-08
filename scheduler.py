@@ -302,11 +302,24 @@ class TradeNotificationService:
                     if max_timestamp is None or sub.last_trade_timestamp > max_timestamp:
                         max_timestamp = sub.last_trade_timestamp
             
+            current_ts = int(time.time())
+            
             # If no timestamp set, this is a new wallet - don't fetch old trades
             # Just set the current time as starting point
             if max_timestamp is None:
                 logger.info(f"New wallet {wallet_address[:10]}... - setting initial timestamp")
-                current_ts = int(time.time())
+                for sub in subscriptions:
+                    await self._update_last_trade_timestamp(sub.wallet_id, current_ts)
+                return
+            
+            # SAFEGUARD: If timestamp is too old (>1 hour), reset to now
+            # This prevents flooding users with old trades after bot restart
+            max_age_seconds = 3600  # 1 hour
+            if current_ts - max_timestamp > max_age_seconds:
+                logger.warning(
+                    f"Wallet {wallet_address[:10]}... has stale timestamp "
+                    f"({(current_ts - max_timestamp) // 60} min old). Resetting to now."
+                )
                 for sub in subscriptions:
                     await self._update_last_trade_timestamp(sub.wallet_id, current_ts)
                 return
