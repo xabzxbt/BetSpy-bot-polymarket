@@ -1061,7 +1061,7 @@ class MarketIntelligenceEngine:
             warnings.append("⚠️ Низька ліквідність — ризик прослизання")
 
         if market.days_to_close < 1:
-            warnings.append("⚠️ Закривається сьогодні!")
+            warnings.append("closes_today")
         elif market.days_to_close > 21:
             warnings.append("⚠️ Довгий термін — капітал заблоковано")
 

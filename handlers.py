@@ -17,10 +17,11 @@ from loguru import logger
 from database import db
 from repository import UserRepository, WalletRepository
 from polymarket_api import api_client
-from translations import get_text, get_side_text, get_pnl_emoji, Language
+from i18n import get_text, get_side_text, get_pnl_emoji, SUPPORTED_LANGUAGES
 from keyboards import (
     get_language_keyboard,
     get_main_menu_keyboard,
+    get_persistent_menu,
     get_cancel_keyboard,
     get_back_to_menu_keyboard,
     get_nickname_keyboard,
@@ -36,7 +37,8 @@ from keyboards import (
 )
 from config import get_settings
 from market_intelligence import market_intelligence
-from handlers_intelligence import format_market_detail
+from services.format_service import format_market_detail
+from services.user_service import resolve_user
 
 # Create router
 router = Router(name="main")
@@ -80,10 +82,16 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
                 parse_mode=ParseMode.HTML,
             )
         else:
-            # Existing user - show main menu
+            # Existing user - send persistent reply keyboard + welcome
             settings = get_settings()
             await message.answer(
                 get_text("welcome_main", user.language, limit=settings.max_wallets_per_user),
+                reply_markup=get_persistent_menu(user.language),
+                parse_mode=ParseMode.HTML,
+            )
+            # Also send inline quick-actions
+            await message.answer(
+                "👇",
                 reply_markup=get_main_menu_keyboard(user.language),
                 parse_mode=ParseMode.HTML,
             )
@@ -114,7 +122,7 @@ async def callback_language_onboarding(callback: CallbackQuery) -> None:
     """Handle initial language selection."""
     lang_code = callback.data.split(":")[1]
     
-    if lang_code not in [l.value for l in Language]:
+    if lang_code not in SUPPORTED_LANGUAGES:
         await callback.answer("Invalid language")
         return
     
@@ -130,11 +138,17 @@ async def callback_language_onboarding(callback: CallbackQuery) -> None:
         await session.commit()
         
         settings = get_settings()
-        await callback.message.edit_text(
+        # Send persistent reply keyboard
+        await callback.message.answer(
             get_text("welcome_main", lang_code, limit=settings.max_wallets_per_user),
-            reply_markup=get_main_menu_keyboard(lang_code),
+            reply_markup=get_persistent_menu(lang_code),
             parse_mode=ParseMode.HTML,
         )
+        # Delete the language selection message
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
     
     await callback.answer()
 
@@ -265,14 +279,9 @@ async def process_analyze_link(message: Message, state: FSMContext) -> None:
         markets = await market_intelligence.fetch_event_markets(slug, market_slug, skip_long_term_filter=True)
         
         if not markets:
-            # No active markets found - likely event already ended
-            error_text = (
-                "⏰ <b>Подія завершена</b>\n\n"
-                "Усі ринки цієї події вже закриті.\n"
-                "Спробуй іншу подію, яка ще активна."
-            )
+            # No active markets found
             await working_msg.edit_text(
-                error_text,
+                get_text("event_finished", lang),
                 reply_markup=get_back_to_menu_keyboard(lang),
                 parse_mode=ParseMode.HTML,
             )
@@ -284,20 +293,16 @@ async def process_analyze_link(message: Message, state: FSMContext) -> None:
             # Multi-outcome event: show TOP-3
             top_markets = markets[:3]
             
-            # Header explaining this is a multi-outcome event
-            text = f"📊 <b>Подія з {len(markets)} учасниками</b>\n"
-            text += f"Показуємо ТОП-3 за обсягом торгів:\n"
-            text += f"{'─'*28}\n\n"
+            text = get_text("multi_market_header", lang, count=len(markets))
             
             for i, market in enumerate(top_markets, 1):
                 rec = market_intelligence.generate_recommendation(market)
                 
-                # Compact format for each outcome
                 signal_emoji = "🟢" if market.signal_score >= 70 else "🟡" if market.signal_score >= 50 else "🔴"
                 
                 text += f"<b>{i}. {market.question[:80]}{'...' if len(market.question) > 80 else ''}</b>\n"
                 text += f"💰 YES: {int(market.yes_price*100)}¢ · NO: {int(market.no_price*100)}¢\n"
-                text += f"📊 Vol: ${market.volume_24h/1000:.1f}K · {signal_emoji} Сигнал: {market.signal_score}/100\n"
+                text += get_text("multi_market_signal", lang, vol=f"{market.volume_24h/1000:.1f}", emoji=signal_emoji, score=market.signal_score) + "\n"
                 
                 # Whale info if available
                 wa = market.whale_analysis
@@ -308,16 +313,16 @@ async def process_analyze_link(message: Message, state: FSMContext) -> None:
                 
                 # Recommendation
                 if rec.should_bet:
-                    text += f"✅ Рекомендація: <b>{rec.side}</b>\n"
+                    text += get_text("multi_market_rec_yes", lang, side=rec.side) + "\n"
                 else:
-                    text += f"❌ Не ставити\n"
+                    text += get_text("multi_market_rec_no", lang) + "\n"
                 
                 text += "\n"
             
             # Footer with link
             if markets:
                 event_url = f"https://polymarket.com/event/{markets[0].event_slug}"
-                text += f"🔗 <a href='{event_url}'>Відкрити подію на Polymarket</a>"
+                text += get_text("multi_market_link", lang, url=event_url)
         else:
             # Single outcome: show detailed view
             best_market = markets[0]
@@ -1385,7 +1390,7 @@ async def callback_set_language(callback: CallbackQuery) -> None:
     """Change language in settings."""
     lang_code = callback.data.split(":")[1]
     
-    if lang_code not in [l.value for l in Language]:
+    if lang_code not in SUPPORTED_LANGUAGES:
         await callback.answer("Invalid language")
         return
     
@@ -1397,6 +1402,11 @@ async def callback_set_language(callback: CallbackQuery) -> None:
             get_text("language_changed", lang_code),
             reply_markup=get_settings_keyboard(lang_code),
             parse_mode=ParseMode.HTML,
+        )
+        # Update persistent reply keyboard to new language
+        await callback.message.answer(
+            "✅",
+            reply_markup=get_persistent_menu(lang_code),
         )
     
     await callback.answer()

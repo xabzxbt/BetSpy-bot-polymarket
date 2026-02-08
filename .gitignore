@@ -22,5 +22,4 @@ Thumbs.db
 
 # Dev scripts
 git_push_script.bat
-start.sh
-reset_db.py
+

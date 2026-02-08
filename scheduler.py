@@ -19,7 +19,7 @@ from loguru import logger
 from config import get_settings
 from polymarket_api import api_client, Trade
 from models import User, TrackedWallet
-from translations import get_text, get_side_text
+from i18n import get_text, get_side_text
 
 
 @dataclass

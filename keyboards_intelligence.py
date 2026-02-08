@@ -1,9 +1,10 @@
 """
-Keyboard builders for BetSpy Market Intelligence (v2).
+Keyboard builders for BetSpy Market Intelligence (v3).
 
-Changes:
-- Market cache uses TTL (15 min) instead of unbounded growth
-- Cache cleanup on every access
+Changes from v2:
+- All strings go through i18n (get_text)
+- Watchlist button added to market detail
+- Category keys use dot notation (cat.politics, not cat_politics)
 """
 
 import time
@@ -12,7 +13,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from market_intelligence import MarketStats, Category, TimeFrame
-from translations import get_text
+from i18n import get_text
 
 
 # =====================================================================
@@ -65,11 +66,11 @@ def get_category_keyboard(lang: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
 
     rows = [
-        [("🏛️", "cat_politics", "politics"), ("⚽", "cat_sports", "sports")],
-        [("🎬", "cat_pop_culture", "pop-culture"), ("💼", "cat_business", "business")],
-        [("₿", "cat_crypto", "crypto"), ("🔬", "cat_science", "science")],
-        [("🎮", "cat_gaming", "gaming"), ("🎭", "cat_entertainment", "entertainment")],
-        [("🌍", "cat_world", "world"), ("💻", "cat_tech", "tech")],
+        [("🏛️", "cat.politics", "politics"), ("⚽", "cat.sports", "sports")],
+        [("🎬", "cat.pop_culture", "pop-culture"), ("💼", "cat.business", "business")],
+        [("₿", "cat.crypto", "crypto"), ("🔬", "cat.science", "science")],
+        [("🎮", "cat.gaming", "gaming"), ("🎭", "cat.entertainment", "entertainment")],
+        [("🌍", "cat.world", "world"), ("💻", "cat.tech", "tech")],
     ]
 
     for row in rows:
@@ -84,13 +85,13 @@ def get_category_keyboard(lang: str) -> InlineKeyboardMarkup:
 
     builder.row(
         InlineKeyboardButton(
-            text=f"📊 {get_text('cat_all', lang)}",
+            text=f"📊 {get_text('cat.all', lang)}",
             callback_data="intel:cat:all",
         )
     )
     builder.row(
         InlineKeyboardButton(
-            text=f"🏠 {get_text('btn_back_to_menu', lang)}",
+            text=get_text("btn.back_to_menu", lang),
             callback_data="menu:main",
         )
     )
@@ -130,21 +131,23 @@ def get_trending_keyboard(
     nav = []
     if page > 1:
         nav.append(InlineKeyboardButton(
-            text="◀️", callback_data=f"intel:p:{category}:{timeframe}:{page - 1}",
+            text=get_text("btn.prev_page", lang),
+            callback_data=f"intel:p:{category}:{timeframe}:{page - 1}",
         ))
     nav.append(InlineKeyboardButton(
         text=f"📄 {page}/{total_pages}", callback_data="noop",
     ))
     if page < total_pages:
         nav.append(InlineKeyboardButton(
-            text="▶️", callback_data=f"intel:p:{category}:{timeframe}:{page + 1}",
+            text=get_text("btn.next_page", lang),
+            callback_data=f"intel:p:{category}:{timeframe}:{page + 1}",
         ))
     builder.row(*nav)
 
     # Refresh
     builder.row(
         InlineKeyboardButton(
-            text=f"🔄 {get_text('btn_refresh', lang)}",
+            text=get_text("btn.refresh", lang),
             callback_data=f"intel:time:{category}:{timeframe}:{page}",
         )
     )
@@ -152,11 +155,11 @@ def get_trending_keyboard(
     # Navigation
     builder.row(
         InlineKeyboardButton(
-            text=f"🔙 Categories",
+            text=get_text("btn.back", lang),
             callback_data="intel:back_categories",
         ),
         InlineKeyboardButton(
-            text=f"🏠 Menu",
+            text=get_text("btn.back_to_menu", lang),
             callback_data="menu:main",
         ),
     )
@@ -166,22 +169,38 @@ def get_trending_keyboard(
 def get_market_detail_keyboard(
     lang: str, market: MarketStats,
 ) -> InlineKeyboardMarkup:
-    """Keyboard for market detail view."""
+    """Keyboard for market detail view — with Watchlist button."""
     builder = InlineKeyboardBuilder()
+
+    # Watchlist button — uses the last cache key for this market
+    # We store slug for the watchlist add handler
+    cache_key = None
+    for k, (m, _) in _market_cache.items():
+        if m.condition_id == market.condition_id:
+            cache_key = k
+            break
+
+    if cache_key:
+        builder.row(
+            InlineKeyboardButton(
+                text=get_text("watchlist.btn_add", lang),
+                callback_data=f"wl:add:{cache_key}",
+            )
+        )
 
     builder.row(
         InlineKeyboardButton(
-            text="🔗 Open on Polymarket",
+            text=get_text("intel.link_text", lang),
             url=market.market_url,
         )
     )
     builder.row(
         InlineKeyboardButton(
-            text="⬅️ Categories",
+            text=get_text("btn.back", lang),
             callback_data="intel:back_categories",
         ),
         InlineKeyboardButton(
-            text="🏠 Menu",
+            text=get_text("btn.back_to_menu", lang),
             callback_data="menu:main",
         ),
     )

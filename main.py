@@ -1,5 +1,11 @@
 """
-Main entry point for the BetSpy Polymarket bot.
+BetSpy Polymarket Bot — Main Entry Point (v3)
+
+Changes from v2:
+- i18n initialized from JSON locale files
+- Reply keyboard handlers for persistent navigation
+- Watchlist + Hot Today features
+- WatchlistItem table auto-created
 """
 
 import asyncio
@@ -13,141 +19,78 @@ from loguru import logger
 
 from config import get_settings
 from database import db
+from i18n import i18n
 from polymarket_api import api_client
 from handlers import setup_handlers
 from handlers_intelligence import setup_intelligence_handlers
+from handlers_reply import setup_reply_handlers
+from handlers_watchlist import setup_watchlist_handlers
+from handlers_hot import setup_hot_handlers
 from scheduler import init_notification_service
 from market_intelligence import market_intelligence
 
 
 def setup_logging() -> None:
-    """Configure loguru logging."""
     settings = get_settings()
-    
-    # Remove default handler
     logger.remove()
-    
-    # Add console handler with appropriate level
     logger.add(
         sys.stdout,
-        format=(
-            "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-            "<level>{level: <8}</level> | "
-            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
-            "<level>{message}</level>"
-        ),
-        level=settings.log_level,
-        colorize=True,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level:<8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
+        level=settings.log_level.upper(),
     )
-    
-    # Add file handler for errors
-    logger.add(
-        "logs/error.log",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} | {message}",
-        level="ERROR",
-        rotation="10 MB",
-        retention="7 days",
-        compression="zip",
-    )
-    
-    # Add file handler for all logs
-    logger.add(
-        "logs/bot.log",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} | {message}",
-        level=settings.log_level,
-        rotation="50 MB",
-        retention="3 days",
-        compression="zip",
-    )
-    
-    logger.info(f"Logging configured. Level: {settings.log_level}")
-
-
-async def on_startup(bot: Bot) -> None:
-    """Called when bot starts."""
-    me = await bot.get_me()
-    logger.info(f"Bot started: @{me.username} (ID: {me.id})")
-
-
-async def on_shutdown(bot: Bot) -> None:
-    """Called when bot shuts down."""
-    logger.info("Bot shutting down...")
+    logger.info(f"Logging configured at level: {settings.log_level}")
 
 
 async def main() -> None:
-    """Main function to run the bot."""
-    # Setup logging
     setup_logging()
-    
-    # Load settings
     settings = get_settings()
-    logger.info("Settings loaded")
-    
-    # Initialize database
+
+    # 1. i18n — load JSON locale files
+    i18n.load()
+
+    # 2. Database
+    logger.info("Initializing database...")
     await db.init()
-    await db.create_tables()
-    
-    # Initialize API client
-    await api_client.init()
-    
-    # Initialize Market Intelligence engine
-    await market_intelligence.init()
-    
-    # Create bot instance
+    logger.info("Database initialized")
+
+    # 3. Create WatchlistItem table if not exists
+    try:
+        from services.watchlist_service import WatchlistItem  # noqa
+        async with db.engine.begin() as conn:
+            from models import Base
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("DB tables synced (including watchlist)")
+    except Exception as e:
+        logger.warning(f"Table sync warning (non-fatal): {e}")
+
+    # 4. Bot + Dispatcher
     bot = Bot(
         token=settings.bot_token,
-        default=DefaultBotProperties(
-            parse_mode=ParseMode.HTML,
-        ),
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    
-    # Create dispatcher with FSM storage
-    storage = MemoryStorage()
-    dp = Dispatcher(storage=storage)
-    
-    # Setup handlers
+    dp = Dispatcher(storage=MemoryStorage())
+
+    # 5. Register handlers (order matters — reply first, then inline)
+    setup_reply_handlers(dp)
     setup_handlers(dp)
-    setup_intelligence_handlers(dp)  # New intelligence handlers
-    
-    # Initialize notification service
-    notification_service = init_notification_service(
-        bot=bot,
-        session_factory=db.session_factory,
-    )
-    await notification_service.start()
-    
-    # Register startup/shutdown handlers
-    dp.startup.register(on_startup)
-    dp.shutdown.register(on_shutdown)
-    
+    setup_intelligence_handlers(dp)
+    setup_watchlist_handlers(dp)
+    setup_hot_handlers(dp)
+
+    # 6. Scheduler (notifications)
+    notification_service = init_notification_service(bot)
+
+    logger.info("Starting bot polling...")
     try:
-        logger.info("Starting bot polling...")
-        while True:
-            try:
-                await dp.start_polling(
-                    bot,
-                    allowed_updates=dp.resolve_used_update_types(),
-                    polling_timeout=30,
-                )
-                break  # Exit loop if polling ends normally
-            except Exception as e:
-                if "terminated by other getUpdates request" in str(e):
-                    logger.error(f"Polling conflict detected: {e}")
-                    logger.error("Another bot instance may be running. Shutting down to prevent conflicts.")
-                    break
-                else:
-                    logger.error(f"Polling error: {e}")
-                    logger.info("Restarting polling in 5 seconds...")
-                    await asyncio.sleep(5)
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
-        # Cleanup
-        logger.info("Cleaning up...")
-        await notification_service.stop()
+        logger.info("Shutting down...")
+        if notification_service:
+            notification_service.stop()
         await api_client.close()
-        await market_intelligence.close()  # Close intelligence engine
         await db.close()
         await bot.session.close()
-        logger.info("Cleanup complete")
+        logger.info("Shutdown complete")
 
 
 if __name__ == "__main__":
@@ -155,6 +98,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
-    except Exception as e:
-        logger.exception(f"Fatal error: {e}")
-        sys.exit(1)
