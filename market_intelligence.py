@@ -424,6 +424,10 @@ class MarketIntelligenceEngine:
 
         # --- Parse & filter ---
         markets = []
+        # Determine the event_slug to use for URL generation
+        # For event_object_embedded and event_id_query sources, we know the correct event slug
+        known_event_slug = slug if source in ("event_object_embedded", "event_id_query", "event_slug_query") else ""
+        
         for item in raw_items:
             try:
                 # If market_slug specified, only that market
@@ -437,7 +441,7 @@ class MarketIntelligenceEngine:
                     if item_event != slug and item_slug != slug:
                         continue
 
-                parsed = self._parse_market(item, skip_long_term_filter)
+                parsed = self._parse_market(item, skip_long_term_filter, override_event_slug=known_event_slug)
                 if parsed:
                     markets.append(parsed)
             except Exception as e:
@@ -550,8 +554,15 @@ class MarketIntelligenceEngine:
 
     def _parse_market(
         self, data: Dict, skip_long_term_filter: bool = False,
+        override_event_slug: str = "",
     ) -> Optional[MarketStats]:
-        """Parse raw API dict into MarketStats. Returns None if invalid."""
+        """Parse raw API dict into MarketStats. Returns None if invalid.
+        
+        Args:
+            data: Raw API response dict
+            skip_long_term_filter: If True, don't filter by price or long-term date
+            override_event_slug: If provided, use this as event_slug instead of extracting from data
+        """
         try:
             # End date
             end_str = data.get("endDate") or data.get("end_date_iso")
@@ -612,12 +623,38 @@ class MarketIntelligenceEngine:
                     clob_ids = []
 
             category = self._detect_category(tags, data.get("question", ""))
+            
+            # Determine event_slug - order of preference:
+            # 1. override_event_slug (if provided)
+            # 2. eventSlug from data
+            # 3. slug from nested events array (events[0].slug)
+            # 4. DO NOT use market slug as fallback - it's not valid for URLs!
+            event_slug = ""
+            if override_event_slug:
+                event_slug = override_event_slug
+            elif data.get("eventSlug"):
+                event_slug = data.get("eventSlug", "")
+            else:
+                # Try to extract from nested events array
+                events = data.get("events", [])
+                if events and isinstance(events, list) and len(events) > 0:
+                    event_slug = events[0].get("slug", "")
+            
+            # If still no event_slug, log warning - URL will be broken
+            if not event_slug:
+                logger.warning(f"No event_slug found for market: {data.get('question', '')[:50]}")
+                # Use market slug as last resort, but strip number suffixes (e.g., -644-513-935)
+                market_slug = data.get("slug", "")
+                # Try to clean the slug by removing trailing -XXX-XXX-XXX patterns
+                import re
+                cleaned = re.sub(r'(-\d+)+$', '', market_slug)
+                event_slug = cleaned if cleaned else market_slug
 
             return MarketStats(
                 condition_id=data.get("conditionId", ""),
                 question=data.get("question", ""),
                 slug=data.get("slug", ""),
-                event_slug=data.get("eventSlug", data.get("slug", "")),
+                event_slug=event_slug,
                 yes_price=yes_price,
                 no_price=no_price,
                 volume_24h=vol_24h,
@@ -632,6 +669,7 @@ class MarketIntelligenceEngine:
         except Exception as e:
             logger.debug(f"Parse error: {e}")
             return None
+
 
     def _detect_category(self, tags: List[str], question: str) -> str:
         tags_lower = {t.lower() for t in tags}

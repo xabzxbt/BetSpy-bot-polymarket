@@ -114,22 +114,21 @@ def get_referral_link(event_slug: str, market_slug: str = "") -> str:
     
     Args:
         event_slug: Event slug from API
-        market_slug: Market slug from API (optional, can be empty or same as event_slug)
+        market_slug: Market slug from API (kept for backwards compatibility, but not used in URL)
         
     Returns:
         Full URL with referral code if configured
         
     URL Format:
-        - If market_slug is empty or same as event_slug: /event/{event_slug}
-        - If market_slug is different: /event/{event_slug}/{market_slug}
+        Polymarket only supports: /event/{event_slug}
+        The market_slug parameter is NOT used in the URL as Polymarket
+        doesn't support the /event/{event_slug}/{market_slug} format.
     """
     settings = get_settings()
     
-    # Build base URL - don't duplicate slug if they're the same
-    if not market_slug or market_slug == event_slug:
-        base_url = f"https://polymarket.com/event/{event_slug}"
-    else:
-        base_url = f"https://polymarket.com/event/{event_slug}/{market_slug}"
+    # Polymarket only supports /event/{event_slug} format
+    # market_slug is NOT part of the valid URL structure
+    base_url = f"https://polymarket.com/event/{event_slug}"
     
     # Add referral code if configured
     if settings.polymarket_referral_code:
@@ -138,3 +137,4 @@ def get_referral_link(event_slug: str, market_slug: str = "") -> str:
         return f"{base_url}?via={ref_code}"
     
     return base_url
+
