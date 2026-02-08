@@ -74,6 +74,7 @@ async def main() -> None:
 
     # 6. Scheduler (notifications) — pass both bot and session_factory
     notification_service = init_notification_service(bot, db._session_factory)
+    await notification_service.start()  # IMPORTANT: Actually start the scheduler!
 
     logger.info("Starting bot polling...")
     try:
@@ -81,7 +82,7 @@ async def main() -> None:
     finally:
         logger.info("Shutting down...")
         if notification_service:
-            notification_service.stop()
+            await notification_service.stop()
         await api_client.close()
         await db.close()
         await bot.session.close()
