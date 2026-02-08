@@ -1,8 +1,13 @@
 """
-Keyboard builders for BetSpy Market Intelligence features.
+Keyboard builders for BetSpy Market Intelligence (v2).
+
+Changes:
+- Market cache uses TTL (15 min) instead of unbounded growth
+- Cache cleanup on every access
 """
 
-from typing import List, Dict
+import time
+from typing import List, Dict, Optional, Tuple
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -10,193 +15,174 @@ from market_intelligence import MarketStats, Category, TimeFrame
 from translations import get_text
 
 
-# Cache for markets to use short indices instead of long condition_ids
-# Key: short index (string), Value: MarketStats
-_market_cache: Dict[str, MarketStats] = {}
+# =====================================================================
+# Market cache with TTL
+# =====================================================================
+
+_market_cache: Dict[str, Tuple[MarketStats, float]] = {}  # key → (market, expires_at)
 _cache_counter = 0
+_CACHE_TTL = 900  # 15 minutes
+
+
+def _cleanup_cache() -> None:
+    """Remove expired entries."""
+    now = time.time()
+    expired = [k for k, (_, exp) in _market_cache.items() if exp < now]
+    for k in expired:
+        del _market_cache[k]
 
 
 def cache_markets(markets: List[MarketStats]) -> List[str]:
-    """
-    Cache markets and return list of short keys.
-    This avoids BUTTON_DATA_INVALID error from long condition_ids.
-    """
-    global _cache_counter, _market_cache
-    
+    """Cache markets with TTL. Returns short keys."""
+    global _cache_counter
+    _cleanup_cache()
+
+    now = time.time()
     keys = []
     for market in markets:
         _cache_counter += 1
-        # Use short numeric key (max 8 chars)
-        key = str(_cache_counter % 100000000)
-        _market_cache[key] = market
+        key = str(_cache_counter % 100_000_000)
+        _market_cache[key] = (market, now + _CACHE_TTL)
         keys.append(key)
-    
-    # Clean old entries if cache gets too large
-    if len(_market_cache) > 1000:
-        # Keep only the last 500 entries
-        items = list(_market_cache.items())
-        _market_cache = dict(items[-500:])
-    
     return keys
 
 
-def get_cached_market(key: str) -> MarketStats:
-    """Get market from cache by short key."""
-    return _market_cache.get(key)
+def get_cached_market(key: str) -> Optional[MarketStats]:
+    """Get market from cache. Returns None if expired or missing."""
+    _cleanup_cache()
+    entry = _market_cache.get(key)
+    if entry:
+        return entry[0]
+    return None
 
+
+# =====================================================================
+# Keyboards
+# =====================================================================
 
 def get_category_keyboard(lang: str) -> InlineKeyboardMarkup:
-    """Category selection keyboard with all Polymarket categories."""
+    """Category selection keyboard."""
     builder = InlineKeyboardBuilder()
-    
-    # Row 1: Politics, Sports
+
+    rows = [
+        [("🏛️", "cat_politics", "politics"), ("⚽", "cat_sports", "sports")],
+        [("🎬", "cat_pop_culture", "pop-culture"), ("💼", "cat_business", "business")],
+        [("₿", "cat_crypto", "crypto"), ("🔬", "cat_science", "science")],
+        [("🎮", "cat_gaming", "gaming"), ("🎭", "cat_entertainment", "entertainment")],
+        [("🌍", "cat_world", "world"), ("💻", "cat_tech", "tech")],
+    ]
+
+    for row in rows:
+        buttons = [
+            InlineKeyboardButton(
+                text=f"{emoji} {get_text(text_key, lang)}",
+                callback_data=f"intel:cat:{cat_val}",
+            )
+            for emoji, text_key, cat_val in row
+        ]
+        builder.row(*buttons)
+
     builder.row(
-        InlineKeyboardButton(text=f"🏛️ {get_text('cat_politics', lang)}", callback_data="intel:cat:politics"),
-        InlineKeyboardButton(text=f"⚽ {get_text('cat_sports', lang)}", callback_data="intel:cat:sports"),
+        InlineKeyboardButton(
+            text=f"📊 {get_text('cat_all', lang)}",
+            callback_data="intel:cat:all",
+        )
     )
-    # Row 2: Pop Culture, Business
     builder.row(
-        InlineKeyboardButton(text=f"🎬 {get_text('cat_pop_culture', lang)}", callback_data="intel:cat:pop-culture"),
-        InlineKeyboardButton(text=f"💼 {get_text('cat_business', lang)}", callback_data="intel:cat:business"),
+        InlineKeyboardButton(
+            text=f"🏠 {get_text('btn_back_to_menu', lang)}",
+            callback_data="menu:main",
+        )
     )
-    # Row 3: Crypto, Science
-    builder.row(
-        InlineKeyboardButton(text=f"₿ {get_text('cat_crypto', lang)}", callback_data="intel:cat:crypto"),
-        InlineKeyboardButton(text=f"🔬 {get_text('cat_science', lang)}", callback_data="intel:cat:science"),
-    )
-    # Row 4: Gaming, Entertainment
-    builder.row(
-        InlineKeyboardButton(text=f"🎮 {get_text('cat_gaming', lang)}", callback_data="intel:cat:gaming"),
-        InlineKeyboardButton(text=f"🎭 {get_text('cat_entertainment', lang)}", callback_data="intel:cat:entertainment"),
-    )
-    # Row 5: World, Tech
-    builder.row(
-        InlineKeyboardButton(text=f"🌍 {get_text('cat_world', lang)}", callback_data="intel:cat:world"),
-        InlineKeyboardButton(text=f"💻 {get_text('cat_tech', lang)}", callback_data="intel:cat:tech"),
-    )
-    # Row 6: All categories
-    builder.row(
-        InlineKeyboardButton(text=f"📊 {get_text('cat_all', lang)}", callback_data="intel:cat:all"),
-    )
-    # Row 7: Back to main menu
-    builder.row(
-        InlineKeyboardButton(text=f"🏠 {get_text('btn_back_to_menu', lang)}", callback_data="menu:main"),
-    )
-    
     return builder.as_markup()
 
 
 def get_trending_keyboard(
-    lang: str, 
+    lang: str,
     markets: List[MarketStats],
     category: str,
     timeframe: str,
     page: int = 1,
     total_pages: int = 1,
 ) -> InlineKeyboardMarkup:
-    """Keyboard with market selection buttons and pagination."""
+    """Market list with numbered buttons + pagination."""
     builder = InlineKeyboardBuilder()
-    
-    # Cache markets and get short keys
-    keys = cache_markets(markets)  # Cache all passed markets (should only be limits for this page)
-    
-    # Market buttons (up to limit)
-    row_buttons = []
-    start_index = (page - 1) * 10 + 1  # Global index for labels
-    
+
+    keys = cache_markets(markets)
+    start_index = (page - 1) * 10 + 1
+
+    # Market buttons (5 per row)
+    row = []
     for i, key in enumerate(keys):
-        btn_text = f"{start_index + i}"
-        btn = InlineKeyboardButton(
-            text=btn_text,
-            callback_data=f"intel:m:{key}"  # Short format: intel:m:12345
+        row.append(
+            InlineKeyboardButton(
+                text=str(start_index + i),
+                callback_data=f"intel:m:{key}",
+            )
         )
-        row_buttons.append(btn)
-        
-        # 5 buttons per row
-        if len(row_buttons) == 5:
-            builder.row(*row_buttons)
-            row_buttons = []
-    
-    # Add remaining buttons
-    if row_buttons:
-        builder.row(*row_buttons)
-    
-    # Pagination Navigation
-    nav_row = []
+        if len(row) == 5:
+            builder.row(*row)
+            row = []
+    if row:
+        builder.row(*row)
+
+    # Pagination
+    nav = []
     if page > 1:
-        nav_row.append(
-            InlineKeyboardButton(
-                text=get_text("btn_prev_page", lang), 
-                callback_data=f"intel:p:{category}:{timeframe}:{page-1}"
-            )
-        )
-    
-    # Page indicator
-    nav_row.append(
-        InlineKeyboardButton(
-            text=f"📄 {page}/{total_pages}",
-            callback_data="noop"  # Non-clickable
-        )
-    )
-        
+        nav.append(InlineKeyboardButton(
+            text="◀️", callback_data=f"intel:p:{category}:{timeframe}:{page - 1}",
+        ))
+    nav.append(InlineKeyboardButton(
+        text=f"📄 {page}/{total_pages}", callback_data="noop",
+    ))
     if page < total_pages:
-        nav_row.append(
-            InlineKeyboardButton(
-                text=get_text("btn_next_page", lang), 
-                callback_data=f"intel:p:{category}:{timeframe}:{page+1}"
-            )
-        )
-    
-    builder.row(*nav_row)
-    
-    # Refresh & Back
+        nav.append(InlineKeyboardButton(
+            text="▶️", callback_data=f"intel:p:{category}:{timeframe}:{page + 1}",
+        ))
+    builder.row(*nav)
+
+    # Refresh
     builder.row(
         InlineKeyboardButton(
-            text=get_text("btn_refresh", lang),
-            callback_data=f"intel:time:{category}:{timeframe}:{page}"  # Include page to refresh current view
-        ),
+            text=f"🔄 {get_text('btn_refresh', lang)}",
+            callback_data=f"intel:time:{category}:{timeframe}:{page}",
+        )
     )
-    
+
     # Navigation
     builder.row(
         InlineKeyboardButton(
-            text=f"🔙 {get_text('btn_trending', lang)}",
-            callback_data="intel:back_categories"
+            text=f"🔙 Categories",
+            callback_data="intel:back_categories",
         ),
         InlineKeyboardButton(
-            text=f"🏠 {get_text('btn_back_to_menu', lang)}",
-            callback_data="menu:main"
+            text=f"🏠 Menu",
+            callback_data="menu:main",
         ),
     )
-    
     return builder.as_markup()
 
 
 def get_market_detail_keyboard(
-    lang: str,
-    market: MarketStats,
+    lang: str, market: MarketStats,
 ) -> InlineKeyboardMarkup:
     """Keyboard for market detail view."""
     builder = InlineKeyboardBuilder()
-    
-    # Open market link
+
     builder.row(
         InlineKeyboardButton(
-            text=get_text("intel_link_text", lang), # NEW key needed
-            url=market.market_url
-        ),
+            text="🔗 Open on Polymarket",
+            url=market.market_url,
+        )
     )
-    
-    # Back to list
     builder.row(
         InlineKeyboardButton(
-            text=f"⬅️ {get_text('btn_trending', lang)}",
-            callback_data="intel:back_categories"
+            text="⬅️ Categories",
+            callback_data="intel:back_categories",
         ),
         InlineKeyboardButton(
-            text=f"🏠 {get_text('btn_back_to_menu', lang)}",
-            callback_data="menu:main"
+            text="🏠 Menu",
+            callback_data="menu:main",
         ),
     )
-    
     return builder.as_markup()

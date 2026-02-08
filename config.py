@@ -56,23 +56,8 @@ class Settings(BaseSettings):
         description="Polymarket referral code (e.g., xabzxbt-t1f3)",
     )
 
-    # Polymarket API Keys (Optional - Required for Whale Analysis)
-    polymarket_api_key: str = Field(
-        default="",
-        description="Polymarket CLOB API Key",
-    )
-    polymarket_secret: str = Field(
-        default="",
-        description="Polymarket CLOB API Secret",
-    )
-    polymarket_passphrase: str = Field(
-        default="",
-        description="Polymarket CLOB API Passphrase",
-    )
-    polymarket_private_key: str = Field(
-        default="",
-        description="Polygon wallet private key (required for L2 auth / whale trade analysis)",
-    )
+    # NOTE: CLOB auth keys removed — whale analysis uses PUBLIC endpoints only.
+    # No private key needed.
 
     # Polling Configuration
     polling_interval_seconds: int = Field(

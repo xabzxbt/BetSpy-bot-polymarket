@@ -605,9 +605,6 @@ class PolymarketApiClient:
         """
         from datetime import timedelta
         
-        # Initialize variables to prevent UnboundLocalError
-        trades_by_condition: Dict[str, List[Trade]] = {}
-
         # 1. Портфель зараз
         positions = await self.get_wallet_positions(wallet_address)
         total_position_value = sum(pos.current_value for pos in positions)

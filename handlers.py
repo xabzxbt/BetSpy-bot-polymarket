@@ -32,11 +32,9 @@ from keyboards import (
     get_settings_language_keyboard,
     get_stats_range_keyboard,
     get_wallet_settings_keyboard,
-    get_wallet_settings_keyboard,
     get_min_amount_keyboard,
 )
 from config import get_settings
-from aiogram.fsm.state import State, StatesGroup
 from market_intelligence import market_intelligence
 from handlers_intelligence import format_market_detail
 
