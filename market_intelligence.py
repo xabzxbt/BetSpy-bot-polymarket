@@ -574,7 +574,7 @@ class MarketIntelligenceEngine:
                 return None
 
             days_to_close = (end_date - now).days
-            if days_to_close > 35 and not skip_long_term_filter:
+            if days_to_close > 180 and not skip_long_term_filter:
                 return None
 
             # Prices
@@ -584,6 +584,11 @@ class MarketIntelligenceEngine:
                 outcome_prices = json.loads(outcome_prices)
             yes_price = float(outcome_prices[0]) if len(outcome_prices) >= 1 else 0.5
             no_price = float(outcome_prices[1]) if len(outcome_prices) >= 2 else 0.5
+
+            # Skip already-resolved markets (either side >= 90¢)
+            if not skip_long_term_filter:
+                if yes_price >= 0.90 or no_price >= 0.90:
+                    return None
 
             # Volume
             vol_24h = float(data.get("volume24hr", 0) or 0)
@@ -991,7 +996,10 @@ class MarketIntelligenceEngine:
     # =================================================================
 
     def generate_recommendation(self, market: MarketStats) -> BetRecommendation:
-        """Generate betting recommendation from computed signal."""
+        """Generate betting recommendation from computed signal.
+        
+        Reasons/warnings use i18n keys that get resolved in format_service.
+        """
         should_bet = market.signal_score >= 55
         side = market.recommended_side
 
@@ -1005,8 +1013,10 @@ class MarketIntelligenceEngine:
             if market.yes_price < 0.05:
                 should_bet = False
 
+        price_resolved = False
         if market.yes_price >= 0.95 or market.no_price >= 0.95:
             should_bet = False
+            price_resolved = True
 
         entry = market.yes_price if side == "YES" else market.no_price
         if entry <= 0.01:
@@ -1020,50 +1030,57 @@ class MarketIntelligenceEngine:
         loss = entry - stop
         rr = gain / loss if loss > 0 else 0
 
-        # Reasons & warnings
+        # Reasons & warnings — use i18n key format for format_service to resolve
         reasons = []
         warnings = []
         wa = market.whale_analysis
 
+        if price_resolved:
+            # Price at 95¢+ means market is essentially resolved
+            dominant = "YES" if market.yes_price >= 0.95 else "NO"
+            pct = int(max(market.yes_price, market.no_price) * 100)
+            warnings.append(f"⚠️ Market at {pct}¢ {dominant} — already resolved, no edge")
+
         if wa and wa.is_significant:
             if wa.dominance_side == side and wa.dominance_pct >= 60:
                 reasons.append(
-                    f"🐋 Smart Money на вашому боці ({wa.dominance_pct:.0f}% {side})"
+                    f"🐋 SM aligned ({wa.dominance_pct:.0f}% {side})"
                 )
             elif wa.dominance_side != "NEUTRAL" and wa.dominance_side != side:
                 warnings.append(
-                    f"⚠️ Smart Money ставлять проти ({wa.dominance_side})"
+                    f"⚠️ SM against ({wa.dominance_side})"
                 )
                 rr *= 0.8
         else:
-            warnings.append("⚠️ Мало даних від Smart Money")
+            warnings.append("⚠️ Limited SM data")
 
+        vol_k = market.volume_24h / 1000
         if market.volume_24h >= 100_000:
-            reasons.append(f"📈 Високий volume: ${market.volume_24h/1000:.0f}K за 24h")
+            reasons.append(f"📈 High volume: ${vol_k:.0f}K/24h")
         elif market.volume_24h >= 30_000:
-            reasons.append(f"📊 Помірний volume: ${market.volume_24h/1000:.0f}K")
+            reasons.append(f"📊 Moderate volume: ${vol_k:.0f}K")
         else:
-            warnings.append(f"⚠️ Низький volume: ${market.volume_24h/1000:.0f}K")
+            warnings.append(f"⚠️ Low volume: ${vol_k:.0f}K")
 
         trend = market.price_change_24h
         if side == "NO":
             trend = -trend
         if trend > 0.10:
-            reasons.append(f"📈 Сильний тренд: +{trend*100:.1f}%")
+            reasons.append(f"📈 Strong trend: +{trend*100:.1f}%")
         elif trend > 0:
-            reasons.append(f"📈 Позитивний тренд: +{trend*100:.1f}%")
+            reasons.append(f"📈 Positive trend: +{trend*100:.1f}%")
         elif trend > -0.05:
-            warnings.append("⚠️ Слабкий тренд")
+            warnings.append("⚠️ Weak trend")
         else:
-            warnings.append(f"⚠️ Негативний тренд: {trend*100:.1f}%")
+            warnings.append(f"⚠️ Negative trend: {trend*100:.1f}%")
 
         if market.liquidity < 10_000:
-            warnings.append("⚠️ Низька ліквідність — ризик прослизання")
+            warnings.append("⚠️ Low liquidity — slippage risk")
 
         if market.days_to_close < 1:
-            warnings.append("closes_today")
+            warnings.append("⚠️ Closes today!")
         elif market.days_to_close > 21:
-            warnings.append("⚠️ Довгий термін — капітал заблоковано")
+            warnings.append("⚠️ Long term — capital locked")
 
         if len(warnings) >= 3:
             should_bet = False

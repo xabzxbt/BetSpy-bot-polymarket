@@ -65,11 +65,12 @@ async def main() -> None:
     dp = Dispatcher(storage=MemoryStorage())
 
     # 5. Register handlers
+    # ORDER MATTERS: specific handlers first, catch-all last
     setup_reply_handlers(dp)
     setup_handlers(dp)
-    setup_intelligence_handlers(dp)
+    setup_hot_handlers(dp)          # BEFORE intelligence (has intel: catch-all)
     setup_watchlist_handlers(dp)
-    setup_hot_handlers(dp)
+    setup_intelligence_handlers(dp) # LAST (has catch-all for intel:*)
 
     # 6. Scheduler (notifications) — pass both bot and session_factory
     notification_service = init_notification_service(bot, db._session_factory)
