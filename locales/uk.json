@@ -17,11 +17,13 @@
   "btn.prev_page": "◀️",
   "btn.next_page": "▶️",
 
-  "reply.home": "🏠 Домів",
   "reply.signals": "📊 Сигнали",
+  "reply.hot": "🔥 Гарячі",
   "reply.analyze": "🔗 Аналіз",
   "reply.wallets": "📋 Гаманці",
+  "reply.watchlist": "⭐ Обрані",
   "reply.settings": "⚙️ Налашт.",
+  "reply.help": "❓ Допомога",
 
   "btn.view_positions": "📊 Позиції",
   "btn.view_pnl": "💰 PnL",

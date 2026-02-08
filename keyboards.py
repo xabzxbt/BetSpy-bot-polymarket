@@ -31,21 +31,23 @@ def get_persistent_menu(lang: str) -> ReplyKeyboardMarkup:
     """Main persistent reply keyboard — always visible.
     
     Layout:
-    [ 🏠 Home ] [ 📊 Signals ]
-    [ 🔗 Analyze ] [ 📋 Wallets ]
-    [ ⚙️ Settings ]
+    [ 📊 Signals ] [ 🔥 Hot ]  [ 🔗 Analyze ]
+    [ 📋 Wallets ] [ ⭐ Watchlist ]
+    [ ⚙️ Settings ] [ ❓ Help ]
     """
     builder = ReplyKeyboardBuilder()
     builder.row(
-        KeyboardButton(text=get_text("reply.home", lang)),
         KeyboardButton(text=get_text("reply.signals", lang)),
+        KeyboardButton(text=get_text("reply.hot", lang)),
+        KeyboardButton(text=get_text("reply.analyze", lang)),
     )
     builder.row(
-        KeyboardButton(text=get_text("reply.analyze", lang)),
         KeyboardButton(text=get_text("reply.wallets", lang)),
+        KeyboardButton(text=get_text("reply.watchlist", lang)),
     )
     builder.row(
         KeyboardButton(text=get_text("reply.settings", lang)),
+        KeyboardButton(text=get_text("reply.help", lang)),
     )
     return builder.as_markup(
         resize_keyboard=True,
@@ -232,3 +234,4 @@ def get_stats_range_keyboard(lang: str, wallet_id: int) -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text=get_text("btn.stats_all_time", lang), callback_data=f"stats_range:365:{wallet_id}"))
     builder.row(InlineKeyboardButton(text=get_text("btn.back", lang), callback_data=f"wallet:view:{wallet_id}"))
     return builder.as_markup()
+    

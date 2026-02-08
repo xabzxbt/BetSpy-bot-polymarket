@@ -17,11 +17,13 @@
   "btn.prev_page": "◀️",
   "btn.next_page": "▶️",
 
-  "reply.home": "🏠 Home",
   "reply.signals": "📊 Signals",
+  "reply.hot": "🔥 Hot",
   "reply.analyze": "🔗 Analyze",
   "reply.wallets": "📋 Wallets",
+  "reply.watchlist": "⭐ Watchlist",
   "reply.settings": "⚙️ Settings",
+  "reply.help": "❓ Help",
 
   "btn.view_positions": "📊 Positions",
   "btn.view_pnl": "💰 PnL",
