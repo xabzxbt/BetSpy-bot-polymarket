@@ -34,8 +34,11 @@ RUN chmod -R 755 /usr/local/bin
 # Create logs directory
 RUN mkdir -p /app/logs
 
-# Copy application code
+# Copy application code (all .py files + subdirectories)
 COPY *.py .
+COPY services/ ./services/
+COPY locales/ ./locales/
+COPY migrations/ ./migrations/
 
 # Create non-root user for security
 RUN useradd -m -u 1000 botuser && \
