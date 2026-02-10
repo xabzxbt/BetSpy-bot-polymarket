@@ -108,6 +108,41 @@ async def cmd_help(message: Message) -> None:
         )
 
 
+@router.message(Command("wallets"))
+async def cmd_wallets(message: Message) -> None:
+    """Quick access to tracked wallets via /wallets command."""
+    async with db.session() as session:
+        user_repo = UserRepository(session)
+        wallet_repo = WalletRepository(session)
+        
+        user = await user_repo.get_or_create(
+            telegram_id=message.from_user.id,
+            username=message.from_user.username,
+            first_name=message.from_user.first_name,
+        )
+        
+        wallets = await wallet_repo.get_user_wallets(user.id)
+        settings = get_settings()
+        
+        if not wallets:
+            await message.answer(
+                get_text("no_wallets", user.language),
+                reply_markup=get_main_menu_keyboard(user.language),
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await message.answer(
+                get_text(
+                    "wallet_list_header",
+                    user.language,
+                    count=len(wallets),
+                    limit=settings.max_wallets_per_user
+                ),
+                reply_markup=get_wallet_list_keyboard(user.language, wallets),
+                parse_mode=ParseMode.HTML,
+            )
+
+
 # ==================== LANGUAGE SELECTION (ONBOARDING) ====================
 
 @router.callback_query(F.data.startswith("lang:"))

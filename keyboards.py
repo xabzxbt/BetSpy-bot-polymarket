@@ -128,13 +128,26 @@ def get_nickname_keyboard(
 
 
 def get_wallet_list_keyboard(lang: str, wallets) -> InlineKeyboardMarkup:
+    from config import get_settings
+    settings = get_settings()
     builder = InlineKeyboardBuilder()
     for w in wallets:
         icon = "⏸️" if w.is_paused else "👤"
-        builder.row(InlineKeyboardButton(
-            text=f"{icon} {w.nickname}",
-            callback_data=f"wallet:view:{w.id}",
-        ))
+        short_addr = f"{w.wallet_address[:6]}…{w.wallet_address[-4:]}"
+        # Row: [wallet name + short address] [🔗 direct profile link]
+        profile_url = f"https://polymarket.com/profile/{w.wallet_address}"
+        if settings.polymarket_referral_code:
+            profile_url += f"?via={settings.polymarket_referral_code}"
+        builder.row(
+            InlineKeyboardButton(
+                text=f"{icon} {w.nickname} ({short_addr})",
+                callback_data=f"wallet:view:{w.id}",
+            ),
+            InlineKeyboardButton(
+                text="🔗",
+                url=profile_url,
+            ),
+        )
     builder.row(InlineKeyboardButton(
         text=get_text("btn.add_wallet", lang), callback_data="menu:add_wallet",
     ))
