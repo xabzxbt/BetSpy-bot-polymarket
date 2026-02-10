@@ -233,25 +233,30 @@ async def run_deep_analysis(
         logger.warning(f"Kelly failed: {e}")
 
     # --- Phase 5: Final verdict ---
+    # --- Phase 5: Final verdict ---
     # Calculate raw edge for YES side first
     raw_yes_edge = model_prob - market.yes_price
     
-    if model_prob >= 0.55:
+    # Threshold for recommendation (3% edge)
+    EDGE_THRESHOLD = 0.03
+    
+    if raw_yes_edge > EDGE_THRESHOLD:
         rec_side = "YES"
         edge = raw_yes_edge
-    elif model_prob <= 0.45:
+    elif raw_yes_edge < -EDGE_THRESHOLD:
         rec_side = "NO"
-        # If we bet NO, our edge is positive if Model YES < Market YES
         edge = -raw_yes_edge
     else:
-        # Fallback to existing logic if neutral
-        rec_side = market.recommended_side
-        if rec_side == "YES":
-            edge = raw_yes_edge
-        elif rec_side == "NO":
-            edge = -raw_yes_edge
-        else:
-            edge = 0.0
+        rec_side = "NEUTRAL"
+        edge = 0.0
+        
+        # Soft fallback: if we have strong signal but no model edge (rare)
+        if market.signal_score >= 80:
+             rec_side = "YES"
+             edge = 0.05
+        elif market.signal_score <= 20:
+             rec_side = "NO"
+             edge = 0.05
 
     # Confidence: blend of signal score and model agreement
     confidence = market.signal_score
