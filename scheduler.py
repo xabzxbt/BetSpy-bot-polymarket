@@ -385,7 +385,7 @@ class TradeNotificationService:
                 if trade.timestamp > latest_timestamp:
                     latest_timestamp = trade.timestamp
             
-            # Send individual notifications with proper rate limiting
+            # Send notifications with intelligent batching
             for user_id, notification_data in subscription_notifications.items():
                 sub = notification_data['sub']
                 trades = notification_data['trades']
@@ -393,11 +393,18 @@ class TradeNotificationService:
                 # Sort trades by timestamp to show in chronological order
                 trades.sort(key=lambda x: x.timestamp)
                 
-                # Send individual notifications for each trade
-                for trade in trades:
-                    await self._send_notification(trade, sub)
-                    # Respect rate limits: 1 message per second per chat
-                    await asyncio.sleep(1.5)
+                # If too many trades, send a batch summary to avoid Flood Control
+                if len(trades) > 3:
+                    logger.info(f"Batching {len(trades)} trades for user {user_id}")
+                    await self._send_batch_notification(trades, sub)
+                    # Wait between users
+                    await asyncio.sleep(1.0)
+                else:
+                    # Send individual notifications for small number of trades
+                    for trade in trades:
+                        await self._send_notification(trade, sub)
+                        # Respect rate limits: 1 message per second per chat
+                        await asyncio.sleep(1.5)
             
             # Update timestamp for all subscriptions
             if latest_timestamp > max_timestamp:
@@ -541,11 +548,16 @@ class TradeNotificationService:
                 )
                 await self._mark_user_blocked(subscription.user_id)
             elif "Flood control" in str(e).lower() or "Too Many Requests" in str(e).lower():
-                logger.warning(
-                    f"Rate limited for user {subscription.user_telegram_id}: {e}. Waiting..."
-                )
-                # Wait for the suggested retry time or default to 5 seconds
                 retry_after = getattr(e, 'retry_after', 5)
+                
+                # If retry time is too long (e.g. > 60s), skip to avoid blocking the scheduler
+                if retry_after > 60:
+                    logger.error(f"Flood control limit exceeded for user {subscription.user_telegram_id}. Retry after {retry_after}s. Skipping.")
+                    return
+
+                logger.warning(
+                    f"Rate limited for user {subscription.user_telegram_id}: {e}. Waiting {retry_after}s..."
+                )
                 await asyncio.sleep(retry_after)
                 # Try to send the message again
                 try:
