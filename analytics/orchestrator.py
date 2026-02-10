@@ -70,8 +70,13 @@ class DeepAnalysis:
 
     @property
     def edge_pct(self) -> float:
-        if self.market_price > 0:
-            return (self.edge / self.market_price) * 100
+        # Determine cost basis based on recommendation
+        cost = self.market_price
+        if self.recommended_side == "NO":
+            cost = 1.0 - self.market_price
+            
+        if cost > 0:
+            return (self.edge / cost) * 100
         return 0.0
 
 
