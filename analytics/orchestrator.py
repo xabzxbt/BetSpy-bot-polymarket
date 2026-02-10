@@ -233,13 +233,25 @@ async def run_deep_analysis(
         logger.warning(f"Kelly failed: {e}")
 
     # --- Phase 5: Final verdict ---
-    edge = model_prob - market.yes_price
+    # Calculate raw edge for YES side first
+    raw_yes_edge = model_prob - market.yes_price
+    
     if model_prob >= 0.55:
         rec_side = "YES"
+        edge = raw_yes_edge
     elif model_prob <= 0.45:
         rec_side = "NO"
+        # If we bet NO, our edge is positive if Model YES < Market YES
+        edge = -raw_yes_edge
     else:
-        rec_side = market.recommended_side  # fallback to existing logic
+        # Fallback to existing logic if neutral
+        rec_side = market.recommended_side
+        if rec_side == "YES":
+            edge = raw_yes_edge
+        elif rec_side == "NO":
+            edge = -raw_yes_edge
+        else:
+            edge = 0.0
 
     # Confidence: blend of signal score and model agreement
     confidence = market.signal_score
