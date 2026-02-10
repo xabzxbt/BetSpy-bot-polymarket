@@ -421,12 +421,13 @@ class PolymarketApiClient:
         trades = await self.get_wallet_activity(
             wallet_address=wallet_address,
             activity_type="TRADE",
-            limit=50,
+            limit=200,  # Increased to avoid missing high frequency trades
             start_timestamp=since_timestamp,
         )
 
+        # Filtering logic moved to scheduler for better control
         if since_timestamp:
-            trades = [t for t in trades if t.timestamp > since_timestamp]
+            trades = [t for t in trades if t.timestamp >= since_timestamp]
 
         trades.sort(key=lambda t: t.timestamp)
         return trades
