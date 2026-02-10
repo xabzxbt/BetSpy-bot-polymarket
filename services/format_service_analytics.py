@@ -17,12 +17,16 @@ def format_deep_analysis(analysis: DeepAnalysis, lang: str) -> str:
     m = analysis.market
     q = html.escape(m.question[:80])
 
-    text = f"🔬 <b>DEEP ANALYSIS</b>\n"
+    text = f"{get_text('deep.title', lang)}\n"
     text += f"<b>{q}</b>\n"
     text += f"{'─' * 28}\n\n"
 
     # Market info
-    text += f"💰 YES <b>{format_price(m.yes_price)}</b> · NO <b>{format_price(m.no_price)}</b>"
+    text += get_text(
+        "deep.yes_no", lang,
+        yes=format_price(m.yes_price),
+        no=format_price(m.no_price)
+    )
     text += f" · 💧 {format_volume(m.liquidity)}\n"
 
     if m.days_to_close == 0:
@@ -30,7 +34,7 @@ def format_deep_analysis(analysis: DeepAnalysis, lang: str) -> str:
     elif m.days_to_close == 1:
         text += f"⏳ {get_text('detail.closes_tomorrow', lang)}\n"
     else:
-        text += f"⏳ {get_text('deep.days_left', lang, days=m.days_to_close)}\n"
+        text += f"{get_text('deep.days_left', lang, days=m.days_to_close)}\n"
 
     text += "\n"
 
@@ -41,30 +45,42 @@ def format_deep_analysis(analysis: DeepAnalysis, lang: str) -> str:
         mc = analysis.monte_carlo
         mc_pct = f"{mc.probability_yes * 100:.1f}%"
         mode_label = "10K sims" if mc.mode == "crypto" else "generic"
-        text += f"🎲 Monte Carlo ({mode_label}): <b>{mc_pct}</b> YES\n"
+        text += get_text("deep.monte_carlo", lang, mode=mode_label, pct=mc_pct) + "\n"
 
     if analysis.bayesian and analysis.bayesian.has_signal:
         bay_pct = f"{analysis.bayesian.posterior * 100:.1f}%"
-        text += f"🧠 Bayesian: <b>{bay_pct}</b> YES\n"
+        text += get_text("deep.bayesian", lang, pct=bay_pct) + "\n"
 
-    text += f"📊 Signal engine: {analysis.signal_probability * 100:.1f}% YES\n"
-    text += f"📈 Market price: {analysis.market_price * 100:.1f}% YES\n"
-    text += f"✅ <b>Consensus: ~{analysis.model_probability * 100:.1f}% YES</b>\n\n"
+    text += get_text("deep.signal_engine", lang, pct=f"{analysis.signal_probability * 100:.1f}") + "\n"
+    text += get_text("deep.market_price", lang, pct=f"{analysis.market_price * 100:.1f}") + "\n"
+    
+    cons_pct = f"{analysis.model_probability * 100:.1f}"
+    text += get_text("deep.consensus", lang, pct=cons_pct) + "\n\n"
 
     # ── EDGE & SIZING ──
     text += f"<b>── {get_text('deep.section_edge', lang)} ──</b>\n"
 
     if analysis.kelly:
         k = analysis.kelly
-        text += f"📐 Edge: <b>{k.edge_pct:+.1f}%</b>"
-        text += f" (model {k.model_probability*100:.0f}% vs market {k.market_price*100:.0f}%)\n"
+        edge_fmt = f"{k.edge_pct:+.1f}"
+        text += get_text("deep.edge_label", lang, pct=edge_fmt)
+        
+        # Model vs Market text
+        mod_pct = f"{k.model_probability*100:.0f}"
+        mkt_pct = f"{k.market_price*100:.0f}"
+        text += get_text("deep.model_vs_market", lang, model=mod_pct, market=mkt_pct) + "\n"
 
         if k.is_significant:
             fname = _fraction_name(k.fraction)
-            text += f"💰 Kelly ({fname}): <b>${k.recommended_size:.0f}</b>"
-            text += f" on {k.recommended_side} ({k.size_pct:.1f}%)\n"
+            size_fmt = f"{k.recommended_size:.0f}"
+            side_pct = f"{k.size_pct:.1f}"
+            
+            text += get_text("deep.kelly_bet", lang, fraction=fname, size=size_fmt)
+            text += get_text("deep.on_side", lang, side=k.recommended_side, pct=side_pct) + "\n"
+            
             if k.potential_profit > 0:
-                text += f"🎯 Potential: +${k.potential_profit:.0f} if wins\n"
+                prof_fmt = f"{k.potential_profit:.0f}"
+                text += get_text("deep.potential_profit", lang, profit=prof_fmt) + "\n"
         else:
             text += f"⚠️ {get_text('deep.edge_too_small', lang)}\n"
     else:
@@ -79,9 +95,11 @@ def format_deep_analysis(analysis: DeepAnalysis, lang: str) -> str:
         th = g.theta
 
         if th.dominant_side == "YES":
-            text += f"⏳ Theta: YES {th.theta_yes:+.1f}¢/day\n"
+            val = f"{th.theta_yes:+.1f}"
+            text += get_text("deep.theta_label", lang, side="YES", val=val) + "\n"
         else:
-            text += f"⏳ Theta: NO {th.theta_no:+.1f}¢/day\n"
+            val = f"{th.theta_no:+.1f}"
+            text += get_text("deep.theta_label", lang, side="NO", val=val) + "\n"
 
         if th.is_opportunity:
             text += f"💡 {get_text('deep.theta_anomaly', lang)}\n"
@@ -92,8 +110,10 @@ def format_deep_analysis(analysis: DeepAnalysis, lang: str) -> str:
 
         v = g.vega
         if v.historical_vol_7d > 0:
-            text += f"📊 Vol 7d: {v.historical_vol_7d*100:.1f}%"
-            text += f" · 24h: {v.recent_vol_24h*100:.1f}%\n"
+            v7 = f"{v.historical_vol_7d*100:.1f}"
+            v24 = f"{v.recent_vol_24h*100:.1f}"
+            text += get_text("deep.vol_label", lang, v7=v7, v24=v24) + "\n"
+            
             if v.is_sleeping:
                 text += f"😴 {get_text('deep.vega_sleeping', lang)}\n"
             elif v.is_spiking:
@@ -138,18 +158,28 @@ def format_deep_analysis(analysis: DeepAnalysis, lang: str) -> str:
     if analysis.has_edge and side != "NEUTRAL":
         emoji = "🟢" if side == "YES" else "🔴"
         entry = m.yes_price if side == "YES" else m.no_price
-        text += f"{emoji} <b>BUY {side} @ {format_price(entry)}</b>\n"
-        text += f"Confidence: {analysis.confidence}/100"
-        text += f" · Edge: {analysis.edge_pct:+.1f}%"
+        
+        text += get_text(
+            "deep.buy_recommendation", lang,
+            emoji=emoji, side=side, price=format_price(entry)
+        ) + "\n"
+        
+        text += get_text("deep.confidence", lang, score=analysis.confidence)
+        
+        edge_fmt = f"{analysis.edge_pct:+.1f}"
+        text += f" · Edge: {edge_fmt}%"  # Keep standard format or add local key if needed
+        
         if analysis.kelly and analysis.kelly.is_significant:
-            text += f" · Size: ${analysis.kelly.recommended_size:.0f}"
+            sz = f"{analysis.kelly.recommended_size:.0f}"
+            text += get_text("deep.size_label", lang, size=sz)
         text += "\n"
     else:
         text += f"⚪ {get_text('deep.no_clear_edge', lang)}\n"
 
     # Warnings
     if analysis.errors:
-        text += f"\n⚠️ {len(analysis.errors)} module(s) had issues\n"
+        cnt = len(analysis.errors)
+        text += get_text("deep.modules_error", lang, count=cnt) + "\n"
 
     return text
 
