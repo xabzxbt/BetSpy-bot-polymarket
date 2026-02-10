@@ -183,6 +183,12 @@ def get_market_detail_keyboard(
     if cache_key:
         builder.row(
             InlineKeyboardButton(
+                text=get_text("deep.btn_deep", lang),
+                callback_data=f"deep:{cache_key}",
+            )
+        )
+        builder.row(
+            InlineKeyboardButton(
                 text=get_text("watchlist.btn_add", lang),
                 callback_data=f"wl:add:{cache_key}",
             )

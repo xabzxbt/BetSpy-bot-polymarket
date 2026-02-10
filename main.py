@@ -20,6 +20,7 @@ from handlers_intelligence import setup_intelligence_handlers
 from handlers_reply import setup_reply_handlers
 from handlers_watchlist import setup_watchlist_handlers
 from handlers_hot import setup_hot_handlers
+from handlers_analytics import setup_analytics_handlers
 from scheduler import init_notification_service
 from market_intelligence import market_intelligence
 
@@ -69,6 +70,7 @@ async def main() -> None:
     setup_reply_handlers(dp)
     setup_handlers(dp)
     setup_hot_handlers(dp)          # BEFORE intelligence (has intel: catch-all)
+    setup_analytics_handlers(dp)    # Deep Analysis — BEFORE intelligence
     setup_watchlist_handlers(dp)
     setup_intelligence_handlers(dp) # LAST (has catch-all for intel:*)
 
@@ -84,6 +86,12 @@ async def main() -> None:
         if notification_service:
             await notification_service.stop()
         await api_client.close()
+        # Close analytics data fetcher
+        try:
+            from analytics.data_fetcher import data_fetcher as analytics_fetcher
+            await analytics_fetcher.close()
+        except Exception:
+            pass
         await db.close()
         await bot.session.close()
         logger.info("Shutdown complete")

@@ -171,5 +171,25 @@
   "alert.price_move": "🚨 <b>PRICE ALERT</b>\n\n{question}\n\nYES moved <b>{direction}{pct}%</b> in {minutes}min\n\nYES: {yes_price} · NO: {no_price}\n\n<a href='{url}'>Open Market</a>",
   "alert.whale_trade": "🐋 <b>WHALE ALERT</b>\n\n${amount} {side} on <b>{question}</b>\n\n<a href='{url}'>Open Market</a>",
   "hot.title": "🔥 <b>Hot Today</b>\n\nMarkets with the most volume and whale activity in the last 24h:",
-  "hot.empty": "No hot markets right now. Check back later!"
+  "hot.empty": "No hot markets right now. Check back later!",
+  "deep": {
+    "loading": "🔬 Running deep analysis... (5-10 sec)",
+    "error": "❌ Deep analysis failed. Try again later.",
+    "days_left": "⏳ {days} days remaining",
+    "section_probability": "PROBABILITY MODELS",
+    "section_edge": "EDGE & SIZING",
+    "section_greeks": "TIME & VOLATILITY",
+    "section_whale_intel": "WHALE INTELLIGENCE",
+    "section_distribution": "SIMULATION DISTRIBUTION",
+    "model_vs_market": "model {model}% vs market {market}%",
+    "edge_too_small": "Edge too small to bet",
+    "no_edge_data": "Insufficient data for edge calculation",
+    "theta_anomaly": "Price stuck — time decay opportunity!",
+    "time_value": "Market overpays {value}¢ for uncertainty",
+    "vega_sleeping": "Low volatility — possible breakout ahead",
+    "vega_spiking": "High volatility — news event detected!",
+    "overreaction": "Market overreaction detected!",
+    "no_clear_edge": "No clear edge — HOLD / skip",
+    "btn_deep": "🔬 Deep Analysis"
+  }
 }
