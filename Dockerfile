@@ -39,6 +39,7 @@ COPY *.py .
 COPY services/ ./services/
 COPY locales/ ./locales/
 COPY migrations/ ./migrations/
+COPY analytics/ ./analytics/
 
 # Create non-root user for security
 RUN useradd -m -u 1000 botuser && \
