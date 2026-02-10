@@ -37,7 +37,7 @@ from keyboards import (
 )
 from config import get_settings
 from market_intelligence import market_intelligence
-from services.format_service import format_market_detail
+from services.format_service import format_market_detail, format_volume
 from services.user_service import resolve_user
 
 # Create router
@@ -295,7 +295,7 @@ async def process_analyze_link(message: Message, state: FSMContext) -> None:
                 
                 text += f"<b>{i}. {market.question[:80]}{'...' if len(market.question) > 80 else ''}</b>\n"
                 text += f"💰 YES: {int(market.yes_price*100)}¢ · NO: {int(market.no_price*100)}¢\n"
-                text += get_text("multi_market_signal", lang, vol=f"{market.volume_24h/1000:.1f}", emoji=signal_emoji, score=market.signal_score) + "\n"
+                text += get_text("multi_market_signal", lang, vol=format_volume(market.volume_24h), emoji=signal_emoji, score=market.signal_score) + "\n"
                 
                 # Whale info if available
                 wa = market.whale_analysis
@@ -304,11 +304,11 @@ async def process_analyze_link(message: Message, state: FSMContext) -> None:
                     whale_pct = int(wa.dominance_pct)
                     text += f"🐋 Smart Money: {whale_pct}% {whale_side}\n"
                 
-                # Recommendation
+                # Always show recommendation with side
                 if rec.should_bet:
                     text += get_text("multi_market_rec_yes", lang, side=rec.side) + "\n"
                 else:
-                    text += get_text("multi_market_rec_no", lang) + "\n"
+                    text += get_text("multi_market_rec_no", lang, side=rec.side) + "\n"
                 
                 text += "\n"
             

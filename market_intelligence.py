@@ -256,39 +256,87 @@ class MarketIntelligenceEngine:
     # --- Thresholds ---
     MEDIUM_THRESHOLD = 500    # $500+ = medium smart money
     WHALE_THRESHOLD = 2000    # $2000+ = large whale
-    MIN_VOLUME_24H = 5000     # Minimum 24h vol to show in trending
+    MIN_VOLUME_24H = 1000     # Minimum 24h vol to show in trending
     WHALE_WINDOW_HOURS = 24   # Default analysis window
 
     # --- Category keywords ---
     CATEGORY_TAGS = {
         Category.POLITICS: ["politics", "election", "president", "trump", "biden",
                            "congress", "senate", "republican", "democrat", "vote",
-                           "government", "governor", "legislation"],
+                           "government", "governor", "legislation", "primary",
+                           "presidential", "political", "parliament", "minister",
+                           "cabinet", "impeach", "white house", "executive order",
+                           "supreme court", "scotus", "fed", "federal"],
         Category.SPORTS: ["sports", "nfl", "nba", "mlb", "nhl", "soccer",
                          "football", "basketball", "baseball", "hockey", "tennis",
                          "mma", "ufc", "boxing", "golf", "f1", "racing",
-                         "olympics", "fifa", "super bowl"],
+                         "olympics", "fifa", "super bowl", "premier league",
+                         "la liga", "serie a", "bundesliga", "champions league",
+                         "europa league", "cricket", "rugby", "playoffs",
+                         "world series", "stanley cup", "march madness",
+                         "pga", "grand prix", "formula 1", "atp", "wta",
+                         "ncaa", "epl", "world cup", "mvp"],
         Category.POP_CULTURE: ["pop culture", "celebrity", "movie", "music",
                                "grammy", "oscars", "singer", "album",
-                               "hollywood", "netflix"],
+                               "hollywood", "netflix", "taylor swift",
+                               "beyonce", "kanye", "kardashian", "tiktok",
+                               "instagram", "youtube", "influencer", "viral"],
         Category.BUSINESS: ["business", "company", "stock", "ceo", "merger",
                            "ipo", "earnings", "revenue", "apple", "google",
-                           "tesla", "nasdaq"],
+                           "tesla", "nasdaq", "s&p", "dow", "market cap",
+                           "acquisition", "sec", "fed rate", "interest rate",
+                           "gdp", "inflation", "unemployment", "layoff",
+                           "profit", "valuation", "startup"],
         Category.CRYPTO: ["crypto", "bitcoin", "btc", "ethereum", "eth",
                          "solana", "sol", "defi", "nft", "blockchain",
-                         "binance", "coinbase", "memecoin", "web3"],
+                         "binance", "coinbase", "memecoin", "web3",
+                         "altcoin", "doge", "dogecoin", "xrp", "ripple",
+                         "cardano", "ada", "polygon", "matic", "avax",
+                         "avalanche", "polkadot", "dot", "chainlink",
+                         "link", "uniswap", "aave", "token", "staking",
+                         "halving", "etf", "crypto etf", "spot etf",
+                         "pepe", "shib", "sui", "apt", "aptos", "ton",
+                         "tron", "near", "arbitrum", "optimism",
+                         "layer 2", "l2", "dex", "cex", "exchange"],
         Category.SCIENCE: ["science", "space", "nasa", "spacex", "climate",
-                          "research", "mars", "vaccine", "health"],
-        Category.GAMING: ["gaming", "esports", "cs2", "dota", "valorant",
-                         "league of legends", "overwatch", "fortnite",
-                         "twitch"],
+                          "research", "mars", "vaccine", "health",
+                          "covid", "fda", "who", "pandemic", "study",
+                          "moon", "asteroid", "nuclear", "quantum",
+                          "fusion", "telescope", "nobel", "pharmaceutical"],
+        Category.GAMING: ["gaming", "esports", "cs2", "cs:go", "csgo",
+                         "counter-strike", "counter strike", "dota", "dota2",
+                         "valorant", "league of legends", "lol",
+                         "overwatch", "fortnite", "twitch", "steam",
+                         "xbox", "playstation", "nintendo", "gta",
+                         "call of duty", "cod", "apex", "pubg",
+                         "fnatic", "navi", "faze", "g2", "cloud9",
+                         "team liquid", "vitality", "heroic", "og ",
+                         "map winner", "tournament", "major", "blast",
+                         "esl", "iem", "pgl", "faceit", "hltv",
+                         "lcs", "lec", "worlds", "the international",
+                         "ti ", "game ", "games", "gamer"],
         Category.ENTERTAINMENT: ["entertainment", "tv", "show", "series",
-                                "streaming", "disney", "hbo", "award"],
+                                "streaming", "disney", "hbo", "award",
+                                "emmy", "golden globe", "box office",
+                                "anime", "manga", "comic", "marvel",
+                                "dc", "star wars", "reality tv",
+                                "bachelor", "snl", "late night"],
         Category.WORLD: ["world", "international", "war", "conflict",
                         "russia", "ukraine", "china", "europe",
-                        "sanctions", "middle east"],
+                        "sanctions", "middle east", "nato", "un",
+                        "north korea", "iran", "israel", "palestine",
+                        "gaza", "taiwan", "india", "brazil",
+                        "ceasefire", "peace", "treaty", "migration",
+                        "refugee", "diplomacy", "summit", "g7", "g20"],
         Category.TECH: ["tech", "ai", "artificial intelligence", "openai",
-                       "chatgpt", "software", "startup", "iphone"],
+                       "chatgpt", "software", "startup", "iphone",
+                       "microsoft", "meta", "amazon", "nvidia",
+                       "semiconductor", "chip", "robot", "autonomous",
+                       "self-driving", "virtual reality", "vr", "ar",
+                       "augmented reality", "gpt", "llm", "anthropic",
+                       "claude", "gemini", "deepmind", "machine learning",
+                       "neural", "computing", "android", "samsung",
+                       "huawei", "5g", "6g", "quantum computing"],
     }
 
     def __init__(self):
@@ -506,10 +554,13 @@ class MarketIntelligenceEngine:
                     if not self._matches_category(m, category):
                         continue
 
-                # Volume filter (lower for short-term)
-                min_vol = 1000 if timeframe in (
-                    TimeFrame.TODAY, TimeFrame.DAYS_2, TimeFrame.DAYS_3
-                ) else self.MIN_VOLUME_24H
+                # Volume filter — lower for short-term and specific categories
+                if category != Category.ALL:
+                    min_vol = 500  # Lower threshold for specific categories
+                elif timeframe in (TimeFrame.TODAY, TimeFrame.DAYS_2, TimeFrame.DAYS_3):
+                    min_vol = 500
+                else:
+                    min_vol = self.MIN_VOLUME_24H
                 if m.volume_24h < min_vol:
                     continue
 
@@ -517,16 +568,16 @@ class MarketIntelligenceEngine:
             except Exception:
                 continue
 
-        # Fallback: if nothing found, relax timeframe
+        # Fallback: if nothing found, relax timeframe and volume
         if not markets and timeframe != TimeFrame.MONTH:
-            for item in data[:50]:
+            for item in data:
                 try:
                     m = self._parse_market(item)
                     if not m:
                         continue
                     if category != Category.ALL and not self._matches_category(m, category):
                         continue
-                    if m.volume_24h >= 1000:
+                    if m.volume_24h >= 100:  # Very low threshold as fallback
                         markets.append(m)
                 except Exception:
                     continue
@@ -596,9 +647,9 @@ class MarketIntelligenceEngine:
             yes_price = float(outcome_prices[0]) if len(outcome_prices) >= 1 else 0.5
             no_price = float(outcome_prices[1]) if len(outcome_prices) >= 2 else 0.5
 
-            # Skip already-resolved markets (either side >= 90¢)
+            # Skip already-resolved markets (either side >= 97¢)
             if not skip_long_term_filter:
-                if yes_price >= 0.90 or no_price >= 0.90:
+                if yes_price >= 0.97 or no_price >= 0.97:
                     return None
 
             # Volume
@@ -684,12 +735,19 @@ class MarketIntelligenceEngine:
         if category == Category.ALL:
             return True
         keywords = self.CATEGORY_TAGS.get(category, [])
+        # Check tags
         for tag in market.tags:
             if tag.lower() in keywords:
                 return True
+        # Check question
         q_lower = market.question.lower()
         for kw in keywords:
             if kw in q_lower:
+                return True
+        # Check slug and event_slug (e.g. "nba-mvp-2025", "cs2-blast-major")
+        slug_text = f"{market.slug} {market.event_slug}".lower().replace("-", " ")
+        for kw in keywords:
+            if kw in slug_text:
                 return True
         return market.category == category.value
 
@@ -1036,9 +1094,13 @@ class MarketIntelligenceEngine:
     def generate_recommendation(self, market: MarketStats) -> BetRecommendation:
         """Generate betting recommendation from computed signal.
         
-        Reasons/warnings use i18n keys that get resolved in format_service.
+        New logic:
+        - Always show a recommended side (YES/NO)
+        - should_bet=True means confident recommendation
+        - should_bet=False means risky but still shows side
+        - Only truly unplayable markets get no side
         """
-        should_bet = market.signal_score >= 55
+        should_bet = market.signal_score >= 40  # Lowered from 55
         side = market.recommended_side
 
         # Safety: don't recommend sides priced at ~0 or ~100
@@ -1097,6 +1159,8 @@ class MarketIntelligenceEngine:
             reasons.append(f"📈 High volume: ${vol_k:.0f}K/24h")
         elif market.volume_24h >= 30_000:
             reasons.append(f"📊 Moderate volume: ${vol_k:.0f}K")
+        elif market.volume_24h >= 5_000:
+            pass  # Acceptable volume, no warning needed
         else:
             warnings.append(f"⚠️ Low volume: ${vol_k:.0f}K")
 
@@ -1108,7 +1172,7 @@ class MarketIntelligenceEngine:
         elif trend > 0:
             reasons.append(f"📈 Positive trend: +{trend*100:.1f}%")
         elif trend > -0.05:
-            warnings.append("⚠️ Weak trend")
+            pass  # Neutral trend, not a warning
         else:
             warnings.append(f"⚠️ Negative trend: {trend*100:.1f}%")
 
@@ -1120,8 +1184,29 @@ class MarketIntelligenceEngine:
         elif market.days_to_close > 21:
             warnings.append("⚠️ Long term — capital locked")
 
-        if len(warnings) >= 3:
+        # EV analysis for cheap shares — this is the core value proposition
+        # If you buy YES at 31¢ and it wins, you profit 69¢ per share (222% return)
+        # If you buy NO at 31¢ and it wins, you profit 69¢ per share (222% return)
+        if entry > 0 and entry < 0.50:
+            potential_return = ((1.0 - entry) / entry) * 100
+            reasons.append(f"💰 EV: +{potential_return:.0f}% if {side} wins at ${entry:.2f}")
+        elif entry > 0 and entry < 0.70:
+            potential_return = ((1.0 - entry) / entry) * 100
+            if potential_return > 50:
+                reasons.append(f"💰 Potential: +{potential_return:.0f}% return")
+
+        # Smart decision: only block should_bet for truly critical issues
+        # Don't block just because there are many minor warnings
+        critical_warnings = sum(1 for w in warnings if 
+            "resolved" in w.lower() or 
+            "against" in w.lower()
+        )
+        if critical_warnings >= 1:
             should_bet = False
+
+        # High signal score overrides minor warnings
+        if market.signal_score >= 55 and not price_resolved:
+            should_bet = True
 
         return BetRecommendation(
             market=market,

@@ -193,7 +193,7 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
                          stop=format_price(rec.stop_loss_price), spct=f"{stop_pct:.0f}") + "\n"
         text += get_text("detail.rec_rr", lang, rr=f"{rec.risk_reward_ratio:.1f}") + "\n"
     else:
-        text += get_text("detail.rec_no_bet", lang) + "\n"
+        text += get_text("detail.rec_no_bet", lang, side=rec.side) + "\n"
 
     # Reasons & warnings
     if rec.reasons:
