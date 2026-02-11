@@ -238,7 +238,7 @@ def format_unified_analysis(market: MarketStats, deep_result: Any, lang: str) ->
         if is_deep:
             model_prob = deep_result.model_probability * 100
             edge = deep_result.edge * 100
-            kelly_pct = (deep_result.kelly.fraction * 100) if deep_result.kelly else 0
+            kelly_pct = (deep_result.kelly.kelly_fraction * 100) if deep_result.kelly else 0
             rec_side = deep_result.recommended_side
         else:
             # Fallback heuristics
@@ -358,8 +358,8 @@ def format_unified_analysis(market: MarketStats, deep_result: Any, lang: str) ->
             risks_shown += 1
         # Check Volatility if available (Deep)
         vol = 0
-        if deep_result and deep_result.greeks:
-             vol = deep_result.greeks.iv_24h * 100
+        if deep_result and deep_result.greeks and deep_result.greeks.vega:
+             vol = deep_result.greeks.vega.recent_vol_24h * 100
         if vol > 80:
             text += get_text("unified.risk_volatility", lang) + "\n"
             risks_shown += 1
