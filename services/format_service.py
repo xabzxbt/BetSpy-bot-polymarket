@@ -233,7 +233,7 @@ def format_unified_analysis(market: MarketStats, deep_result: Any, lang: str) ->
 
 def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
     """
-    Strict Quant Analyst Template (Restored & Polished).
+    Consumer-Friendly Deep Analysis (TL;DR + Simplified Terms).
     """
     try:
         # --- 1. METRICS & LOGIC ---
@@ -262,104 +262,140 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         is_positive_setup = (edge_pp >= 2.0) and (k_safe > 0.0)
         rec_side = "YES" if edge_raw > 0 else "NO"
         
+        # Determine Keys and TL;DR content
+        reasons = []
+        action_str = ""
+        
         if is_positive_setup:
-            short_intro_key = "deep.shortly"
+            signal_key = "deep.tldr.signal_buy"
             conclusion_key = "deep.final_word"
+            
+            # Reasons
+            reasons.append(f"Модель дає перевагу <b>+{edge_pp:.1f}%</b>")
+            
+            wa = market.whale_analysis
+            if wa and wa.is_significant and wa.dominance_side == rec_side:
+                reasons.append(f"Кити активно ставлять на <b>{rec_side}</b>")
+            elif p_market < 0.4:
+                reasons.append(f"Ціна {int(p_market*100)}¢ статистично вигідна")
+            else:
+                 reasons.append("Математична перевага підтверджена")
+                 
+            reasons.append(f"Ризик/профіт на вашу користь")
+            
+            action_str = f"Ставити <b>{k_safe:.1f}%</b> від банку"
+
         else:
-            rec_side = "N/A"
-            short_intro_key = "deep.shortly_skip"
+            signal_key = "deep.tldr.signal_skip"
             conclusion_key = "deep.final_word_skip"
+            
+            # Reasons
+            if edge_pp < 2.0:
+                reasons.append(f"Перевага (Edge) занадто мала ({edge_pp:.1f}%)")
+            else:
+                reasons.append("Модель не бачить переваги")
+                
+            reasons.append("Ризики переважають потенційний прибуток")
+            reasons.append("Краще зачекати кращої ціни")
+            
+            action_str = "Шукати нагоди в інших маркетах"
 
         # --- 2. BUILD TEXT ---
         
-        # HEADER
         safe_q = html.escape(market.question)
-        text = f"🔎 {get_text('unified.analysis_title', lang)}\n{safe_q}\n\n"
         
-        # SUMMARY
-        text += f"{get_text(short_intro_key, lang, side=rec_side)}\n\n"
+        # === TL;DR BLOCK ===
+        text = f"{get_text(signal_key, lang, side=rec_side)}\n\n"
+        
+        text += f"{get_text('deep.tldr.why', lang)}\n"
+        for r in reasons:
+            text += f"• {r}\n"
+        
+        text += f"\n{get_text('deep.tldr.action', lang, action=action_str)}\n"
+        text += "────────────────────────────\n"
+        
+        # HEADER (Standard)
+        text += f"🔎 {safe_q}\n\n"
         
         # PRICES & VOL
-        # Use existing keys which contain emojis/bold tags
         text += f"{get_text('deep.prices_vol', lang)}\n" 
-        text += f"• YES: {int(market.yes_price*100)}¢  NO: {int(market.no_price*100)}¢\n"
-        # detail.liquidity key is "💧 Liq: {vol}" - perfect, no formatting needed
-        text += f"• {get_text('detail.liquidity', lang, vol=format_volume(market.liquidity))}\n"
-        text += f"• Vol 24h: {format_volume(market.volume_24h)}\n\n"
+        text += f"• YES: <b>{int(market.yes_price*100)}¢</b>  NO: <b>{int(market.no_price*100)}¢</b>\n"
+        text += f"• {get_text('detail.liquidity', lang, vol=f'<b>{format_volume(market.liquidity)}</b>')}\n"
+        text += f"• Vol 24h: <b>{format_volume(market.volume_24h)}</b>\n\n"
 
         # WHALE FLOW
         wa = market.whale_analysis
         text += f"{get_text('deep.flow', lang)}\n"
         if wa and wa.is_significant:
-             text += f"• Tilt: {int(wa.dominance_pct)}% {wa.dominance_side}\n"
-             text += f"• Top: {format_volume(wa.top_trade_size)} → {wa.top_trade_side}\n"
+             text += f"• Tilt: <b>{int(wa.dominance_pct)}% {wa.dominance_side}</b> {get_text('deep.expl.tilt', lang)}\n"
+             text += f"• Top: <b>{format_volume(wa.top_trade_size)}</b> → {wa.top_trade_side}\n"
         else:
              text += f"• {get_text('detail.no_whale_activity', lang)}\n"
         text += "\n"
 
-        # MONTE CARLO (Restored)
+        # MONTE CARLO (Simplified Header)
         mc = deep.monte_carlo
         if mc:
-            text += f"🎲 <b>MONTE CARLO</b>\n"
+            text += f"{get_text('deep.head.model', lang)}\n"
+            mc_prob = mc.probability_yes * 100
+            text += f"• Prob (Sim): <b>{mc_prob:.1f}%</b>\n"
+            
+            # Hidden PnL Logic
+            mc_edge = mc.edge if mc.edge else 0.0
+            if abs(mc_edge) > 0.05:
+                text += f"• Expected PnL: <b>{mc_edge:+.2f}</b>\n"
+
             if mc.mode == "crypto":
                  p5 = mc.percentile_5 if hasattr(mc, 'percentile_5') else 0
                  p95 = mc.percentile_95 if hasattr(mc, 'percentile_95') else 0
                  val_p5 = f"${p5:,.2f}" if p5 >= 1000 else f"${p5:.2f}"
                  val_p95 = f"${p95:,.2f}" if p95 >= 1000 else f"${p95:.2f}"
-                 text += f"• P5: {val_p5} / P95: {val_p95}\n"
-            
-            mc_prob = mc.probability_yes * 100
-            text += f"• Prob (Sim): {mc_prob:.1f}%\n"
-            # Ensure edge is displayed with sign, handle None
-            mc_edge = mc.edge if mc.edge else 0.0
-            text += f"• Expected PnL: {mc_edge:+.2f}\n\n"
+                 text += f"• Range: <b>{val_p5} — {val_p95}</b>\n"
+            text += "\n"
 
-        # BAYESIAN (Restored)
+        # BAYESIAN (Simplified Header)
         bayes = deep.bayesian
         if bayes:
-            text += f"🧠 <b>BAYESIAN</b>\n"
-            text += f"• Posterior: {bayes.posterior*100:.1f}%\n"
-            # Bayesian comment logic
+            text += f"{get_text('deep.head.signals', lang)}\n"
+            text += f"• Posterior: <b>{bayes.posterior*100:.1f}%</b> {get_text('deep.expl.post', lang)}\n"
             b_comm = "Neutral"
             if bayes.has_signal: 
-                 if bayes.posterior > p_market: b_comm = "Bullish Data"
-                 else: b_comm = "Bearish Data"
+                 if bayes.posterior > p_market: b_comm = "Bullish"
+                 else: b_comm = "Bearish"
             text += f"• Signal: {b_comm}\n\n"
 
-        # EDGE & PROBS (Crucial)
+        # EDGE & PROBS
         text += f"{get_text('deep.probs', lang)}\n"
-        text += f"• {get_text('deep.prob_market', lang, pct=f'{p_market*100:.1f}')}\n"
-        text += f"• {get_text('deep.prob_model', lang, pct=f'{p_model*100:.1f}')}\n"
+        text += f"• {get_text('deep.prob_market', lang, pct=f'<b>{p_market*100:.1f}%</b>')}\n"
+        text += f"• {get_text('deep.prob_model', lang, pct=f'<b>{p_model*100:.1f}%</b>')}\n"
         
         edge_sign = "+" if edge_pp > 0 else ""
         roi = (edge_raw / p_market) * 100 if p_market > 0 else 0.0
         emoji = "🟢" if edge_pp > 0 else "🔴"
         edge_str = f"{edge_sign}{edge_pp:.1f}"
         
-        # deep.edge_line usually starts with "• Edge: ..."
-        text += f"{get_text('deep.edge_line', lang, emoji=emoji, diff=edge_str, roi=f'{roi:.1f}')}\n\n"
+        text += f"• Edge: {emoji} <b>{edge_str} п.п.</b> {get_text('deep.expl.edge', lang)}\n\n"
 
-        # KELLY
-        text += f"💰 <b>KELLY</b>\n"
+        # KELLY (Simplified Header)
+        text += f"{get_text('deep.head.sizing', lang)}\n"
         if deep.kelly:
-            text += f"• Full: {deep.kelly.kelly_full*100:.1f}%\n"
-            if days_to_resolve > 7 and k_time_adj > 0:
-                 text += f"• Time-Adj: {k_time_adj:.1f}%\n"
-            
             if is_positive_setup:
                  text += f"• <b>REC: {k_safe:.1f}%</b> ({fraction_name})\n"
+                 text += f"• Full Kelly: {deep.kelly.kelly_full*100:.1f}%\n"
             else:
-                 # Escape < just in case
                  text += f"• Edge &lt; 2%: <b>SKIP</b>\n"
         else:
             text += "• N/A\n"
         text += "\n"
         
-        # THETA (If applicable)
+        # THETA (Simplified Header)
         if deep.greeks and deep.greeks.theta:
              th = deep.greeks.theta.theta_yes if rec_side == "YES" else deep.greeks.theta.theta_no
-             if abs(th) > 0.01:
-                text += f"⏳ <b>THETA</b>: {th:+.2f}¢\n\n"
+             # Check threshold < 1 cent (as requested, sticking to 0.5 for safety or 0.1)
+             # User said: "Hide Theta if < 1¢". So abs(th) >= 1.0 needed to show.
+             if abs(th) >= 0.5: 
+                text += f"{get_text('deep.head.time', lang)}\n"
+                text += f"• Decay: <b>{th:+.2f}¢</b>/day\n\n"
 
         # CONCLUSION
         text += f"{get_text('deep.conclusion', lang)}\n"
@@ -367,6 +403,9 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
             text += get_text(conclusion_key, lang, side=rec_side, pct=f"{k_safe:.1f}")
         else:
             text += get_text(conclusion_key, lang, edge=f"{edge_pp:.1f}")
+            
+        if not text.strip().endswith("."):
+            text = text.strip() + "."
 
         return text
     

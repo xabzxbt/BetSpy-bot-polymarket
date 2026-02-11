@@ -329,5 +329,18 @@
     "risk_whale_opp": "Whales oppose",
     "risk_long_term": "Long term",
     "risks": "Risks"
-  }
+  },
+  "quant.tilt_strong_no": "🔴 BEAR (NO)",
+  "deep.tldr.signal_buy": "🎯 <b>SIGNAL: BUY {side}</b>",
+  "deep.tldr.signal_skip": "🛑 <b>SIGNAL: SKIP</b>",
+  "deep.tldr.signal_wait": "🟡 <b>SIGNAL: WAIT</b>",
+  "deep.tldr.why": "🤔 <b>Why:</b>",
+  "deep.tldr.action": "⚡ <b>Action:</b> {action}",
+  "deep.head.model": "🎲 <b>Model Forecast</b> (Monte Carlo)",
+  "deep.head.signals": "🧠 <b>Signal Check</b> (Bayesian)",
+  "deep.head.sizing": "💰 <b>Bet Sizing</b> (Kelly)",
+  "deep.head.time": "⏳ <b>Time Impact</b> (Theta)",
+  "deep.expl.edge": "(market advantage)",
+  "deep.expl.tilt": "(whale money)",
+  "deep.expl.post": "(with whale data)"
 }

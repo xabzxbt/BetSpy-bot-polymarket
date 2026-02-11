@@ -329,5 +329,18 @@
     "risk_whale_opp": "Киты против",
     "risk_long_term": "Долгосрочный",
     "risks": "Риски"
-  }
+  },
+  "quant.tilt_strong_no": "🔴 Медвежий (NO)",
+  "deep.tldr.signal_buy": "🎯 <b>СИГНАЛ: ПОКУПАТЬ {side}</b>",
+  "deep.tldr.signal_skip": "🛑 <b>СИГНАЛ: ПРОПУСТИТЬ</b>",
+  "deep.tldr.signal_wait": "🟡 <b>СИГНАЛ: ЖДАТЬ</b>",
+  "deep.tldr.why": "🤔 <b>Почему:</b>",
+  "deep.tldr.action": "⚡ <b>Что делать:</b> {action}",
+  "deep.head.model": "🎲 <b>Прогноз модели</b> (Monte Carlo)",
+  "deep.head.signals": "🧠 <b>Оценка сигналов</b> (Bayesian)",
+  "deep.head.sizing": "💰 <b>Размер ставки</b> (Kelly)",
+  "deep.head.time": "⏳ <b>Влияние времени</b> (Theta)",
+  "deep.expl.edge": "(преимущество)",
+  "deep.expl.tilt": "(деньги китов)",
+  "deep.expl.post": "(с учетом китов)"
 }
