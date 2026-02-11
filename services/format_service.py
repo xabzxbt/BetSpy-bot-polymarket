@@ -396,7 +396,10 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         bayes = deep.bayesian
         if bayes:
             # Neutral as fallback
-            sig_str = get_text('l3.signal_neutral', lang) if 'l3.signal_neutral' in get_text.messages.get(lang, {}) else "Neutral"
+            try:
+                sig_str = get_text('l3.signal_neutral', lang)
+            except:
+                sig_str = "Neutral"
             
             if bayes.has_signal:
                 strength = "strong" if abs(bayes.posterior - bayes.prior) > 0.05 else "weak"
@@ -409,22 +412,46 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
             
         # Kelly
         if deep.kelly:
-            l3_text += f"💰 <b>{get_text('l3.kelly_label', lang)}:</b> Full {deep.kelly.kelly_full*100:.1f}%, Time {deep.kelly.kelly_time_adj_pct:.1f}%\n"
-            l3_text += f"   <i>({get_text('l3.rec', lang)}: {k_safe:.1f}%)</i>\n"
+            rec_str = "Rec"
+            try: rec_str = get_text('l3.rec', lang)
+            except: pass
+            
+            l3_text += f"💰 <b>Kelly:</b> Full {deep.kelly.kelly_full*100:.1f}%, Time {deep.kelly.kelly_time_adj_pct:.1f}%\n" 
+            # Note: Hardcoded Kelly label to match previous code style or we can try localize it too
+            # Let's keep it safe. "Kelly" is international.
+            
+            try:
+                l3_text = l3_text.replace("Kelly", get_text('l3.kelly_label', lang))
+            except: pass
+
+            l3_text += f"   <i>({rec_str}: {k_safe:.1f}%)</i>\n"
             
         # Theta - Hide if days < 1
         if deep.greeks and deep.greeks.theta and market.days_to_close >= 1:
              th = deep.greeks.theta.theta_yes if rec_side == "YES" else deep.greeks.theta.theta_no
-             th_side = get_text('theta_yours', lang) if abs(th) > 0 else get_text('theta_market', lang)
-             l3_text += f"⏳ <b>{get_text('l3.theta_label', lang)}:</b> {th:+.2f}¢/{get_text('l3.day', lang)}\n"
-             # l3_text += f"   <i>({th_side})</i>\n" # Optional explanation
+             
+             theta_label = "Theta"
+             day_label = "day"
+             try: theta_label = get_text('l3.theta_label', lang)
+             except: pass
+             try: day_label = get_text('l3.day', lang)
+             except: pass
+
+             l3_text += f"⏳ <b>{theta_label}:</b> {th:+.2f}¢/{day_label}\n"
              
         l3_text += "\n"
         
         # Whale Flow
         if wa:
-            l3_text += f"🐋 <b>{get_text('l3.whale_label', lang)}:</b> ${format_volume(wa.yes_volume)} YES / ${format_volume(wa.no_volume)} NO\n"
-            l3_text += f"   <i>({get_text('l3.tilt_label', lang)}: {wa.dominance_side} {wa.dominance_pct:.0f}%)</i>\n"
+            w_label = "Whale Flow"
+            t_label = "Tilt"
+            try: w_label = get_text('l3.whale_label', lang)
+            except: pass
+            try: t_label = get_text('l3.tilt_label', lang)
+            except: pass
+            
+            l3_text += f"🐋 <b>{w_label}:</b> ${format_volume(wa.yes_volume)} YES / ${format_volume(wa.no_volume)} NO\n"
+            l3_text += f"   <i>({t_label}: {wa.dominance_side} {wa.dominance_pct:.0f}%)</i>\n"
             
         # Liquidity & Time
         liq_lbl = get_text("liquidity.high" if market.liquidity > 25000 else "liquidity.low" if market.liquidity < 2000 else "liquidity.med", lang)
