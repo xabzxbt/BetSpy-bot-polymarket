@@ -319,7 +319,7 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         # Header: Title + Stats
         q_title = html.escape(market.question)
         l1_text += f"<b>{q_title}</b>\n\n"
-        l1_text += f"💰 {get_text('detail.yes', lang)} {format_price(market.yes_price)} · {get_text('detail.no', lang)} {format_price(market.no_price)} · Vol: {format_volume(market.volume_24h)}\n"
+        l1_text += f"💰 {get_text('detail.yes', lang)} {format_price(market.yes_price)} · {get_text('detail.no', lang)} {format_price(market.no_price)} · Vol 24h: {format_volume(market.volume_24h)}\n"
         l1_text += "────────────────────────────\n"
         
         if is_positive_setup:
