@@ -299,34 +299,41 @@ def _consensus_probability(
     """
     Weighted average of all probability estimates.
 
-    Weights:
-      - Signal engine: 0.35 (always available)
-      - Monte Carlo: 0.35 (if available)
-      - Bayesian: 0.30 (if available)
-
-    If some models are missing, weights are redistributed.
+    Weights are dynamic based on market type (Crypto vs Generic).
     """
+    # Signal: Always trust smart money/signal engine (Base truth)
+    w_signal = 0.40
+    
+    # Bayesian: High trust if real trades exist
+    w_bayesian = 0.40
+    
+    # Monte Carlo:
+    # - Crypto: High trust (math based on asset price)
+    # - Generic: LOW trust (random walk is noisy for fundamental events)
+    w_mc_crypto = 0.40
+    w_mc_generic = 0.05  # Drastically reduced from 0.35 to prevent random walk bias
+
+    # Collect estimates
     estimates = []
-    weights = []
+    
+    # 1. Signal Prob (Base)
+    estimates.append((signal_prob, w_signal))
 
-    # Signal-based estimate is always available
-    estimates.append(signal_prob)
-    weights.append(0.35)
-
+    # 2. Monte Carlo
     if mc_result:
-        estimates.append(mc_result.probability_yes)
-        weights.append(0.35)
+        weight = w_mc_crypto if mc_result.mode == "crypto" else w_mc_generic
+        estimates.append((mc_result.probability_yes, weight))
 
+    # 3. Bayesian
     if bayesian_result and bayesian_result.has_signal:
-        estimates.append(bayesian_result.posterior)
-        weights.append(0.30)
+        estimates.append((bayesian_result.posterior, w_bayesian))
 
-    # Normalize weights
-    total_weight = sum(weights)
+    # Normalize
+    total_weight = sum(w for _, w in estimates)
     if total_weight <= 0:
-        return market_price  # fallback
+        return market_price
 
-    consensus = sum(e * w for e, w in zip(estimates, weights)) / total_weight
+    consensus = sum(e * w for e, w in estimates) / total_weight
 
     # Clamp
     return max(0.03, min(0.97, consensus))
