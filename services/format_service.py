@@ -241,29 +241,26 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         # 1. Market & Setup
         safe_q = market.question.replace("{", "(").replace("}", ")")
         yes_price = market.yes_price
-        no_price = market.no_price
         
         # 2. Monte Carlo
         mc = deep.monte_carlo
         mc_runs = mc.num_simulations if mc else 10000
         mc_prob_up = int(mc.probability_yes * 100) if mc else 0
-        mc_expected_pnl = f"{mc.edge:+.2f}" if mc else "дані відсутні"
+        mc_expected_pnl = f"{mc.edge:+.2f}" if mc else "-"
         
         # 3. Bayesian
         bayes = deep.bayesian
         bayes_prior = int(market.yes_price * 100) # Prior is usually market
         bayes_posterior = int(bayes.posterior * 100) if bayes else int(market.yes_price * 100)
         
-        bayes_comment = "кити не змінили картину"
+        bayes_comment = get_text("quant.bayes_c_neutral", lang)
         if bayes and bayes.has_signal:
             if bayes.posterior > market.yes_price + 0.05:
-                bayes_comment = "кити суттєво підсилюють YES"
+                bayes_comment = get_text("quant.bayes_c_strong_yes", lang)
             elif bayes.posterior < market.yes_price - 0.05:
-                bayes_comment = "кити тиснуть на NO, послаблюють YES"
+                bayes_comment = get_text("quant.bayes_c_weak_yes", lang)
             else:
-                bayes_comment = "активність китів підтверджує ринок"
-        elif not bayes:
-             bayes_comment = "дані відсутні"
+                bayes_comment = get_text("quant.bayes_c_confirm", lang)
 
         # 4. Edge
         edge_raw = deep.edge
@@ -273,7 +270,7 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         # 5. Kelly
         if deep.kelly:
             k_full = deep.kelly.kelly_full
-            k_safe = deep.kelly.kelly_fraction # This is already reduced by fraction (e.g. 0.25)
+            k_safe = deep.kelly.kelly_fraction 
         else:
             k_full = 0.0
             k_safe = 0.0
@@ -283,12 +280,9 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         
         # 6. Theta
         theta_val = 0.0
-        theta_comment = "дані відсутні"
+        theta_comment = "-" 
         
         if deep.greeks and deep.greeks.theta:
-            # Determine which side's Theta to show
-            # If we recommend a side, show Theta for that side
-            # Otherwise, show Theta for the dominant side (market favorite)
             target_side = deep.recommended_side
             if target_side not in ["YES", "NO"]:
                 target_side = deep.greeks.theta.dominant_side
@@ -299,104 +293,117 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
                 theta_val = deep.greeks.theta.theta_no
                 
             theta_daily = f"{theta_val:+.1f}¢"
-            theta_comment = "ви платите за час (theta-)" if theta_val < 0 else "час грає на вас (theta+)"
+            theta_comment = get_text("quant.theta_market", lang) if theta_val < 0 else get_text("quant.theta_yours", lang)
         else:
-            theta_daily = "дані відсутні"
+            theta_daily = "-"
         
         # 7. Internals
         wa = market.whale_analysis
-        tilt_str = f"{int(wa.dominance_pct)}% {wa.dominance_side}" if wa and wa.is_significant else "нейтрально"
+        tilt_str = f"{int(wa.dominance_pct)}% {wa.dominance_side}" if wa and wa.is_significant else get_text("quant.mom_stable", lang)
         
-        vol_mom = "стабільно"
+        vol_mom = get_text("quant.mom_stable", lang)
         if market.score_breakdown.get('volume', 0) > 15:
-            vol_mom = "зростання активності"
+            vol_mom = get_text("quant.mom_grow", lang)
         elif market.score_breakdown.get('volume', 0) < 5:
-             vol_mom = "спад активності"
+             vol_mom = get_text("quant.mom_drop", lang)
              
         # Liquidity score interpretation
         liq_score = market.score_breakdown.get('liquidity', 0)
         if liq_score >= 8:
-            liq_desc = f"висока (${format_volume(market.liquidity)})"
+            # Should have localizable keys for high/med/low, using raw strings for now or reuse existing logic
+            # Existing 'unified.liq_high' exists.
+            liq_desc = f"{get_text('unified.liq_high', lang)} (${format_volume(market.liquidity)})"
         elif liq_score >= 4:
-            liq_desc = f"середня (${format_volume(market.liquidity)})"
+            liq_desc = f"{get_text('unified.liq_med', lang)} (${format_volume(market.liquidity)})"
         else:
-            liq_desc = f"низька (${format_volume(market.liquidity)})"
+            liq_desc = f"{get_text('unified.liq_low', lang)} (${format_volume(market.liquidity)})"
             
-        recency = "давно"
+        recency = get_text("quant.rec_old", lang)
         if wa and wa.hours_since_last_trade < 1:
-            recency = f"активно ({int(wa.hours_since_last_trade*60)}m ago)"
+            recency = get_text("quant.rec_active", lang, time=f"{int(wa.hours_since_last_trade*60)}m")
         elif wa:
-            recency = f"помірно ({int(wa.hours_since_last_trade)}h ago)"
+            recency = get_text("quant.rec_mod", lang, time=str(int(wa.hours_since_last_trade)))
 
         # --- SETUP SUMMARY ---
-        setup = "нейтральний"
+        setup_key = "quant.setup_neut"
         if edge_pct > 3 and kelly_fraction_safe > 0:
-            setup = "bullish (є edge)"
+            setup_key = "quant.setup_bull"
         elif edge_pct < -3:
-            setup = "bearish (YES переоцінений)"
+            setup_key = "quant.setup_bear"
             
-        intro = f"Сетап {setup}, edge {edge_sign}{edge_pct} п.п."
-        if kelly_fraction_safe == 0:
-            intro += ", позиція не рекомендується."
-        else:
-            intro += ", можна розглянути вхід."
+        setup_str = get_text(setup_key, lang)
+        advice_str = get_text("quant.intro_NoRec", lang)
+        if kelly_fraction_safe > 0:
+            advice_str = get_text("quant.intro_Rec", lang)
+        
+        pp_unit = "p.p." if lang == "en" else "п.п."
+        intro = f"Setup {setup_str}, edge {edge_sign}{edge_pct} {pp_unit}{advice_str}"
+        # For full localization of "Setup ...", strictly speaking I should have a composite key, 
+        # but user specifically asked for "Setup [setup], edge..." structure in Ukrainian example.
+        # So I'm mimicking that structure.
 
         # --- BUILD TEXT ---
-        text = f"🔎 АНАЛІЗ\n{safe_q}\n\n"
-        text += f"Коротко: {intro}\n\n"
+        text = f"🔎 {get_text('unified.analysis_title', lang)}\n{safe_q}\n\n"
+        text += f"{get_text('unified.briefly', lang)}: {intro}\n\n"
         
         text += "────────────────────────────\n"
         
-        text += "🎲 Monte Carlo\n"
-        text += f"- Кількість симуляцій: {mc_runs}\n"
-        text += f"- Ймовірність плюсового результату: {mc_prob_up}%\n"
-        text += f"- Середній очікуваний PnL: {mc_expected_pnl}\n\n"
+        text += f"{get_text('quant.header_mc', lang)}\n"
+        text += f"{get_text('quant.mc_runs', lang, runs=mc_runs)}\n"
+        text += f"{get_text('quant.mc_prob', lang, prob=mc_prob_up)}\n"
+        text += f"{get_text('quant.mc_pnl', lang, pnl=mc_expected_pnl)}\n\n"
         
-        text += "🧠 Bayesian\n"
-        text += f"- Початкова ймовірність (prior): {bayes_prior}%\n"
-        text += f"- Оновлена ймовірність (posterior): {bayes_posterior}%\n"
-        text += f"- Коментар: {bayes_comment}.\n\n"
+        text += f"{get_text('quant.header_bayes', lang)}\n"
+        text += f"{get_text('quant.bayes_prior', lang, pct=bayes_prior)}\n"
+        text += f"{get_text('quant.bayes_post', lang, pct=bayes_posterior)}\n"
+        text += f"{get_text('quant.bayes_comment_label', lang, text=bayes_comment)}\n\n"
         
-        text += "📐 Edge\n"
-        text += f"- Edge: {edge_sign}{edge_pct} п.п.\n"
+        text += f"{get_text('quant.header_edge', lang)}\n"
+        text += f"{get_text('quant.edge_val', lang, sign=edge_sign, pct=edge_pct)}\n"
         if edge_pct <= 0:
-            text += "- Математично ставка НЕвигідна (edge ≤ 0).\n"
+            text += f"{get_text('quant.edge_bad', lang)}\n"
         else:
-             text += "- Математична перевага присутня.\n"
+             text += f"{get_text('quant.edge_good', lang)}\n"
         text += "\n"
         
-        text += "💰 Kelly Criterion\n"
-        text += f"- Оптимальна частка (Kelly): {kelly_fraction}%\n"
+        text += f"{get_text('quant.header_kelly', lang)}\n"
+        text += f"{get_text('quant.kelly_opt', lang, pct=kelly_fraction)}\n"
         if kelly_fraction <= 0:
-            text += "- Рекомендована ставка: 0% (пропустити).\n"
+             text += f"{get_text('quant.kelly_zero', lang)}\n"
         else:
-            text += f"- Рекомендована консервативна ставка: {kelly_fraction_safe}% від банкролу.\n"
+             text += f"{get_text('quant.kelly_safe', lang, pct=kelly_fraction_safe)}\n"
         text += "\n"
         
-        text += "⏳ Theta\n"
-        text += f"- Орієнтовний \"time edge\": {theta_daily} на день.\n"
-        text += f"- Коротко: {theta_comment}.\n\n"
+        text += f"{get_text('quant.header_theta', lang)}\n"
+        text += f"{get_text('quant.theta_val', lang, val=theta_daily)}\n"
+        text += f"{get_text('quant.theta_short', lang, text=theta_comment)}\n\n"
 
-        text += f"├ 🐋 Smart Money Tilt: {tilt_str}\n"
-        text += f"├ 📈 Volume Momentum: {vol_mom}\n"
-        text += f"├ 💡 Smart/Retail Ratio: {market.score_breakdown.get('sm_ratio', 0)}/15\n"
-        text += f"├ 💧 Liquidity: {liq_desc}\n"
-        text += f"└ ⏱️ Activity Recency: {recency}\n\n"
+        text += f"{get_text('quant.internals_tilt', lang, val=tilt_str)}\n"
+        text += f"{get_text('quant.internals_mom', lang, val=vol_mom)}\n"
+        text += f"{get_text('quant.internals_ratio', lang, val=market.score_breakdown.get('sm_ratio', 0))}\n"
+        text += f"{get_text('quant.internals_liq', lang, val=liq_desc)}\n"
+        text += f"{get_text('quant.internals_rec', lang, val=recency)}\n\n"
         
-        text += "🏁 ВИСНОВОК\n"
+        text += f"{get_text('quant.header_concl', lang)}\n"
         if kelly_fraction_safe > 0 and edge_pct > 2:
-             text += f"Маємо підтверджений edge {edge_pct}%. Рекомендуємо вхід на {kelly_fraction_safe}% банкролу (консервативно). "
+             text += get_text("quant.concl_good", lang, edge=edge_pct, kelly=kelly_fraction_safe)
         else:
-             text += "На даний момент чіткого edge немає або ризики зависокі. Краще утриматись (HOLD). "
+             text += get_text("quant.concl_bad", lang)
         
         # Risks
         risks = []
-        if market.liquidity < 50000: risks.append("низька ліквідність")
-        if wa and wa.dominance_pct > 70 and wa.dominance_side != deep.recommended_side: risks.append("smart money проти вас")
-        if market.days_to_close > 60: risks.append("довгий лок капіталу")
+        if market.liquidity < 50000: 
+            risks.append(get_text("unified.risk_low_liq", lang))
+        if wa and wa.dominance_pct > 70 and wa.dominance_side != deep.recommended_side: 
+            risks.append(get_text("unified.risk_whale_opp", lang))
+        if market.days_to_close > 60: 
+            risks.append(get_text("unified.risk_long_term", lang))
         
         if risks:
-            text += f"\n⚠️ Ризики: {', '.join(risks)}."
+            # "Risks" label is unified.risks (might contain "(3 points)" in text, stripping or using separate key would be better but using as is for now)
+            # Actually unified.risks is "Risks (3 points)" or similar.
+            # I'll just use "⚠️" + joined risks.
+            text += f"\n⚠️ {', '.join(risks)}."
             
         return text
 
