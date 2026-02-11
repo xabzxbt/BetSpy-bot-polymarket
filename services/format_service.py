@@ -363,7 +363,7 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         text += "────────────────────────────\n"
         
         mc_runs_formatted = f"{mc_runs:,}"
-        text += f"{get_text('quant.header_mc', lang)} {get_text('quant.mc_runs', lang, runs=mc_runs_formatted)}\n"
+        text += f"{get_text('quant.header_mc', lang).replace('🎲 MONTE CARLO', '🎲 <b>MONTE CARLO</b>')} {get_text('quant.mc_runs', lang, runs=mc_runs_formatted)}\n"
         text += f"• {get_text('quant.mc_prob', lang, prob=mc_prob_up)}\n"
         text += f"• {get_text('quant.mc_expected_pnl', lang, pnl=mc_expected_pnl if abs(float(mc_expected_pnl or 0)) > 0.01 else '≈ 0')}\n"
         # Add P5/P95 ranges if available in Monte Carlo result and values are different
@@ -375,17 +375,17 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
                 text += f"• {get_text('quant.mc_range', lang, p5=p5, p95=p95)}\n"
         text += "\n"
         
-        text += f"{get_text('quant.header_bayes', lang)}\n"
+        text += f"{get_text('quant.header_bayes', lang).replace('🧠 BAYESIAN LAYER', '🧠 <b>BAYESIAN LAYER</b>')}\n"
         text += f"• {get_text('quant.bayes_prior', lang, pct=bayes_prior)}\n"
         text += f"• {get_text('quant.bayes_post', lang, pct=bayes_posterior)}\n"
         text += f"• {get_text('quant.bayes_comment_label', lang, text=bayes_comment)}\n\n"
         
-        text += f"{get_text('quant.header_edge', lang)}\n"
+        text += f"{get_text('quant.header_edge', lang).replace('📐 EDGE', '📐 <b>EDGE</b>')}\n"
         # Use the actual model probability from deep analysis, not the market price
         model_prob_pct = int(deep.model_probability * 100) if deep.model_probability else int(market.yes_price * 100)
-        text += f"• {get_text('quant.model_prob', lang, pct=model_prob_pct)}\n"
-        text += f"• {get_text('quant.market_impl', lang, pct=int(market.yes_price*100))}\n"
-        text += f"• {get_text('quant.edge_val', lang, sign=edge_sign, pct=edge_pct)} {get_text('quant.on_side', lang, side=deep.recommended_side)}\n\n"
+        text += f"• {get_text('quant.model_prob', lang, pct=model_prob_pct).replace(f'Model probability: {model_prob_pct}%', f'Model probability: <b>{model_prob_pct}%</b>')}\n"
+        text += f"• {get_text('quant.market_impl', lang, pct=int(market.yes_price*100)).replace(f'Market implied: {int(market.yes_price*100)}%', f'Market implied: <b>{int(market.yes_price*100)}%</b>')}\n"
+        text += f"• {get_text('quant.edge_val', lang, sign=edge_sign, pct=edge_pct).replace(f'Edge: {edge_sign}{edge_pct}', f'Edge: <b>{edge_sign}{edge_pct}</b>')} {get_text('quant.on_side', lang, side=deep.recommended_side)}\n\n"
         
         if edge_pct <= 0:
             text += f"{get_text('quant.edge_bad', lang)}\n"
@@ -393,36 +393,17 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
              text += f"{get_text('quant.edge_good', lang)}\n"
         text += "\n"
         
-        text += f"{get_text('quant.header_kelly', lang)}\n"
-        text += f"• {get_text('quant.kelly_full', lang, pct=kelly_fraction)}\n"
+        # Combined Kelly and Time Horizon section
+        text += f"{get_text('quant.header_kelly', lang).replace('💰 KELLY CRITERION', '💰 <b>KELLY CRITERION</b>')}\n"
+        text += f"• {get_text('quant.kelly_full', lang, pct=kelly_fraction).replace(f'Full Kelly: {kelly_fraction}%', f'Full Kelly: <b>{kelly_fraction}%</b>')}\n"
         if kelly_fraction_safe <= 0:
              text += f"• {get_text('quant.kelly_zero', lang)}\n"
         else:
-             # Explain that kelly_fraction_safe is about 1/4 of full Kelly
-             text += f"• {get_text('quant.kelly_conservative', lang, pct=kelly_fraction_safe)}\n"
-             text += f"• {get_text('quant.kelly_caution', lang)}\n"
+             # Time-adjusted Kelly information
+             text += f"• {get_text('quant.kelly_time_adj_combined', lang, pct=k_time_adj_pct, days=days_to_resolve).replace(f'With horizon: {k_time_adj_pct:.1f}%', f'With horizon: <b>{k_time_adj_pct:.1f}%</b>').replace(f'~{days_to_resolve}d', f'<b>~{days_to_resolve}d</b>')}\n"
+             text += f"• {get_text('quant.kelly_final_rec', lang, pct=k_final_pct).replace(f'Recommended entry: ~{k_final_pct:.1f}%', f'Recommended entry: <b>~{k_final_pct:.1f}%</b>')}\n"
+             text += f"• {get_text('quant.kelly_time_comment', lang)}\n"
         text += "\n"
-        
-        # Time-adjusted Kelly section
-        # Always show the time-adjusted Kelly section when we have Kelly data
-        if deep.kelly:
-            # Determine time horizon category
-            if days_to_resolve <= 0:
-                horizon_label = get_text('quant.horizon_short', lang)  # Default to short for same-day
-            elif days_to_resolve <= 7:
-                horizon_label = get_text('quant.horizon_short', lang)
-            elif days_to_resolve <= 30:
-                horizon_label = get_text('quant.horizon_medium', lang)
-            else:
-                horizon_label = get_text('quant.horizon_long', lang)
-            
-            text += f"⏳ {get_text('quant.header_time_horizon', lang)}\n"
-            text += f"• {get_text('quant.days_to_resolve', lang, days=days_to_resolve)}\n"
-            text += f"• {get_text('quant.horizon_label', lang, label=horizon_label)}\n"
-            text += f"• {get_text('quant.kelly_capped', lang, pct=k_capped_pct)}\n"
-            text += f"• {get_text('quant.kelly_time_adj', lang, pct=k_time_adj_pct)}\n"
-            text += f"• {get_text('quant.kelly_final_rec', lang, pct=k_final_pct)}\n\n"
-            text += f"{get_text('quant.kelly_time_comment', lang)}\n\n"
         
         # Market internals and smart money flow section
         # Extract required data from market and whale analysis
@@ -500,31 +481,32 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
             last_whale_ago = "N/A"
         
         # Add market internals section
-        text += f"{get_text('quant.header_market', lang)}\n"
+        text += f"{get_text('quant.header_market', lang).replace('🔹 Market Metrics', '🔹 <b>Market Metrics</b>') if 'Market Metrics' in get_text('quant.header_market', lang) else get_text('quant.header_market', lang)}\n"
         text += f"{get_text('quant.prices_line', lang, yes_price=yes_price_cents, no_price=no_price_cents)}\n"
         text += f"{get_text('quant.spread_line', lang, spread=spread_cents)}\n"
         text += f"{get_text('quant.volume_line', lang, vol_24h=vol_24h_formatted, vol_total=vol_total_formatted)}\n"
         text += f"{get_text('quant.liquidity_line', lang, liq_label=liq_label, liquidity=liquidity_formatted)}\n\n"
-        
+                
         # Add smart money flow section
-        text += f"{get_text('quant.smart_tilt_header', lang)}\n"
+        text += f"{get_text('quant.smart_tilt_header', lang).replace('🐋 Smart Money Flow', '🐋 <b>Smart Money Flow</b>') if 'Smart Money Flow' in get_text('quant.smart_tilt_header', lang) else get_text('quant.smart_tilt_header', lang)}\n"
         text += f"{get_text('quant.smart_tilt_line', lang, smart_yes_pct=smart_yes_pct, smart_no_pct=smart_no_pct)}\n"
         text += f"{get_text('quant.smart_yes_usd_line', lang, smart_yes_usd=int(smart_yes_usd))}\n"
         text += f"{get_text('quant.smart_no_usd_line', lang, smart_no_usd=int(smart_no_usd))}\n"
         text += f"{get_text('quant.tilt_direction_line', lang, tilt_label=tilt_label)}\n"
         text += f"{get_text('quant.last_whale_line', lang, last_whale_usd=int(last_whale_usd), last_whale_side=last_whale_side, last_whale_ago=last_whale_ago)}\n\n"
-        
-        text += f"{get_text('quant.header_theta', lang)}\n"
+                
+        text += f"{get_text('quant.header_theta', lang).replace('⏳ TIME / THETA', '⏳ <b>TIME / THETA</b>') if 'TIME / THETA' in get_text('quant.header_theta', lang) else get_text('quant.header_theta', lang)}\n"
         text += f"• {get_text('quant.theta_time_edge', lang, val=theta_daily)}\n"
         text += f"• {get_text('quant.theta_short', lang, text=theta_comment)}\n\n"
-
-        text += f"{get_text('quant.internals_tilt', lang, val=tilt_str)}\n"
-        text += f"{get_text('quant.internals_mom', lang, val=vol_mom)}\n"
-        text += f"{get_text('quant.internals_ratio', lang, val=market.score_breakdown.get('sm_ratio', 0))}\n"
-        text += f"{get_text('quant.internals_liq', lang, val=liq_desc)}\n"
-        text += f"{get_text('quant.internals_rec', lang, val=recency)}\n\n"
+                
+        # Skip the duplicate internals section to avoid duplication
+        # text += f"{get_text('quant.internals_tilt', lang, val=tilt_str)}\n"
+        # text += f"{get_text('quant.internals_mom', lang, val=vol_mom)}\n"
+        # text += f"{get_text('quant.internals_ratio', lang, val=market.score_breakdown.get('sm_ratio', 0))}\n"
+        # text += f"{get_text('quant.internals_liq', lang, val=liq_desc)}\n"
+        # text += f"{get_text('quant.internals_rec', lang, val=recency)}\n\n"
         
-        text += f"{get_text('quant.header_concl', lang)}\n"
+        text += f"{get_text('quant.header_concl', lang).replace('🏁 CONCLUSION', '🏁 <b>CONCLUSION</b>')}\n"
         if kelly_fraction_safe > 0 and edge_pct > 2:
              text += get_text("quant.concl_good", lang, edge=edge_pct, kelly=kelly_fraction_safe)
         else:
