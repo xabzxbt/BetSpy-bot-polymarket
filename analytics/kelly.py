@@ -195,6 +195,9 @@ def calculate_kelly(
     kelly_time_adj_pct = kelly_time_adj * 100  # Convert to percentage
     kelly_final_pct = kelly_final * 100  # Convert to percentage
     
+    # Calculate the recommended size based on the time-adjusted final Kelly
+    time_adj_rec_size = round(kelly_final * bankroll, 0)
+    
     return KellyResult(
         model_probability=safe_prob,
         market_price=market_price,
@@ -203,11 +206,11 @@ def calculate_kelly(
         edge=edge_abs,
         edge_pct=edge_pct,
         kelly_full=kelly_full,
-        kelly_fraction=kelly_frac,
-        recommended_size=rec_size,
+        kelly_fraction=kelly_final,  # Use time-adjusted final Kelly as the recommended fraction
+        recommended_size=time_adj_rec_size,
         recommended_side=recommended_side,
         has_edge=(edge_abs > 0),
-        is_significant=(rec_size > 0),
+        is_significant=(time_adj_rec_size > 0),
         fraction_name=_get_fraction_name(fraction),
         days_to_resolve=days_to_resolve,
         kelly_capped_pct=kelly_capped_pct,

@@ -400,9 +400,12 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         text += "\n"
         
         # Time-adjusted Kelly section
-        if days_to_resolve > 0:
+        # Always show the time-adjusted Kelly section when we have Kelly data
+        if deep.kelly:
             # Determine time horizon category
-            if days_to_resolve <= 7:
+            if days_to_resolve <= 0:
+                horizon_label = get_text('quant.horizon_short', lang)  # Default to short for same-day
+            elif days_to_resolve <= 7:
                 horizon_label = get_text('quant.horizon_short', lang)
             elif days_to_resolve <= 30:
                 horizon_label = get_text('quant.horizon_medium', lang)
