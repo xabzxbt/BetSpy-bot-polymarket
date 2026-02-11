@@ -84,7 +84,7 @@ async def reply_analyze(message: Message, state: FSMContext) -> None:
 
 # ── Wallets ──────────────────────────────────────────
 
-@router.message(F.text.in_(["📋 Wallets", "📋 Гаманці", "📋 Кошельки"]))
+@router.message(F.text.in_(['📋 Wallets', '📋 Валлети', '📋 Кошельки']))
 async def reply_wallets(message: Message) -> None:
     user, lang = await resolve_user(message.from_user)
     from database import db
@@ -150,7 +150,7 @@ async def reply_settings(message: Message) -> None:
 
 # ── Help ─────────────────────────────────────────────
 
-@router.message(F.text.in_(["❓ Help", "❓ Допомога", "❓ Помощь"]))
+@router.message(F.text.in_(['❓ Help', '❓ Інфо', '❓ Помощь']))
 async def reply_help(message: Message) -> None:
     user, lang = await resolve_user(message.from_user)
     await message.answer(get_text("help_text", lang), parse_mode=ParseMode.HTML)
