@@ -11,17 +11,15 @@ Two modes:
    → Fetch BTC price ($108K), vol (65%), run 10K paths → P(BTC > $120K) = 41%
 
 2. GENERIC MODE — for all other markets (politics, sports, etc.)
-   Simulates the Polymarket price itself using its historical volatility.
-   Less precise, but still gives a distribution of possible outcomes.
-
-Formulas:
-    GBM: S(t+1) = S(t) × exp((μ - σ²/2)Δt + σ√Δt × Z)
-    where Z ~ N(0,1)
+   Simulates the PRICE VOLATILITY itself to show risk/drawdown.
+   Does NOT predict the winner (drift = 0).
+   The "probability" returned is just the current price (neutral).
 """
 
 import math
 import random
 import re
+import statistics
 from dataclasses import dataclass, field
 from typing import Optional, List, Tuple
 
@@ -72,7 +70,6 @@ CRYPTO_PATTERNS = {
 }
 
 # Regex to extract price thresholds from questions
-# Matches: "$100,000", "$100k", "$120K", "$100000", "$1.5M", etc.
 PRICE_THRESHOLD_RE = re.compile(
     r'\$\s*([0-9,]+(?:\.\d+)?)\s*([kKmMbB])?'
 )
@@ -94,11 +91,6 @@ class CryptoMarketInfo:
 def detect_crypto_market(question: str) -> Optional[CryptoMarketInfo]:
     """
     Parse a question to detect if it's about a crypto price target.
-
-    Examples:
-        "Will Bitcoin exceed $120,000 by March?" → (bitcoin, 120000, above)
-        "Bitcoin below $80K?"                    → (bitcoin, 80000, below)
-        "ETH price above $5k?"                   → (ethereum, 5000, above)
     """
     q_lower = question.lower()
 
@@ -164,6 +156,11 @@ class MonteCarloResult:
     market_price: float          # Current market YES price
     edge: float                  # probability_yes - market_price
 
+    # Percentiles (for risk analysis)
+    percentile_5: float = 0.0    # 5th percentile outcome
+    percentile_50: float = 0.0   # Median outcome
+    percentile_95: float = 0.0   # 95th percentile outcome
+
     # Distribution buckets (for display)
     distribution: List[Tuple[str, float]] = field(default_factory=list)
 
@@ -175,7 +172,6 @@ class MonteCarloResult:
 
     # Stats
     mean_final_price: float = 0.0
-    median_final_price: float = 0.0
     std_final_price: float = 0.0
 
     @property
@@ -203,8 +199,8 @@ def run_crypto_simulation(
 ) -> MonteCarloResult:
     """
     Monte Carlo simulation for crypto price markets using GBM.
-
-    Simulates `n_sims` price paths and counts how many cross threshold.
+    
+    Includes SAFETY CAPS to prevent 100% or 0% probability.
     """
     if RANDOM_SEED is not None:
         random.seed(RANDOM_SEED)
@@ -216,39 +212,57 @@ def run_crypto_simulation(
     if sigma < 0.01:
         sigma = 0.50  # default 50% vol if data is bad
 
-    dt = 1.0 / 365  # daily steps
-    drift = (mu - 0.5 * sigma ** 2) * dt
-    diffusion = sigma * math.sqrt(dt)
+    dt = 1.0 / 365.0
+    # GBM drift & diffusion
+    drift_part = (mu - 0.5 * sigma ** 2) * dt
+    diffusion_part = sigma * math.sqrt(dt)
 
     final_prices = []
     yes_count = 0
 
+    # Optimization: pre-calculate randoms if we were using numpy
+    # Here we use a loop but keep it simple
     for _ in range(n_sims):
-        price = S0
-        for _ in range(days):
-            z = random.gauss(0, 1)
-            price *= math.exp(drift + diffusion * z)
-
-        final_prices.append(price)
+        # We only need the FINAL price for a "European" option style check
+        # But correctly simulating the path requires summing the log returns
+        # sum_Z ~ N(0, days)
+        # So ln(St) = ln(S0) + (mu - 0.5*sigma^2)*T + sigma*sqrt(T)*Z
+        # This is much faster than looping days!
+        
+        T = days * dt
+        effective_drift = (mu - 0.5 * sigma ** 2) * T
+        effective_diffusion = sigma * math.sqrt(T)
+        
+        z = random.gauss(0, 1)
+        final_price = S0 * math.exp(effective_drift + effective_diffusion * z)
+        final_prices.append(final_price)
 
         if direction == "above":
-            if price >= threshold:
+            if final_price >= threshold:
                 yes_count += 1
         else:
-            if price <= threshold:
+            if final_price <= threshold:
                 yes_count += 1
 
     prob_yes = yes_count / n_sims
+
+    # SAFETY CAP: Never report 0% or 100%
+    # We clamp to [0.1%, 99.9%]
+    prob_yes = max(0.001, min(0.999, prob_yes))
 
     # Distribution buckets
     final_prices.sort()
     distribution = _build_crypto_distribution(final_prices, threshold)
 
     # Stats
-    mean_p = sum(final_prices) / n_sims
-    median_p = final_prices[n_sims // 2]
-    var = sum((p - mean_p) ** 2 for p in final_prices) / n_sims
-    std_p = math.sqrt(var)
+    try:
+        pct_5 = final_prices[int(n_sims * 0.05)]
+        pct_50 = final_prices[int(n_sims * 0.50)]
+        pct_95 = final_prices[int(n_sims * 0.95)]
+        mean_p = statistics.mean(final_prices)
+        std_p = statistics.stdev(final_prices) if n_sims > 1 else 0.0
+    except (IndexError, ValueError):
+        pct_5 = pct_50 = pct_95 = mean_p = std_p = 0.0
 
     return MonteCarloResult(
         mode="crypto",
@@ -256,13 +270,15 @@ def run_crypto_simulation(
         probability_yes=prob_yes,
         market_price=market_price,
         edge=prob_yes - market_price,
+        percentile_5=pct_5,
+        percentile_50=pct_50,
+        percentile_95=pct_95,
         distribution=distribution,
         coin_id=crypto.coin_id,
         current_asset_price=crypto.current_price,
         threshold=threshold,
         direction=direction,
         mean_final_price=mean_p,
-        median_final_price=median_p,
         std_final_price=std_p,
     )
 
@@ -276,9 +292,11 @@ def run_generic_simulation(
 ) -> MonteCarloResult:
     """
     Monte Carlo simulation for generic markets.
-
-    Simulates the Polymarket price itself based on its historical volatility.
-    Counts how many simulations end above 50¢ (YES wins).
+    
+    NO DRIFT "prediction". 
+    We pretend the price follows a geometric random walk with NO drift (Martingale).
+    The 'probability_yes' is simply the current price (neutral).
+    This simulation is used ONLY to visualize VOLATILITY/RISK (percentiles).
     """
     if RANDOM_SEED is not None:
         random.seed(RANDOM_SEED)
@@ -287,50 +305,66 @@ def run_generic_simulation(
     if not price_history.is_empty:
         sigma = price_history.volatility()
     else:
-        sigma = 0.30  # default
+        sigma = 0.40  # default generic vol
 
     if sigma < 0.01:
-        sigma = 0.30
+        sigma = 0.40
 
-    # Daily vol
-    daily_vol = sigma / math.sqrt(365)
-
-    yes_count = 0
+    # For binary options (0 to 1), Standard Brownian Motion is often better fit for probability space
+    # but let's stick to log-normal price approximation or just simple Log-Odds walk.
+    # To keep it robust: Use bounded random walk.
+    # Or simpler: Just return voltage stats without simulating full paths if we don't predict.
+    # But to satisfy the loop:
+    
+    dt = 1.0 / 365.0
+    T = days * dt
+    daily_vol = sigma * math.sqrt(dt) # approx daily move
+    total_vol = sigma * math.sqrt(T)  # approx move over 'days'
+    
     final_prices = []
-
+    
+    # We simulate 10k final prices assuming current_price is fair
+    # Using Logit-Normal or just Normal clipped is easiest for "Probability"
+    # Let's use Normal distribution on the PROBABILITY space
+    # centered at current_price
+    
     for _ in range(n_sims):
-        price = current_price
-        for _ in range(days):
-            # Mean-reverting random walk (prices tend toward 0 or 1)
-            # Small drift toward current direction
-            if price > 0.50:
-                drift = 0.001  # slight YES drift
-            else:
-                drift = -0.001  # slight NO drift
+        # random shock based on total time volatility
+        shock = random.gauss(0, total_vol)
+        p_final = current_price + shock
+        # Clip to [0.01, 0.99]
+        p_final = max(0.01, min(0.99, p_final))
+        final_prices.append(p_final)
 
-            shock = random.gauss(drift, daily_vol)
-            price = max(0.01, min(0.99, price + shock))
+    # The model "prediction" is just the current price (Neutral)
+    # We DO NOT predict the winner here.
+    prob_yes = current_price 
 
-        final_prices.append(price)
-        if price > 0.50:
-            yes_count += 1
-
-    prob_yes = yes_count / n_sims
-
-    # Distribution
     final_prices.sort()
+    
+    try:
+        pct_5 = final_prices[int(n_sims * 0.05)]
+        pct_50 = final_prices[int(n_sims * 0.50)]
+        pct_95 = final_prices[int(n_sims * 0.95)]
+        mean_p = statistics.mean(final_prices)
+        std_p = statistics.stdev(final_prices) if n_sims > 1 else 0.0
+    except (IndexError, ValueError):
+        pct_5 = pct_50 = pct_95 = mean_p = std_p = 0.0
+        
     distribution = _build_generic_distribution(final_prices)
-
-    mean_p = sum(final_prices) / n_sims
 
     return MonteCarloResult(
         mode="generic",
         num_simulations=n_sims,
         probability_yes=prob_yes,
         market_price=market_price,
-        edge=prob_yes - market_price,
+        edge=0.0, # NO EDGE claimed from generic simulation
+        percentile_5=pct_5,
+        percentile_50=pct_50,
+        percentile_95=pct_95,
         distribution=distribution,
         mean_final_price=mean_p,
+        std_final_price=std_p,
     )
 
 
@@ -346,8 +380,7 @@ def _build_crypto_distribution(
     if n == 0:
         return []
 
-    # Create 5 buckets centered around threshold
-    step = threshold * 0.10  # 10% of threshold per bucket
+    step = threshold * 0.10
     boundaries = [
         threshold - 2 * step,
         threshold - step,
@@ -356,7 +389,6 @@ def _build_crypto_distribution(
         threshold + 2 * step,
     ]
 
-    buckets = []
     bucket_names = [
         f"< ${_fmt_price(boundaries[0])}",
         f"${_fmt_price(boundaries[0])}–${_fmt_price(boundaries[1])}",
@@ -390,11 +422,11 @@ def _build_generic_distribution(
         return []
 
     buckets = [
-        ("0–20¢ (Strong NO)", 0.0, 0.20),
-        ("20–40¢ (Lean NO)", 0.20, 0.40),
-        ("40–60¢ (Toss-up)", 0.40, 0.60),
-        ("60–80¢ (Lean YES)", 0.60, 0.80),
-        ("80–100¢ (Strong YES)", 0.80, 1.01),
+        ("0–20¢", 0.0, 0.20),
+        ("20–40¢", 0.20, 0.40),
+        ("40–60¢", 0.40, 0.60),
+        ("60–80¢", 0.60, 0.80),
+        ("80–100¢", 0.80, 1.01),
     ]
 
     result = []
