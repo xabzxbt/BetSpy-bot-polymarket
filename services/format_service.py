@@ -382,7 +382,10 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         
         text += f"{get_text('quant.header_edge', lang).replace('📐 EDGE', '📐 <b>EDGE</b>')}\n"
         # Use the Bayesian posterior as the final model probability to ensure consistency
-        bayes_posterior_pct = int(bayes_posterior)
+        try:
+            bayes_posterior_pct = int(float(bayes_posterior) * 100) if bayes_posterior is not None else int(market.yes_price * 100)
+        except (ValueError, TypeError):
+            bayes_posterior_pct = int(market.yes_price * 100)
         text += f"• {get_text('quant.model_prob', lang, pct=bayes_posterior_pct).replace(f'Model probability: {bayes_posterior_pct}%', f'Model probability: <b>{bayes_posterior_pct}%</b>')}\n"
         text += f"• {get_text('quant.market_impl', lang, pct=int(market.yes_price*100)).replace(f'Market implied: {int(market.yes_price*100)}%', f'Market implied: <b>{int(market.yes_price*100)}%</b>')}\n"
         # Recalculate edge based on Bayesian posterior to ensure consistency
@@ -398,13 +401,23 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         
         # Combined Kelly and Time Horizon section
         text += f"{get_text('quant.header_kelly', lang).replace('💰 KELLY CRITERION', '💰 <b>KELLY CRITERION</b>')}\n"
-        text += f"• {get_text('quant.kelly_full', lang, pct=kelly_fraction).replace(f'Full Kelly: {kelly_fraction}%', f'Full Kelly: <b>{kelly_fraction}%</b>')}\n"
+        try:
+            kelly_fraction_display = float(kelly_fraction) if kelly_fraction is not None else 0
+            text += f"• {get_text('quant.kelly_full', lang, pct=kelly_fraction_display).replace(f'Full Kelly: {kelly_fraction_display}%', f'Full Kelly: <b>{kelly_fraction_display}%</b>')}\n"
+        except (ValueError, TypeError):
+            text += f"• {get_text('quant.kelly_full', lang, pct=0).replace(f'Full Kelly: 0%', f'Full Kelly: <b>0%</b>')}\n"
         if kelly_fraction_safe <= 0:
              text += f"• {get_text('quant.kelly_zero', lang)}\n"
         else:
              # Time-adjusted Kelly information
-             text += f"• {get_text('quant.kelly_time_adj_combined', lang, pct=k_time_adj_pct, days=days_to_resolve).replace(f'With horizon: {k_time_adj_pct:.1f}%', f'With horizon: <b>{k_time_adj_pct:.1f}%</b>').replace(f'~{days_to_resolve}d', f'<b>~{days_to_resolve}d</b>')}\n"
-             text += f"• {get_text('quant.kelly_final_rec', lang, pct=k_final_pct).replace(f'Recommended entry: ~{k_final_pct:.1f}%', f'Recommended entry: <b>~{k_final_pct:.1f}%</b>')}\n"
+             try:
+                 k_time_adj_pct_display = float(k_time_adj_pct) if k_time_adj_pct is not None else 0
+                 k_final_pct_display = float(k_final_pct) if k_final_pct is not None else 0
+                 text += f"• {get_text('quant.kelly_time_adj_combined', lang, pct=k_time_adj_pct_display, days=days_to_resolve).replace(f'With horizon: {k_time_adj_pct_display:.1f}%', f'With horizon: <b>{k_time_adj_pct_display:.1f}%</b>').replace(f'~{days_to_resolve}d', f'<b>~{days_to_resolve}d</b>')}\n"
+                 text += f"• {get_text('quant.kelly_final_rec', lang, pct=k_final_pct_display).replace(f'Recommended entry: ~{k_final_pct_display:.1f}%', f'Recommended entry: <b>~{k_final_pct_display:.1f}%</b>')}\n"
+             except (ValueError, TypeError):
+                 text += f"• {get_text('quant.kelly_time_adj_combined', lang, pct=0, days=days_to_resolve).replace(f'With horizon: 0.0%', f'With horizon: <b>0.0%</b>').replace(f'~{days_to_resolve}d', f'<b>~{days_to_resolve}d</b>')}\n"
+                 text += f"• {get_text('quant.kelly_final_rec', lang, pct=0).replace(f'Recommended entry: ~0.0%', f'Recommended entry: <b>~0.0%</b>')}\n"
              # Only show time comment if the market is long-term (> 30 days) and time adjustment is applied
              if days_to_resolve > 30 and k_time_adj_pct < k_capped_pct:
                  text += f"• {get_text('quant.kelly_time_comment', lang)}\n"
@@ -504,8 +517,12 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
                 
         text += f"{get_text('quant.header_theta', lang).replace('⏳ TIME / THETA', '⏳ <b>TIME / THETA</b>') if 'TIME / THETA' in get_text('quant.header_theta', lang) else get_text('quant.header_theta', lang)}\n"
         # Calculate approximate daily theta based on days to resolve
-        approx_daily = theta_daily / max(1, days_to_resolve) if days_to_resolve > 0 else theta_daily
-        text += f"• {get_text('quant.theta_time_edge', lang, val=theta_daily)} (~{approx_daily:.1f}¢/day)\n"
+        try:
+            theta_daily_float = float(theta_daily) if theta_daily is not None else 0.0
+            approx_daily = theta_daily_float / max(1, days_to_resolve) if days_to_resolve > 0 else theta_daily_float
+            text += f"• {get_text('quant.theta_time_edge', lang, val=theta_daily)} (~{approx_daily:.1f}¢/day)\n"
+        except (ValueError, TypeError):
+            text += f"• {get_text('quant.theta_time_edge', lang, val=theta_daily)}\n"
         text += f"• {get_text('quant.theta_short', lang, text=theta_comment)}\n\n"
                 
         # Skip the duplicate internals section to avoid duplication
