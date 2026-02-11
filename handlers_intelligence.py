@@ -20,7 +20,9 @@ from services.format_service import (
     format_market_card,
     format_market_detail,
     format_market_links_footer,
+    format_unified_analysis,
 )
+from analytics.orchestrator import run_deep_analysis
 from market_intelligence import (
     market_intelligence,
     Category,
@@ -195,8 +197,20 @@ async def callback_market_detail(callback: CallbackQuery) -> None:
         return
 
     try:
-        rec = market_intelligence.generate_recommendation(market)
-        text = format_market_detail(market, rec, lang)
+        # Show Loading
+        try:
+            await callback.message.edit_text("⏳ Analyzing market deeply...", parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
+
+        # Run Deep Analysis
+        try:
+            deep_result = await run_deep_analysis(market)
+        except Exception as e:
+            logger.error(f"Deep analysis error: {e}")
+            deep_result = None
+
+        text = format_unified_analysis(market, deep_result, lang)
 
         await callback.message.edit_text(
             text,
