@@ -271,9 +271,17 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         if deep.kelly:
             k_full = deep.kelly.kelly_full
             k_safe = deep.kelly.kelly_fraction 
+            k_capped_pct = deep.kelly.kelly_capped_pct
+            k_time_adj_pct = deep.kelly.kelly_time_adj_pct
+            k_final_pct = deep.kelly.kelly_final_pct
+            days_to_resolve = deep.kelly.days_to_resolve
         else:
             k_full = 0.0
             k_safe = 0.0
+            k_capped_pct = 0.0
+            k_time_adj_pct = 0.0
+            k_final_pct = 0.0
+            days_to_resolve = 0
 
         kelly_fraction = int(k_full * 100)
         kelly_fraction_safe = int(k_safe * 100)
@@ -390,6 +398,24 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
              text += f"• {get_text('quant.kelly_conservative', lang, pct=kelly_fraction_safe)}\n"
              text += f"• {get_text('quant.kelly_caution', lang)}\n"
         text += "\n"
+        
+        # Time-adjusted Kelly section
+        if days_to_resolve > 0:
+            # Determine time horizon category
+            if days_to_resolve <= 7:
+                horizon_label = get_text('quant.horizon_short', lang)
+            elif days_to_resolve <= 30:
+                horizon_label = get_text('quant.horizon_medium', lang)
+            else:
+                horizon_label = get_text('quant.horizon_long', lang)
+            
+            text += f"⏳ {get_text('quant.header_time_horizon', lang)}\n"
+            text += f"• {get_text('quant.days_to_resolve', lang, days=days_to_resolve)}\n"
+            text += f"• {get_text('quant.horizon_label', lang, label=horizon_label)}\n"
+            text += f"• {get_text('quant.kelly_capped', lang, pct=k_capped_pct)}\n"
+            text += f"• {get_text('quant.kelly_time_adj', lang, pct=k_time_adj_pct)}\n"
+            text += f"• {get_text('quant.kelly_final_rec', lang, pct=k_final_pct)}\n\n"
+            text += f"{get_text('quant.kelly_time_comment', lang)}\n\n"
         
         text += f"{get_text('quant.header_theta', lang)}\n"
         text += f"• {get_text('quant.theta_time_edge', lang, val=theta_daily)}\n"

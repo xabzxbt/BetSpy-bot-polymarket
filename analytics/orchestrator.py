@@ -232,6 +232,7 @@ async def run_deep_analysis(
             market_price=market.yes_price,
             bankroll=bankroll,
             fraction=kelly_fraction,
+            days_to_resolve=market.days_to_close,
         )
     except Exception as e:
         errors["kelly"] = str(e)

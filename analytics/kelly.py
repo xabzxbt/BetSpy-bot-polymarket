@@ -48,6 +48,12 @@ class KellyResult:
     has_edge: bool
     is_significant: bool
     fraction_name: str         # "¼ Kelly", etc.
+    
+    # Time-adjusted Kelly fields
+    days_to_resolve: int = 0              # Days until market resolves
+    kelly_capped_pct: float = 0.0         # Capped Kelly percentage (same as kelly_full * 100)
+    kelly_time_adj_pct: float = 0.0       # Time-adjusted Kelly percentage
+    kelly_final_pct: float = 0.0          # Final recommended percentage after time adjustment and fraction
 
     @property
     def size_pct(self) -> float:
@@ -65,6 +71,50 @@ class KellyResult:
 
 
 # =====================================================================
+# Time-adjusted Kelly Calculator
+# =====================================================================
+
+TIME_ADJUSTED_REF_HORIZON = 30  # Reference time horizon in days
+
+
+def calculate_time_adjusted_kelly(kelly_capped: float, days_to_resolve: int) -> tuple[float, float]:
+    """
+    Calculate time-adjusted Kelly position sizing.
+    
+    Formula: f_time = f_kelly * min(1, T_ref / T_market)
+    Where:
+    - f_kelly = already calculated capped Kelly (0-0.2 as fraction of bankroll)
+    - T_market = days until market resolves
+    - T_ref = reference horizon (30 days)
+    
+    Args:
+        kelly_capped: Capped Kelly fraction (already calculated)
+        days_to_resolve: Number of days until market resolves
+        
+    Returns:
+        tuple: (time_adjusted_fraction, final_fraction)
+            - time_adjusted_fraction: Kelly adjusted for time horizon
+            - final_fraction: Final recommendation (time_adjusted * 0.25)
+    """
+    # Reference time horizon
+    T_ref = TIME_ADJUSTED_REF_HORIZON
+    
+    # Handle edge case where days_to_resolve is very small or negative
+    if days_to_resolve <= 0:
+        multiplier = 1.0
+    else:
+        multiplier = min(1.0, T_ref / days_to_resolve)
+    
+    # Calculate time-adjusted Kelly
+    kelly_time_adj = kelly_capped * multiplier
+    
+    # Calculate final recommendation (1/4 of time-adjusted Kelly)
+    kelly_final = kelly_time_adj * DEFAULT_FRACTION
+    
+    return kelly_time_adj, kelly_final
+
+
+# =====================================================================
 # Calculator
 # =====================================================================
 
@@ -73,6 +123,7 @@ def calculate_kelly(
     market_price: float,
     bankroll: float = DEFAULT_BANKROLL,
     fraction: float = DEFAULT_FRACTION,
+    days_to_resolve: int = 0,
 ) -> KellyResult:
     """
     Calculate Safe Kelly Criterion.
@@ -138,6 +189,12 @@ def calculate_kelly(
     # 7. Dollar Size
     rec_size = round(kelly_frac * bankroll, 0)
     
+    # 8. Time-adjusted Kelly Calculation
+    kelly_capped_pct = kelly_full * 100  # Convert to percentage
+    kelly_time_adj, kelly_final = calculate_time_adjusted_kelly(kelly_full, days_to_resolve)
+    kelly_time_adj_pct = kelly_time_adj * 100  # Convert to percentage
+    kelly_final_pct = kelly_final * 100  # Convert to percentage
+    
     return KellyResult(
         model_probability=safe_prob,
         market_price=market_price,
@@ -151,16 +208,21 @@ def calculate_kelly(
         recommended_side=recommended_side,
         has_edge=(edge_abs > 0),
         is_significant=(rec_size > 0),
-        fraction_name=_get_fraction_name(fraction)
+        fraction_name=_get_fraction_name(fraction),
+        days_to_resolve=days_to_resolve,
+        kelly_capped_pct=kelly_capped_pct,
+        kelly_time_adj_pct=kelly_time_adj_pct,
+        kelly_final_pct=kelly_final_pct
     )
 
-def kelly_from_market(market, bankroll=10000, fraction=0.25):
+def kelly_from_market(market, bankroll=10000, fraction=0.25, days_to_resolve=0):
     """Wrapper that uses signal_score as a proxy for probability if needed."""
     return calculate_kelly(
         model_prob=signal_to_probability(market),
         market_price=market.yes_price,
         bankroll=bankroll,
-        fraction=fraction
+        fraction=fraction,
+        days_to_resolve=days_to_resolve
     )
 
 def _get_fraction_name(f: float) -> str:
