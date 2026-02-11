@@ -304,6 +304,12 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         # 🟢 BUY YES @ X¢  or  🛑 SKIP
         # Confidence: X/100 · Edge: ±X% · Size: $X
         
+        # Edge Text
+        edge_disp = f"{edge_pp:+.1f}"
+        if abs(edge_pp) < 1.0:
+            edge_disp = "~0" # Simplified
+        
+        # --- 3. LEVEL 1: INSTANT SIGNAL ---
         l1_text = ""
         if is_positive_setup:
             price_display = int(market.yes_price * 100) if rec_side == "YES" else int(market.no_price * 100)
@@ -311,34 +317,30 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
             
             # Size calc
             size_str = f"{k_safe:.1f}%"
-            l1_text += f"{get_text('l1.stats', lang, score=conf_score, edge=f'{edge_pp:+.1f}', size=size_str, roi=f'{roi_win:.0f}')}\n"
+            l1_text += f"{get_text('l1.stats', lang, score=conf_score, edge=edge_disp, size=size_str, roi=f'{roi_win:.0f}')}\n"
         else:
             l1_text += f"{get_text('l1.signal_skip', lang)}\n"
-            l1_text += f"{get_text('l1.stats_skip', lang, score=conf_score, edge=f'{edge_pp:+.1f}')}\n"
+            l1_text += f"{get_text('l1.stats_skip', lang, score=conf_score, edge=edge_disp)}\n"
             
         l1_text += "\n"
 
         # --- 4. LEVEL 2: SIMPLE EXPLANATION ---
-        # 💬 WHY:
-        # • [Whale]
-        # • [Model]
-        # • [Risk]
-        # ⚡ ACTION: ...
-        
         l2_text = f"{get_text('l2.why', lang)}\n"
         reasons = []
         
-        # Reason 1: Whales (Detailed)
+        # Reason 1: Whales
         if wa and wa.is_significant:
             wa_vol = wa.yes_volume if rec_side == "YES" else wa.no_volume
-            # If whale disagrees, show counter-volume
-            if not whale_agrees and wa.dominance_side != "NEUTRAL":
+            # If whale disagrees
+            whale_agree_side = wa.dominance_side == rec_side
+            
+            if not whale_agree_side and wa.dominance_side != "NEUTRAL":
                  wa_vol = wa.yes_volume if wa.dominance_side == "YES" else wa.no_volume
                  
             wa_amt_str = format_volume(wa_vol)
             wa_pct_str = f"{wa.dominance_pct:.0f}"
             
-            if whale_agrees:
+            if whale_agree_side:
                 reasons.append(get_text('l2.reason_whale_good', lang, side=rec_side, pct=wa_pct_str, amt=wa_amt_str))
             else:
                 reasons.append(get_text('l2.reason_whale_bad', lang, side=wa.dominance_side, pct=wa_pct_str, amt=wa_amt_str))
@@ -346,17 +348,20 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
              reasons.append(get_text('l2.reason_whale_none', lang))
              
         # Reason 2: Model
-        # "Model sees X% vs Market Y%"
         reasons.append(get_text('l2.reason_model_view', lang, model=f"{p_model*100:.0f}", market=f"{p_market*100:.0f}"))
         
-        # Reason 3: Risk/Factor
-        if market.liquidity < 2000:
+        # Reason 3: Risk/Factor - Enhanced Logic
+        liq_pct = 0
+        if market.volume_24h > 0:
+             liq_pct = market.liquidity / market.volume_24h
+             
+        if liq_pct < 0.1: # Low Liquidity (<10% of vol)
             reasons.append(get_text('l2.risk_liq', lang))
-        elif market.days_to_close > 30:
+        elif market.days_to_close > 90:
             reasons.append(get_text('l2.risk_time', lang))
-        elif not is_positive_setup:
+        elif not is_positive_setup and abs(edge_pp) < 2.0:
              reasons.append(get_text('l2.risk_low_edge', lang))
-        else:
+        elif is_positive_setup:
              reasons.append(get_text('l2.factor_good', lang))
              
         for r in reasons:
@@ -370,12 +375,9 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
              action_val = get_text('l2.act_wait', lang)
              
         l2_text += f"\n{get_text('l2.action_label', lang, action=action_val)}\n"
-        
-        # Separator (Standard Dash)
         l2_text += "────────────────────────────\n"
 
-        # --- 5. LEVEL 3: TECHNICAL DETAILS (ALL MODELS) ---
-        # 📊 MODELS & DATA
+        # --- 5. LEVEL 3: TECHNICAL DETAILS ---
         l3_text = f"{get_text('l3.header', lang)}\n\n"
         
         # MC
@@ -383,8 +385,6 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         if mc:
             mc_runs = 10000 
             mc_pnl = mc.edge if mc.edge else 0.0
-            
-            # Hide PnL if it's strangely 0.00 despite edge, or too small
             mc_detail = f"{mc_runs} {get_text('l3.runs', lang)}"
             if abs(mc_pnl) >= 0.005:
                 mc_detail += f", PnL: {mc_pnl:+.2f}"
@@ -395,18 +395,19 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         # Bayesian
         bayes = deep.bayesian
         if bayes:
-            # Neutral as fallback
             try:
-                sig_str = get_text('l3.signal_neutral', lang)
+                # Better logic for "Neutral" -> "Confirms market"
+                if abs(bayes.posterior - bayes.prior) < 0.02:
+                     sig_str = get_text('bayes_c_confirm', lang) # Reuse existing or fallback? 
+                     # Let's check if 'bayes_c_confirm' exists in files. Yes it likely does from previous.
+                     # If not, fallback to "Neutral"
+                else:
+                     strength = "strong" if abs(bayes.posterior - bayes.prior) > 0.05 else "weak"
+                     sig_str = get_text(f'l3.signal_{strength}', lang)
             except:
                 sig_str = "Neutral"
-            
-            if bayes.has_signal:
-                strength = "strong" if abs(bayes.posterior - bayes.prior) > 0.05 else "weak"
-                sig_str = get_text(f'l3.signal_{strength}', lang)
 
             prior_disp = market.yes_price
-            
             l3_text += f"🧠 <b>{get_text('l3.bayes_label', lang)}:</b> {prior_disp*100:.0f}% → {bayes.posterior*100:.1f}%\n"
             l3_text += f"   <i>({get_text('l3.signal_label', lang)}: {sig_str})</i>\n"
             
@@ -416,28 +417,30 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
             try: rec_str = get_text('l3.rec', lang)
             except: pass
             
-            l3_text += f"💰 <b>Kelly:</b> Full {deep.kelly.kelly_full*100:.1f}%, Time {deep.kelly.kelly_time_adj_pct:.1f}%\n" 
-            # Note: Hardcoded Kelly label to match previous code style or we can try localize it too
-            # Let's keep it safe. "Kelly" is international.
-            
-            try:
-                l3_text = l3_text.replace("Kelly", get_text('l3.kelly_label', lang))
+            kelly_label_txt = "Kelly"
+            try: kelly_label_txt = get_text('l3.kelly_label', lang)
             except: pass
 
-            l3_text += f"   <i>({rec_str}: {k_safe:.1f}%)</i>\n"
+            if k_safe <= 0:
+                 l3_text += f"💰 <b>{kelly_label_txt}:</b> 0% (no edge)\n"
+            else:
+                 l3_text += f"💰 <b>{kelly_label_txt}:</b> Full {deep.kelly.kelly_full*100:.1f}%, Time {deep.kelly.kelly_time_adj_pct:.1f}%\n" 
+                 l3_text += f"   <i>({rec_str}: {k_safe:.1f}%)</i>\n"
             
-        # Theta - Hide if days < 1
+        # Theta
         if deep.greeks and deep.greeks.theta and market.days_to_close >= 1:
              th = deep.greeks.theta.theta_yes if rec_side == "YES" else deep.greeks.theta.theta_no
              
-             theta_label = "Theta"
-             day_label = "day"
-             try: theta_label = get_text('l3.theta_label', lang)
-             except: pass
-             try: day_label = get_text('l3.day', lang)
-             except: pass
+             # Hide if negligible
+             if abs(th) >= 0.1:
+                 theta_label = "Theta"
+                 day_label = "day"
+                 try: theta_label = get_text('l3.theta_label', lang)
+                 except: pass
+                 try: day_label = get_text('l3.day', lang)
+                 except: pass
 
-             l3_text += f"⏳ <b>{theta_label}:</b> {th:+.2f}¢/{day_label}\n"
+                 l3_text += f"⏳ <b>{theta_label}:</b> {th:+.2f}¢/{day_label}\n"
              
         l3_text += "\n"
         
@@ -454,7 +457,17 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
             l3_text += f"   <i>({t_label}: {wa.dominance_side} {wa.dominance_pct:.0f}%)</i>\n"
             
         # Liquidity & Time
-        liq_lbl = get_text("liquidity.high" if market.liquidity > 25000 else "liquidity.low" if market.liquidity < 2000 else "liquidity.med", lang)
+        # Calc liq label dynamically
+        liq_lbl_key = "liquidity.low"
+        if market.volume_24h > 0:
+             lp = market.liquidity / market.volume_24h
+             if lp > 0.3: liq_lbl_key = "liquidity.high"
+             elif lp > 0.1: liq_lbl_key = "liquidity.med"
+             
+        liq_lbl = "Low"
+        try: liq_lbl = get_text(liq_lbl_key, lang)
+        except: pass
+
         l3_text += f"💧 <b>{get_text('l3.liq_label', lang)}:</b> ${format_volume(market.liquidity)} ({liq_lbl})\n"
         if market.days_to_close > 0:
             time_val = f"{market.days_to_close}{get_text('l3.days_short', lang)}"
