@@ -141,7 +141,9 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
         text += get_text("detail.liquidity", lang, vol=format_volume(market.liquidity)) + "\n"
 
     # Time
-    if market.days_to_close == 0:
+    if market.days_to_close < 0:
+        text += "🔒 <b>" + get_text("event_finished", lang) + "</b>\n"
+    elif market.days_to_close == 0:
         text += get_text("detail.closes_today", lang) + "\n"
     elif market.days_to_close == 1:
         text += get_text("detail.closes_tomorrow", lang) + "\n"

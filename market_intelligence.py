@@ -489,7 +489,12 @@ class MarketIntelligenceEngine:
                     if item_event != slug and item_slug != slug:
                         continue
 
-                parsed = self._parse_market(item, skip_long_term_filter, override_event_slug=known_event_slug)
+                parsed = self._parse_market(
+                    item, 
+                    skip_long_term_filter, 
+                    override_event_slug=known_event_slug,
+                    include_expired=True  # Allow analyzing closed events if user asks
+                )
                 if parsed:
                     markets.append(parsed)
             except Exception as e:
@@ -605,7 +610,7 @@ class MarketIntelligenceEngine:
 
     def _parse_market(
         self, data: Dict, skip_long_term_filter: bool = False,
-        override_event_slug: str = "",
+        override_event_slug: str = "", include_expired: bool = False,
     ) -> Optional[MarketStats]:
         """Parse raw API dict into MarketStats. Returns None if invalid.
         
@@ -632,7 +637,7 @@ class MarketIntelligenceEngine:
                 end_date = end_date.replace(tzinfo=None)
 
             now = datetime.utcnow()
-            if end_date < now:
+            if end_date < now and not include_expired:
                 return None
 
             days_to_close = (end_date - now).days
