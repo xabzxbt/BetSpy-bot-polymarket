@@ -12,7 +12,7 @@ from loguru import logger
 
 from i18n import get_text
 from services.user_service import resolve_user
-from services.format_service_analytics import format_deep_analysis
+from services.format_service import format_unified_analysis
 from analytics.orchestrator import run_deep_analysis
 from analytics.kelly import DEFAULT_BANKROLL
 from keyboards_intelligence import get_cached_market, get_category_keyboard
@@ -67,7 +67,7 @@ async def callback_deep_analysis(callback: CallbackQuery) -> None:
             bankroll=bankroll,
         )
 
-        text = format_deep_analysis(result, lang)
+        text = format_unified_analysis(market, result, lang)
 
         # Build keyboard with back button
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton

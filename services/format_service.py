@@ -232,6 +232,7 @@ def format_unified_analysis(market: MarketStats, deep_result: Any, lang: str) ->
 
 
 
+
 def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
     """
     Consumer-Friendly Deep Analysis (3-Level Structure).
@@ -384,50 +385,58 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
             mc_pnl = mc.edge if mc.edge else 0.0
             
             # Hide PnL if it's strangely 0.00 despite edge, or too small
-            mc_detail = f"{mc_runs} runs"
-            if abs(mc_pnl) >= 0.01:
+            mc_detail = f"{mc_runs} {get_text('l3.runs', lang)}"
+            if abs(mc_pnl) >= 0.005:
                 mc_detail += f", PnL: {mc_pnl:+.2f}"
             
-            l3_text += f"🎲 <b>Monte Carlo:</b> {mc.probability_yes*100:.1f}% YES\n"
+            l3_text += f"🎲 <b>{get_text('l3.mc_label', lang)}:</b> {mc.probability_yes*100:.1f}% YES\n"
             l3_text += f"   <i>({mc_detail})</i>\n"
             
         # Bayesian
         bayes = deep.bayesian
         if bayes:
-            sig_str = "Neutral"
-            if bayes.has_signal:
-                sig_str = "Strong" if abs(bayes.posterior - bayes.prior) > 0.05 else "Weak"
+            # Neutral as fallback
+            sig_str = get_text('l3.signal_neutral', lang) if 'l3.signal_neutral' in get_text.messages.get(lang, {}) else "Neutral"
             
-            # Force Prior to match Market Price for visual consistency if close
-            # Or just show what market price was used
+            if bayes.has_signal:
+                strength = "strong" if abs(bayes.posterior - bayes.prior) > 0.05 else "weak"
+                sig_str = get_text(f'l3.signal_{strength}', lang)
+
             prior_disp = market.yes_price
             
-            l3_text += f"🧠 <b>Bayesian:</b> {prior_disp*100:.0f}% → {bayes.posterior*100:.1f}%\n"
-            l3_text += f"   <i>(signal: {sig_str})</i>\n"
+            l3_text += f"🧠 <b>{get_text('l3.bayes_label', lang)}:</b> {prior_disp*100:.0f}% → {bayes.posterior*100:.1f}%\n"
+            l3_text += f"   <i>({get_text('l3.signal_label', lang)}: {sig_str})</i>\n"
             
         # Kelly
         if deep.kelly:
-            l3_text += f"💰 <b>Kelly:</b> Full {deep.kelly.kelly_full*100:.1f}%, Time {deep.kelly.kelly_time_adj_pct:.1f}%\n"
-            l3_text += f"   <i>(Rec: {k_safe:.1f}%)</i>\n"
+            l3_text += f"💰 <b>{get_text('l3.kelly_label', lang)}:</b> Full {deep.kelly.kelly_full*100:.1f}%, Time {deep.kelly.kelly_time_adj_pct:.1f}%\n"
+            l3_text += f"   <i>({get_text('l3.rec', lang)}: {k_safe:.1f}%)</i>\n"
             
         # Theta - Hide if days < 1
         if deep.greeks and deep.greeks.theta and market.days_to_close >= 1:
              th = deep.greeks.theta.theta_yes if rec_side == "YES" else deep.greeks.theta.theta_no
              th_side = get_text('theta_yours', lang) if abs(th) > 0 else get_text('theta_market', lang)
-             l3_text += f"⏳ <b>Theta:</b> {th:+.2f}¢/day\n"
+             l3_text += f"⏳ <b>{get_text('l3.theta_label', lang)}:</b> {th:+.2f}¢/{get_text('l3.day', lang)}\n"
              # l3_text += f"   <i>({th_side})</i>\n" # Optional explanation
              
         l3_text += "\n"
         
         # Whale Flow
         if wa:
-            l3_text += f"🐋 <b>Whale Flow:</b> ${format_volume(wa.yes_volume)} YES / ${format_volume(wa.no_volume)} NO\n"
-            l3_text += f"   <i>(Tilt: {wa.dominance_side} {wa.dominance_pct:.0f}%)</i>\n"
+            l3_text += f"🐋 <b>{get_text('l3.whale_label', lang)}:</b> ${format_volume(wa.yes_volume)} YES / ${format_volume(wa.no_volume)} NO\n"
+            l3_text += f"   <i>({get_text('l3.tilt_label', lang)}: {wa.dominance_side} {wa.dominance_pct:.0f}%)</i>\n"
             
         # Liquidity & Time
-        liq_lbl = "High" if market.liquidity > 25000 else ("Low" if market.liquidity < 2000 else "Mid")
-        l3_text += f"💧 <b>Liq:</b> ${format_volume(market.liquidity)} ({liq_lbl})\n"
-        l3_text += f"⏱️ <b>Time:</b> {market.days_to_close}d to resolution\n"
+        liq_lbl = get_text("liquidity.high" if market.liquidity > 25000 else "liquidity.low" if market.liquidity < 2000 else "liquidity.med", lang)
+        l3_text += f"💧 <b>{get_text('l3.liq_label', lang)}:</b> ${format_volume(market.liquidity)} ({liq_lbl})\n"
+        if market.days_to_close > 0:
+            time_val = f"{market.days_to_close}{get_text('l3.days_short', lang)}"
+            suffix = f" {get_text('l3.to_res', lang)}"
+        else:
+            time_val = f"<1{get_text('l3.days_short', lang)}"
+            suffix = f" ({get_text('l3.expires_today', lang)}) ⚠️"
+            
+        l3_text += f"⏱️ <b>{get_text('l3.time_label', lang)}:</b> {time_val}{suffix}\n"
 
         # Combine
         return l1_text + l2_text + l3_text

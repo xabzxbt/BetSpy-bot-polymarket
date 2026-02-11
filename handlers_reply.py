@@ -138,7 +138,7 @@ async def reply_watchlist(message: Message) -> None:
 
 # ── Settings ─────────────────────────────────────────
 
-@router.message(F.text.in_(["⚙️ Settings", "⚙️ Налашт.", "⚙️ Настройки"]))
+@router.message(F.text.in_(["⚙️ Settings", "⚙️ Налашт", "⚙️ Настройки"]))
 async def reply_settings(message: Message) -> None:
     user, lang = await resolve_user(message.from_user)
     await message.answer(
