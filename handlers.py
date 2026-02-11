@@ -39,8 +39,9 @@ from keyboards import (
 )
 from config import get_settings
 from market_intelligence import market_intelligence
-from services.format_service import format_market_detail, format_volume, format_market_card
+from services.format_service import format_market_detail, format_volume, format_market_card, format_unified_analysis
 from services.user_service import resolve_user
+from analytics.orchestrator import run_deep_analysis
 
 # Create router
 router = Router(name="main")
@@ -344,10 +345,19 @@ async def process_analyze_link(message: Message, state: FSMContext) -> None:
             )
             return
         else:
-            # Single outcome: show detailed view
+            # Single outcome: unified analysis with deep dive
             best_market = markets[0]
-            rec = market_intelligence.generate_recommendation(best_market)
-            text = format_market_detail(best_market, rec, lang)
+            
+            # Show analyzing
+            await working_msg.edit_text("⏳ Analyzing market deeply...", parse_mode=ParseMode.HTML)
+             
+            try:
+                deep_result = await run_deep_analysis(best_market)
+            except Exception as e:
+                logger.error(f"Deep analysis error: {e}")
+                deep_result = None
+
+            text = format_unified_analysis(best_market, deep_result, lang)
         
         await working_msg.edit_text(
             text,
@@ -388,15 +398,27 @@ async def callback_select_market(callback: CallbackQuery, state: FSMContext) -> 
             return
             
         market = markets[index]
-        rec = market_intelligence.generate_recommendation(market)
         
         # Determine language
         async with db.session() as session:
             user_repo = UserRepository(session)
             user = await user_repo.get_by_telegram_id(callback.from_user.id)
             lang = user.language if user else "en"
+
+        # Show Loading
+        try:
+            await callback.message.edit_text("⏳ Analyzing market deeply...", parse_mode=ParseMode.HTML)
+        except Exception:
+            pass # Message might be not modified or deleted
+
+        # Run Deep Analysis
+        try:
+            deep_result = await run_deep_analysis(market)
+        except Exception as e:
+            logger.error(f"Deep analysis error: {e}")
+            deep_result = None
             
-        text = format_market_detail(market, rec, lang)
+        text = format_unified_analysis(market, deep_result, lang)
         
         # Back button
         builder = InlineKeyboardBuilder()

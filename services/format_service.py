@@ -210,9 +210,173 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
     return text
 
 
-def format_market_links_footer(markets: List[MarketStats], start_idx: int, lang: str) -> str:
-    text = "\n🔗 <b>Links:</b>\n"
     for i, m in enumerate(markets[:5]):
         idx = start_idx + i
         text += f"  {idx}. <a href='{m.market_url}'>{html.escape(m.question[:40])}</a>\n"
     return text
+
+
+def format_unified_analysis(market: MarketStats, deep_result: Any, lang: str) -> str:
+    """
+    Unified Human-Readable Analysis Format.
+    Replaces format_market_detail and Deep Analysis view.
+    Generates a coherent analyst report.
+    """
+    # --- 1. PREPARE DATA ---
+    is_deep = deep_result is not None
+    
+    # Prices
+    yes_price = market.yes_price
+    no_price = market.no_price
+    market_prob = yes_price * 100
+    
+    # Signal / Score / Recommendations
+    if is_deep:
+        model_prob = deep_result.model_probability * 100
+        edge = deep_result.edge * 100
+        kelly_pct = (deep_result.kelly.fraction * 100) if deep_result.kelly else 0
+        rec_side = deep_result.recommended_side
+    else:
+        # Fallback heuristics
+        model_prob = market.signal_score # Rough proxy
+        edge = model_prob - market_prob
+        kelly_pct = 0
+        rec_side = market.recommended_side
+
+    # Liquidity Level
+    liq = market.liquidity
+    if liq < 50_000:
+        liq_key = "unified.liq_low"
+    elif liq < 250_000:
+        liq_key = "unified.liq_med"
+    else:
+        liq_key = "unified.liq_high"
+        
+    liq_text = get_text(liq_key, lang)
+    
+    # Whale Sentiment
+    wa = market.whale_analysis
+    if wa and wa.is_significant:
+        whales_pct = int(wa.dominance_pct)
+        if wa.dominance_side == "YES":
+            whales_key = "unified.whales_strong_yes"
+        elif wa.dominance_side == "NO":
+            whales_key = "unified.whales_strong_no"
+        else:
+            whales_key = "unified.whales_mixed"
+    else:
+        whales_key = "unified.whales_mixed"
+        whales_pct = 50
+
+    whales_text = get_text(whales_key, lang)
+    
+    # --- 2. BUILD TEXT ---
+    
+    # HEADER
+    text = get_text("unified.header", lang, question=market.question) + "\n\n"
+    
+    # SHORT SUMMARY
+    # Determine template based on rec_side and strength
+    if rec_side == "YES":
+        if edge > 10 or market.signal_score > 70:
+            sum_key = "unified.short_yes_strong"
+        else:
+            sum_key = "unified.short_yes_mod"
+        rec_key = "unified.rec_buy"
+    elif rec_side == "NO":
+        if edge < -10 or market.signal_score < 30: # Edge is negative for YES means NO is good? 
+            # If Deep Analysis returns edge for NO, it might be positive for NO side.
+            # Usually edge is calculated for the recommended side.
+            # Assuming edge is favorable for rec_side.
+            sum_key = "unified.short_no_strong"
+        else:
+            sum_key = "unified.short_no_mod"
+        rec_key = "unified.rec_buy" # "Buy NO"
+    else:
+        sum_key = "unified.short_neutral"
+        rec_key = "unified.rec_wait"
+    
+    # Recommendation text
+    text += get_text(sum_key, lang) + "\n"
+    if rec_side in ["YES", "NO"]:
+        text += get_text(rec_key, lang, side=rec_side) + "\n"
+    else:
+        text += get_text(rec_key, lang) + "\n"
+        
+    text += "────────────────────────────\n"
+    
+    # PRICES
+    text += get_text("unified.section_prices", lang) + "\n"
+    text += get_text("unified.prices_line", lang, yes=format_price(yes_price), no=format_price(no_price)) + "\n"
+    text += get_text("unified.liquidity_line", lang, liq_text=liq_text, vol=format_volume(market.volume_24h)) + "\n\n"
+    
+    # WHALES
+    text += get_text("unified.section_whales", lang) + "\n"
+    text += get_text("unified.whales_sentiment", lang, sentiment=whales_text, pct=whales_pct) + "\n"
+    if wa and wa.top_trade_size > 0:
+        text += get_text("unified.whales_last_trade", lang, amount=format_volume(wa.top_trade_size), side=wa.top_trade_side, time=f"{int(wa.hours_since_last_trade*60)}m ago") + "\n"
+    text += "\n"
+    
+    # PROBABILITIES
+    text += get_text("unified.section_probs", lang) + "\n"
+    text += get_text("unified.prob_est", lang, prob=f"{int(model_prob)}") + "\n"
+    
+    diff = model_prob - market_prob
+    if diff > 5:
+        text += get_text("unified.prob_cmp_higher", lang, market=f"{int(market_prob)}") + "\n"
+    elif diff < -5:
+        text += get_text("unified.prob_cmp_lower", lang, market=f"{int(market_prob)}") + "\n"
+    else:
+        text += get_text("unified.prob_cmp_equal", lang, market=f"{int(market_prob)}") + "\n"
+    text += "\n"
+    
+    # EDGE
+    text += get_text("unified.section_edge", lang) + "\n"
+    if abs(edge) > 2:
+        text += get_text("unified.edge_mismatch", lang, market=f"{int(market_prob)}", model=f"{int(model_prob)}", edge=f"{abs(edge):.1f}") + "\n"
+        if kelly_pct > 0:
+            text += get_text("unified.kelly_safe", lang, pct=f"{int(kelly_pct)}") + "\n"
+        else:
+            text += get_text("unified.kelly_zero", lang) + "\n"
+    else:
+        text += get_text("unified.edge_none", lang) + "\n"
+    text += "\n"
+    
+    # RISKS
+    text += get_text("unified.section_risks", lang) + "\n"
+    risks_shown = 0
+    if market.liquidity < 50_000:
+        text += get_text("unified.risk_low_liq", lang) + "\n"
+        risks_shown += 1
+    if market.days_to_close <= 2:
+        text += get_text("unified.risk_time", lang) + "\n"
+        risks_shown += 1
+    # Check Volatility if available (Deep)
+    vol = 0
+    if deep_result and deep_result.greeks:
+         vol = deep_result.greeks.iv_24h * 100
+    if vol > 80:
+        text += get_text("unified.risk_volatility", lang) + "\n"
+        risks_shown += 1
+    
+    # Check alignment mismatch
+    if rec_side == "YES" and wa and wa.dominance_side == "NO" and wa.dominance_pct > 60:
+         text += get_text("unified.risk_whale_opp", lang) + "\n"
+         risks_shown += 1
+    
+    if risks_shown == 0:
+        text += get_text("unified.risk_generic", lang) + "\n"
+    text += "\n"
+    
+    # CONCLUSION
+    text += get_text("unified.section_concl", lang) + "\n"
+    if rec_side in ["YES", "NO"] and abs(edge) > 3 and kelly_pct > 0:
+        max_alloc = min(kelly_pct, 15) # Cap at 15% for safety advice
+        text += get_text("unified.concl_buy", lang, side=rec_side, pct=f"{int(max_alloc)}")
+    elif abs(edge) < 3:
+        text += get_text("unified.concl_wait", lang)
+    else:
+        text += get_text("unified.concl_avoid", lang)
+        
+    return text
+
