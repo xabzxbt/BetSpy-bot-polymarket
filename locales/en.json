@@ -224,6 +224,7 @@
   "l3.signal_label": "signal",
   "l3.signal_strong": "Strong",
   "l3.signal_weak": "Weak",
+  "l3.signal_neutral": "Neutral",
   "l3.kelly_label": "Kelly",
   "l3.theta_label": "Theta",
   "l3.day": "day",

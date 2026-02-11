@@ -460,7 +460,7 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
             time_val = f"{market.days_to_close}{get_text('l3.days_short', lang)}"
             suffix = f" {get_text('l3.to_res', lang)}"
         else:
-            time_val = f"<1{get_text('l3.days_short', lang)}"
+            time_val = f"&lt;1{get_text('l3.days_short', lang)}"
             suffix = f" ({get_text('l3.expires_today', lang)}) ⚠️"
             
         l3_text += f"⏱️ <b>{get_text('l3.time_label', lang)}:</b> {time_val}{suffix}\n"
