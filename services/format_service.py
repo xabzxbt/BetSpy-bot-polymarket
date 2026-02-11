@@ -293,6 +293,10 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         # Cap confidence at 95
         conf_score = int(min(95, score_base + score_whale + score_liq + score_cert))
         
+        # Boost confidence for strong SKIP (Efficient Market Hypothesis)
+        if not is_positive_setup and abs(edge_pp) < 1.0 and whale_agrees:
+             conf_score = max(conf_score, 75)
+        
         # Calculate Potential ROI (if wins)
         # ROI = (Payout - Stake) / Stake = (1 - Price) / Price
         roi_win = 0.0
@@ -348,7 +352,14 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
              reasons.append(get_text('l2.reason_whale_none', lang))
              
         # Reason 2: Model
-        reasons.append(get_text('l2.reason_model_view', lang, model=f"{p_model*100:.0f}", market=f"{p_market*100:.0f}"))
+        model_txt = get_text('l2.reason_model_view', lang, model=f"{p_model*100:.0f}", market=f"{p_market*100:.0f}")
+        if abs(edge_pp) < 1.0:
+             no_edge_str = "no edge"
+             try: no_edge_str = get_text("l3.kelly_no_edge", lang)
+             except: pass
+             model_txt += f" ({no_edge_str})"
+             
+        reasons.append(model_txt)
         
         # Reason 3: Risk/Factor - Enhanced Logic
         liq_pct = 0
@@ -398,7 +409,7 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
             try:
                 # Better logic for "Neutral" -> "Confirms market"
                 if abs(bayes.posterior - bayes.prior) < 0.02:
-                     sig_str = get_text('bayes_c_confirm', lang) # Reuse existing or fallback? 
+                     sig_str = get_text('quant.bayes_c_confirm', lang) 
                      # Let's check if 'bayes_c_confirm' exists in files. Yes it likely does from previous.
                      # If not, fallback to "Neutral"
                 else:
@@ -422,7 +433,10 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
             except: pass
 
             if k_safe <= 0:
-                 l3_text += f"💰 <b>{kelly_label_txt}:</b> 0% (no edge)\n"
+                 no_edge_txt = "no edge"
+                 try: no_edge_txt = get_text("l3.kelly_no_edge", lang)
+                 except: pass
+                 l3_text += f"💰 <b>{kelly_label_txt}:</b> 0% ({no_edge_txt})\n"
             else:
                  l3_text += f"💰 <b>{kelly_label_txt}:</b> Full {deep.kelly.kelly_full*100:.1f}%, Time {deep.kelly.kelly_time_adj_pct:.1f}%\n" 
                  l3_text += f"   <i>({rec_str}: {k_safe:.1f}%)</i>\n"
