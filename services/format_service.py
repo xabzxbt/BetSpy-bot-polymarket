@@ -366,11 +366,13 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         text += f"{get_text('quant.header_mc', lang)} {get_text('quant.mc_runs', lang, runs=mc_runs_formatted)}\n"
         text += f"• {get_text('quant.mc_prob', lang, prob=mc_prob_up)}\n"
         text += f"• {get_text('quant.mc_expected_pnl', lang, pnl=mc_expected_pnl if abs(float(mc_expected_pnl or 0)) > 0.01 else '≈ 0')}\n"
-        # Add P5/P95 ranges if available in Monte Carlo result
+        # Add P5/P95 ranges if available in Monte Carlo result and values are different
         if mc and hasattr(mc, 'percentile_5') and hasattr(mc, 'percentile_95'):
             p5 = int(mc.percentile_5 * 100)
             p95 = int(mc.percentile_95 * 100)
-            text += f"• {get_text('quant.mc_range', lang, p5=p5, p95=p95)}\n"
+            # Only show range if P5 and P95 are different (meaningful distribution)
+            if p5 != p95:
+                text += f"• {get_text('quant.mc_range', lang, p5=p5, p95=p95)}\n"
         text += "\n"
         
         text += f"{get_text('quant.header_bayes', lang)}\n"
@@ -379,7 +381,9 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         text += f"• {get_text('quant.bayes_comment_label', lang, text=bayes_comment)}\n\n"
         
         text += f"{get_text('quant.header_edge', lang)}\n"
-        text += f"• {get_text('quant.model_prob', lang, pct=int(yes_price*100))}\n"
+        # Use the actual model probability from deep analysis, not the market price
+        model_prob_pct = int(deep.model_probability * 100) if deep.model_probability else int(market.yes_price * 100)
+        text += f"• {get_text('quant.model_prob', lang, pct=model_prob_pct)}\n"
         text += f"• {get_text('quant.market_impl', lang, pct=int(market.yes_price*100))}\n"
         text += f"• {get_text('quant.edge_val', lang, sign=edge_sign, pct=edge_pct)} {get_text('quant.on_side', lang, side=deep.recommended_side)}\n\n"
         

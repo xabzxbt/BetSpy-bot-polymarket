@@ -241,7 +241,7 @@
     "kelly_full": "Full Kelly (capped): {pct}% від банкролу",
     "kelly_conservative": "Консервативно: ~{pct}% (≈¼ Kelly)",
     "kelly_caution": "За менших обсягів / високій невизначеності — розглянь ще менше.",
-    "theta_time_edge": "Орієнтовний «time edge»: {val} на весь період / або X¢ на день (уточнити в коді)",
+    "theta_time_edge": "Орієнтовний «time edge»: {val} за весь період",
     "disclaimer": "Це не гарантія результату, а лише оцінка моделі.",
     "setup_bull": "БИК",
     "setup_bear": "ВЕДМІДЬ",

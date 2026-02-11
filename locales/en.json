@@ -241,7 +241,7 @@
     "kelly_full": "Full Kelly (capped): {pct}% of bankroll",
     "kelly_conservative": "Conservatively: ~{pct}% (≈¼ Kelly)",
     "kelly_caution": "For lower volumes/higher uncertainty — consider even less.",
-    "theta_time_edge": "Approximate 'time edge': {val} over full period / or X¢ per day (clarify in code)",
+    "theta_time_edge": "Approximate 'time edge': {val} over full period",
     "disclaimer": "This is not a guarantee of results, but merely a model estimate.",
     "setup_bull": "BULL",
     "setup_bear": "BEAR",

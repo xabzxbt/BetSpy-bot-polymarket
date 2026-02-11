@@ -241,7 +241,7 @@
     "kelly_full": "Full Kelly (capped): {pct}% от банка",
     "kelly_conservative": "Консервативно: ~{pct}% (≈¼ Kelly)",
     "kelly_caution": "При меньших объемах / высокой неопределенности — рассматривайте еще меньше.",
-    "theta_time_edge": "Примерный «time edge»: {val} за весь период / или X¢ в день (уточнить в коде)",
+    "theta_time_edge": "Примерный «time edge»: {val} за весь период",
     "disclaimer": "Это не гарантия результата, а лишь оценка модели.",
     "setup_bull": "БЫК",
     "setup_bear": "МЕДВЕДЬ",
