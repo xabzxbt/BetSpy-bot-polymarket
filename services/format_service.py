@@ -405,6 +405,15 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         elif is_positive_setup:
              reasons.append(get_text('l2.factor_good', lang))
              
+        # Reason 4: Last Big Trade (Priority)
+        if wa and wa.last_big_size > 5000:
+             ago_mins = int((time.time() - wa.last_big_timestamp) / 60)
+             ago_str = f"{ago_mins}m" if ago_mins < 60 else f"{ago_mins//60}h"
+             
+             # Emoji + Localized text "Last big" or hardcode emoji
+             last_big_txt = f"🔥 Last big: {format_volume(wa.last_big_size)} → {wa.last_big_side} ({ago_str})"
+             reasons.append(last_big_txt)
+             
         for r in reasons:
             l2_text += f"• {r}\n"
             
@@ -504,8 +513,15 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
             try: t_label = get_text('l3.tilt_label', lang)
             except: pass
             
-            l3_text += f"🐋 <b>{w_label}:</b> ${format_volume(wa.yes_volume)} YES / ${format_volume(wa.no_volume)} NO\n"
-            l3_text += f"   <i>({t_label}: {wa.dominance_side} {wa.dominance_pct:.0f}%)</i>\n"
+            # Smart Money Ratio
+            sm_ratio = 0
+            if market.volume_24h > 0:
+                 sm_ratio = (wa.total_volume / market.volume_24h) * 100
+                 
+            l3_text += f"🐋 <b>{w_label}:</b>\n"
+            l3_text += f"   YES: {format_volume(wa.yes_volume)} ({wa.yes_count} trades, max: {format_volume(wa.biggest_yes_size)})\n"
+            l3_text += f"   NO:  {format_volume(wa.no_volume)} ({wa.no_count} trades, max: {format_volume(wa.biggest_no_size)})\n"
+            l3_text += f"   <i>({t_label}: {wa.dominance_side} {wa.dominance_pct:.0f}% / Ratio: {sm_ratio:.0f}%)</i>\n"
             
         # Liquidity & Time
         # Calc liq label dynamically

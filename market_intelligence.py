@@ -110,7 +110,15 @@ class WhaleAnalysis:
 
     # Time window
     window_hours: int = 24
+
     trade_count: int = 0
+
+    # New fields for detailed report
+    last_big_timestamp: int = 0
+    last_big_side: str = ""
+    last_big_size: float = 0.0
+    biggest_yes_size: float = 0.0
+    biggest_no_size: float = 0.0
 
     @property
     def is_significant(self) -> bool:
@@ -779,6 +787,13 @@ class MarketIntelligenceEngine:
         last_ts = 0
         last_side = ""
         trade_count = 0
+        
+        # New trackers
+        last_big_ts = 0
+        last_big_side = ""
+        last_big_size = 0.0
+        biggest_yes = 0.0
+        biggest_no = 0.0
 
         for trade in trades:
             ts = int(trade.get("timestamp", 0) or 0)
@@ -839,6 +854,19 @@ class MarketIntelligenceEngine:
                 if ts > last_ts:
                     last_ts = ts
                     last_side = "YES" if is_yes else "NO"
+                
+                # Check for big whale (> $5000) for "Last big"
+                if amount >= 5000:
+                    if ts > last_big_ts:
+                        last_big_ts = ts
+                        last_big_side = "YES" if is_yes else "NO"
+                        last_big_size = amount
+                
+                # Biggest bet split
+                if is_yes:
+                    if amount > biggest_yes: biggest_yes = amount
+                else:
+                    if amount > biggest_no: biggest_no = amount
             else:
                 # Retail
                 if is_yes:
@@ -865,6 +893,11 @@ class MarketIntelligenceEngine:
             last_trade_side=last_side,
             window_hours=self.WHALE_WINDOW_HOURS,
             trade_count=trade_count,
+            last_big_timestamp=last_big_ts,
+            last_big_side=last_big_side,
+            last_big_size=last_big_size,
+            biggest_yes_size=biggest_yes,
+            biggest_no_size=biggest_no,
         )
 
         # Tilt & dominance
