@@ -295,7 +295,7 @@
     "concl_bad": "Пропустите этот рынок, нет четкого edge.",
     "header_market": "🔹 <b>Рыночные показатели</b>",
     "prices_line": "• YES: <b>{yes_price}¢</b>  NO: <b>{no_price}¢</b>",
-    "spread_line": "• Спред: {spread}¢",
+    "price_gap_line": "• Разница цен: {gap}¢",
     "volume_line": "• Объем 24ч: ${vol_24h}  / Общий: ${vol_total}",
     "liquidity_line": "• Ликвидность: {liq_label} (${liquidity}$)",
     "smart_tilt_header": "🐋 <b>Поток денег китов</b>",

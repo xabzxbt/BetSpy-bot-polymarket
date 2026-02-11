@@ -381,11 +381,14 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         text += f"• {get_text('quant.bayes_comment_label', lang, text=bayes_comment)}\n\n"
         
         text += f"{get_text('quant.header_edge', lang).replace('📐 EDGE', '📐 <b>EDGE</b>')}\n"
-        # Use the actual model probability from deep analysis, not the market price
-        model_prob_pct = int(deep.model_probability * 100) if deep.model_probability else int(market.yes_price * 100)
-        text += f"• {get_text('quant.model_prob', lang, pct=model_prob_pct).replace(f'Model probability: {model_prob_pct}%', f'Model probability: <b>{model_prob_pct}%</b>')}\n"
+        # Use the Bayesian posterior as the final model probability to ensure consistency
+        bayes_posterior_pct = int(bayes_posterior)
+        text += f"• {get_text('quant.model_prob', lang, pct=bayes_posterior_pct).replace(f'Model probability: {bayes_posterior_pct}%', f'Model probability: <b>{bayes_posterior_pct}%</b>')}\n"
         text += f"• {get_text('quant.market_impl', lang, pct=int(market.yes_price*100)).replace(f'Market implied: {int(market.yes_price*100)}%', f'Market implied: <b>{int(market.yes_price*100)}%</b>')}\n"
-        text += f"• {get_text('quant.edge_val', lang, sign=edge_sign, pct=edge_pct).replace(f'Edge: {edge_sign}{edge_pct}', f'Edge: <b>{edge_sign}{edge_pct}</b>')} {get_text('quant.on_side', lang, side=deep.recommended_side)}\n\n"
+        # Recalculate edge based on Bayesian posterior to ensure consistency
+        bayes_edge_pct = abs(bayes_posterior_pct - int(market.yes_price * 100))
+        bayes_edge_sign = '+' if bayes_posterior_pct > int(market.yes_price * 100) else '-'
+        text += f"• {get_text('quant.edge_val', lang, sign=bayes_edge_sign, pct=bayes_edge_pct).replace(f'Edge: {bayes_edge_sign}{bayes_edge_pct}', f'Edge: <b>{bayes_edge_sign}{bayes_edge_pct}</b>')} {get_text('quant.on_side', lang, side=deep.recommended_side)}\n\n"
         
         if edge_pct <= 0:
             text += f"{get_text('quant.edge_bad', lang)}\n"
@@ -402,7 +405,11 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
              # Time-adjusted Kelly information
              text += f"• {get_text('quant.kelly_time_adj_combined', lang, pct=k_time_adj_pct, days=days_to_resolve).replace(f'With horizon: {k_time_adj_pct:.1f}%', f'With horizon: <b>{k_time_adj_pct:.1f}%</b>').replace(f'~{days_to_resolve}d', f'<b>~{days_to_resolve}d</b>')}\n"
              text += f"• {get_text('quant.kelly_final_rec', lang, pct=k_final_pct).replace(f'Recommended entry: ~{k_final_pct:.1f}%', f'Recommended entry: <b>~{k_final_pct:.1f}%</b>')}\n"
-             text += f"• {get_text('quant.kelly_time_comment', lang)}\n"
+             # Only show time comment if the market is long-term (> 30 days) and time adjustment is applied
+             if days_to_resolve > 30 and k_time_adj_pct < k_capped_pct:
+                 text += f"• {get_text('quant.kelly_time_comment', lang)}\n"
+             elif days_to_resolve <= 7:
+                 text += f"• Short-term market, time-adjust not applied.\n"
         text += "\n"
         
         # Market internals and smart money flow section
@@ -483,7 +490,7 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         # Add market internals section
         text += f"{get_text('quant.header_market', lang).replace('🔹 Market Metrics', '🔹 <b>Market Metrics</b>') if 'Market Metrics' in get_text('quant.header_market', lang) else get_text('quant.header_market', lang)}\n"
         text += f"{get_text('quant.prices_line', lang, yes_price=yes_price_cents, no_price=no_price_cents)}\n"
-        text += f"{get_text('quant.spread_line', lang, spread=spread_cents)}\n"
+        text += f"{get_text('quant.price_gap_line', lang, gap=spread_cents)}\n"
         text += f"{get_text('quant.volume_line', lang, vol_24h=vol_24h_formatted, vol_total=vol_total_formatted)}\n"
         text += f"{get_text('quant.liquidity_line', lang, liq_label=liq_label, liquidity=liquidity_formatted)}\n\n"
                 
@@ -496,7 +503,9 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         text += f"{get_text('quant.last_whale_line', lang, last_whale_usd=int(last_whale_usd), last_whale_side=last_whale_side, last_whale_ago=last_whale_ago)}\n\n"
                 
         text += f"{get_text('quant.header_theta', lang).replace('⏳ TIME / THETA', '⏳ <b>TIME / THETA</b>') if 'TIME / THETA' in get_text('quant.header_theta', lang) else get_text('quant.header_theta', lang)}\n"
-        text += f"• {get_text('quant.theta_time_edge', lang, val=theta_daily)}\n"
+        # Calculate approximate daily theta based on days to resolve
+        approx_daily = theta_daily / max(1, days_to_resolve) if days_to_resolve > 0 else theta_daily
+        text += f"• {get_text('quant.theta_time_edge', lang, val=theta_daily)} (~{approx_daily:.1f}¢/day)\n"
         text += f"• {get_text('quant.theta_short', lang, text=theta_comment)}\n\n"
                 
         # Skip the duplicate internals section to avoid duplication

@@ -295,7 +295,7 @@
     "concl_bad": "Skip this market, no clear edge.",
     "header_market": "🔹 Market Metrics",
     "prices_line": "• YES: <b>{yes_price}¢</b>  NO: <b>{no_price}¢</b>",
-    "spread_line": "• Spread: {spread}¢",
+    "price_gap_line": "• Price gap: {gap}¢",
     "volume_line": "• Volume 24h: ${vol_24h}  / Total: ${vol_total}",
     "liquidity_line": "• Liquidity: {liq_label} (${liquidity}$)",
     "smart_tilt_header": "🐋 Smart Money Flow",
