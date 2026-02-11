@@ -281,7 +281,8 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         # --- 3. CONSTRUCT TEXT ---
         
         # HEADER
-        safe_q = market.question.replace("{", "(").replace("}", ")")
+        # ESCAPE HTML CHARACTERS IN QUESTION (Critical fix for Telegram)
+        safe_q = html.escape(market.question)
         text = f"🔎 {get_text('unified.analysis_title', lang)}\n{safe_q}\n\n"
         
         # SUMMARY (Briefly)
@@ -329,7 +330,8 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
             text += f"{get_text('deep.edge_expl', lang, m_pct=f'{p_market*100:.1f}', my_pct=f'{p_model*100:.1f}', diff=f'{edge_pp:.1f}')}\n"
             text += f"{get_text('deep.cons_stake', lang, pct=f'{kelly_fraction_safe:.1f}', fract=fraction_name)}\n"
         else:
-            text += "• Edge < 2% або Kelly = 0 → <b>SKIP</b>\n"
+            # FIX: Escape < to &lt; to prevent HTML parsing error in 'Edge < 2%'
+            text += "• Edge &lt; 2% або Kelly = 0 → <b>SKIP</b>\n"
         text += "\n"
 
         # SCENARIOS (Monte Carlo)
