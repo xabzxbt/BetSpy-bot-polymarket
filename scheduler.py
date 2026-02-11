@@ -4,6 +4,7 @@ APScheduler-based trade polling and notification system.
 
 import asyncio
 import time
+import html
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 
@@ -593,7 +594,7 @@ class TradeNotificationService:
         return get_text(
             "new_trade",
             lang,
-            wallet_name=wallet_name,
+            wallet_name=html.escape(wallet_name),
             market_title=trade.title,
             side=side_text,
             outcome=trade.outcome,
@@ -632,7 +633,7 @@ class TradeNotificationService:
         return get_text(
             "trade_closed",
             lang,
-            wallet_name=wallet_name,
+            wallet_name=html.escape(wallet_name),
             market_title=trade.title,
             side=side_text,
             outcome=trade.outcome,
@@ -662,7 +663,7 @@ class TradeNotificationService:
         return get_text(
             "trade_closed_no_entry",
             lang,
-            wallet_name=wallet_name,
+            wallet_name=html.escape(wallet_name),
             market_title=trade.title,
             side=side_text,
             outcome=trade.outcome,
@@ -703,7 +704,7 @@ class TradeNotificationService:
             "batch_trade.header", lang,
             count=trade_count,
             profile_link=profile_link,
-            wallet_name=wallet_name,
+            wallet_name=html.escape(wallet_name),
             time=latest_time,
             total_usdc=total_usdc
         )
