@@ -233,132 +233,146 @@ def format_unified_analysis(market: MarketStats, deep_result: Any, lang: str) ->
 
 def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
     """
-    Strict Quant Analyst Template (Corrected and Robust).
+    Strict Quant Analyst Template (Restored & Polished).
     """
     try:
-        # --- 1. UNIFIED PROBABILITY & EDGE CALCULATION ---
-        # Consensus model probability (0.0-1.0)
+        # --- 1. METRICS & LOGIC ---
         p_model = deep.model_probability
-        
-        # SURY PROTIBUG: Fix 300% probability if upstream sends percentage
-        if p_model > 1.0:
-            p_model = p_model / 100.0
+
+        # Fix 300% bug
+        if p_model > 1.0: p_model = p_model / 100.0
         p_model = max(0.0, min(1.0, p_model))
         
         p_market = market.yes_price
+        edge_raw = p_model - p_market
+        edge_pp = edge_raw * 100.0
         
-        # Edge (Model - Market)
-        edge_abs = p_model - p_market
-        edge_pp = edge_abs * 100.0  # Percentage points (e.g. +1.5 or -2.0)
-        
-        # --- 2. RECOMMENDATION LOGIC ---
-        # Rule: Edge >= 2.0 pp AND Kelly > 0 -> CONSIDER
-        # Else -> SKIP
-        
-        kelly_fraction_safe = 0.0
+        # Kelly data
+        k_safe = 0.0
+        k_time_adj = 0.0
         fraction_name = "0"
+        days_to_resolve = market.days_to_close
+        
         if deep.kelly:
-            # Use the conservative/safe fraction recommended by the system
-            kelly_fraction_safe = deep.kelly.kelly_final_pct 
-            if kelly_fraction_safe is None: kelly_fraction_safe = 0.0
+            k_safe = deep.kelly.kelly_final_pct or 0.0
+            k_time_adj = deep.kelly.kelly_time_adj_pct or 0.0
             fraction_name = deep.kelly.fraction_name
-            
-        # Strict Thresholds
-        is_positive_setup = (edge_pp >= 2.0) and (kelly_fraction_safe > 0.0)
+
+        # Rec Logic
+        is_positive_setup = (edge_pp >= 2.0) and (k_safe > 0.0)
+        rec_side = "YES" if edge_raw > 0 else "NO"
         
-        # Determine Direction
-        rec_side = "YES" if edge_abs > 0 else "NO"
-        
-        # Localization Keys
         if is_positive_setup:
             short_intro_key = "deep.shortly"
             conclusion_key = "deep.final_word"
         else:
-            rec_side = "N/A" # Not relevant for skip
+            rec_side = "N/A"
             short_intro_key = "deep.shortly_skip"
             conclusion_key = "deep.final_word_skip"
 
-        # --- 3. CONSTRUCT TEXT ---
+        # --- 2. BUILD TEXT ---
         
         # HEADER
-        # ESCAPE HTML CHARACTERS IN QUESTION (Critical fix for Telegram)
         safe_q = html.escape(market.question)
         text = f"🔎 {get_text('unified.analysis_title', lang)}\n{safe_q}\n\n"
         
-        # SUMMARY (Briefly)
-        # Using the same edge logic as below
+        # SUMMARY
         text += f"{get_text(short_intro_key, lang, side=rec_side)}\n\n"
         
-        # PRICES & LIQUIDITY
-        text += f"💰 <b>{get_text('deep.prices_vol', lang)}</b>\n"
+        # PRICES & VOL
+        # Use existing keys which contain emojis/bold tags
+        text += f"{get_text('deep.prices_vol', lang)}\n" 
         text += f"• YES: {int(market.yes_price*100)}¢  NO: {int(market.no_price*100)}¢\n"
-        # Calculate Gap/spread
-        gap = abs(market.yes_price - market.no_price) * 100
-        # text += f"• Gap: {gap:.0f}¢\n" # Optional
-        text += f"• {get_text('unified.liq', lang)}: {format_volume(market.liquidity)}\n\n"
-        
-        # WHALE FLOW (Brief)
+        # detail.liquidity key is "💧 Liq: {vol}" - perfect, no formatting needed
+        text += f"• {get_text('detail.liquidity', lang, vol=format_volume(market.liquidity))}\n"
+        text += f"• Vol 24h: {format_volume(market.volume_24h)}\n\n"
+
+        # WHALE FLOW
         wa = market.whale_analysis
-        text += f"🐋 <b>{get_text('deep.flow', lang)}</b>\n"
+        text += f"{get_text('deep.flow', lang)}\n"
         if wa and wa.is_significant:
-            text += f"• Tilt: {int(wa.dominance_pct)}% {wa.dominance_side}\n"
-            text += f"• Top: {format_volume(wa.top_trade_size)} → {wa.top_trade_side}\n"
+             text += f"• Tilt: {int(wa.dominance_pct)}% {wa.dominance_side}\n"
+             text += f"• Top: {format_volume(wa.top_trade_size)} → {wa.top_trade_side}\n"
         else:
-            text += f"• {get_text('detail.no_whale_activity', lang)}\n"
+             text += f"• {get_text('detail.no_whale_activity', lang)}\n"
         text += "\n"
 
-        # PROBABILITIES & EDGE (The Critical Block)
-        text += f"{get_text('deep.probs', lang)}\n"
-        text += f"• {get_text('deep.prob_market', lang, pct=f'{p_market*100:.1f}')}\n"
-        
-        # MODEL PROBABILITY (Fixed format)
-        text += f"• {get_text('deep.prob_model', lang, pct=f'{p_model*100:.1f}')}\n"
-        
-        # EDGE (Fixed format)
-        edge_sign = "+" if edge_pp > 0 else ""
-        roi = (edge_abs / p_market) * 100 if p_market > 0 else 0.0
-        emoji = "🟢" if edge_pp > 0 else "🔴"
-        
-        # Use deep.edge_line but we need to ensure formatting matches
-        # deep.edge_line: "• Edge: {emoji} <b>{diff} п.п.</b> (ROI {roi}%)"
-        edge_str = f"{edge_sign}{edge_pp:.1f}"
-        text += f"{get_text('deep.edge_line', lang, emoji=emoji, diff=edge_str, roi=f'{roi:.1f}')}\n\n"
-
-        # SIZING
-        text += f"{get_text('deep.sizing_title', lang)}\n"
-        if is_positive_setup:
-            text += f"{get_text('deep.edge_expl', lang, m_pct=f'{p_market*100:.1f}', my_pct=f'{p_model*100:.1f}', diff=f'{edge_pp:.1f}')}\n"
-            text += f"{get_text('deep.cons_stake', lang, pct=f'{kelly_fraction_safe:.1f}', fract=fraction_name)}\n"
-        else:
-            # FIX: Escape < to &lt; to prevent HTML parsing error in 'Edge < 2%'
-            text += "• Edge &lt; 2% або Kelly = 0 → <b>SKIP</b>\n"
-        text += "\n"
-
-        # SCENARIOS (Monte Carlo)
+        # MONTE CARLO (Restored)
         mc = deep.monte_carlo
         if mc:
-            text += f"{get_text('deep.risk_scenarios', lang)}\n"
-            # Try to format percentiles if available (Crypto mode)
+            text += f"🎲 <b>MONTE CARLO</b>\n"
             if mc.mode == "crypto":
-                p5 = mc.percentile_5 if hasattr(mc, 'percentile_5') else 0
-                p95 = mc.percentile_95 if hasattr(mc, 'percentile_95') else 0
-                val_p5 = f"${p5:,.2f}" if p5 >= 1000 else f"${p5:.2f}"
-                val_p95 = f"${p95:,.2f}" if p95 >= 1000 else f"${p95:.2f}"
-                text += f"• P5: {val_p5}\n• P95: {val_p95}\n"
-            text += f"{get_text('deep.win_prob', lang, pct=f'{mc.probability_yes*100:.1f}')}\n\n"
+                 p5 = mc.percentile_5 if hasattr(mc, 'percentile_5') else 0
+                 p95 = mc.percentile_95 if hasattr(mc, 'percentile_95') else 0
+                 val_p5 = f"${p5:,.2f}" if p5 >= 1000 else f"${p5:.2f}"
+                 val_p95 = f"${p95:,.2f}" if p95 >= 1000 else f"${p95:.2f}"
+                 text += f"• P5: {val_p5} / P95: {val_p95}\n"
+            
+            mc_prob = mc.probability_yes * 100
+            text += f"• Prob (Sim): {mc_prob:.1f}%\n"
+            # Ensure edge is displayed with sign, handle None
+            mc_edge = mc.edge if mc.edge else 0.0
+            text += f"• Expected PnL: {mc_edge:+.2f}\n\n"
+
+        # BAYESIAN (Restored)
+        bayes = deep.bayesian
+        if bayes:
+            text += f"🧠 <b>BAYESIAN</b>\n"
+            text += f"• Posterior: {bayes.posterior*100:.1f}%\n"
+            # Bayesian comment logic
+            b_comm = "Neutral"
+            if bayes.has_signal: 
+                 if bayes.posterior > p_market: b_comm = "Bullish Data"
+                 else: b_comm = "Bearish Data"
+            text += f"• Signal: {b_comm}\n\n"
+
+        # EDGE & PROBS (Crucial)
+        text += f"{get_text('deep.probs', lang)}\n"
+        text += f"• {get_text('deep.prob_market', lang, pct=f'{p_market*100:.1f}')}\n"
+        text += f"• {get_text('deep.prob_model', lang, pct=f'{p_model*100:.1f}')}\n"
         
+        edge_sign = "+" if edge_pp > 0 else ""
+        roi = (edge_raw / p_market) * 100 if p_market > 0 else 0.0
+        emoji = "🟢" if edge_pp > 0 else "🔴"
+        edge_str = f"{edge_sign}{edge_pp:.1f}"
+        
+        # deep.edge_line usually starts with "• Edge: ..."
+        text += f"{get_text('deep.edge_line', lang, emoji=emoji, diff=edge_str, roi=f'{roi:.1f}')}\n\n"
+
+        # KELLY
+        text += f"💰 <b>KELLY</b>\n"
+        if deep.kelly:
+            text += f"• Full: {deep.kelly.kelly_full*100:.1f}%\n"
+            if days_to_resolve > 7 and k_time_adj > 0:
+                 text += f"• Time-Adj: {k_time_adj:.1f}%\n"
+            
+            if is_positive_setup:
+                 text += f"• <b>REC: {k_safe:.1f}%</b> ({fraction_name})\n"
+            else:
+                 # Escape < just in case
+                 text += f"• Edge &lt; 2%: <b>SKIP</b>\n"
+        else:
+            text += "• N/A\n"
+        text += "\n"
+        
+        # THETA (If applicable)
+        if deep.greeks and deep.greeks.theta:
+             th = deep.greeks.theta.theta_yes if rec_side == "YES" else deep.greeks.theta.theta_no
+             if abs(th) > 0.01:
+                text += f"⏳ <b>THETA</b>: {th:+.2f}¢\n\n"
+
         # CONCLUSION
         text += f"{get_text('deep.conclusion', lang)}\n"
         if is_positive_setup:
-            text += get_text(conclusion_key, lang, side=rec_side, pct=f"{kelly_fraction_safe:.1f}")
+            text += get_text(conclusion_key, lang, side=rec_side, pct=f"{k_safe:.1f}")
         else:
             text += get_text(conclusion_key, lang, edge=f"{edge_pp:.1f}")
 
         return text
-
+    
     except Exception as e:
         logger.error(f"Quant Format Error: {e}", exc_info=True)
-        return f"⚠️ <b>Analysis Display Error</b>: {e}"
+        return f"⚠️ <b>Analysis Info Error</b>: {e}"
 
 
 def _format_simple_analysis(market: MarketStats, lang: str) -> str:
