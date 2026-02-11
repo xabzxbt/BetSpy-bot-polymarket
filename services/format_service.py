@@ -233,329 +233,125 @@ def format_unified_analysis(market: MarketStats, deep_result: Any, lang: str) ->
 
 def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
     """
-    Strict Quant Analyst Template as requested by user.
+    Strict Quant Analyst Template (Corrected and Robust).
     """
     try:
-        # --- PREPARE METRICS ---
+        # --- 1. UNIFIED PROBABILITY & EDGE CALCULATION ---
+        # Consensus model probability (0.0-1.0)
+        p_model = deep.model_probability
         
-        # 1. Market & Setup
-        safe_q = market.question.replace("{", "(").replace("}", ")")
-        yes_price = market.yes_price
+        # SURY PROTIBUG: Fix 300% probability if upstream sends percentage
+        if p_model > 1.0:
+            p_model = p_model / 100.0
+        p_model = max(0.0, min(1.0, p_model))
         
-        # 2. Monte Carlo
-        mc = deep.monte_carlo
-        mc_runs = mc.num_simulations if mc else 10000
-        mc_prob_up = int(mc.probability_yes * 100) if mc else 0
-        mc_expected_pnl = f"{mc.edge:+.2f}" if mc else "-"
+        p_market = market.yes_price
         
-        # 3. Bayesian
-        bayes = deep.bayesian
-        bayes_prior = int(market.yes_price * 100) # Prior is usually market
-        bayes_posterior = int(bayes.posterior * 100) if bayes else int(market.yes_price * 100)
+        # Edge (Model - Market)
+        edge_abs = p_model - p_market
+        edge_pp = edge_abs * 100.0  # Percentage points (e.g. +1.5 or -2.0)
         
-        bayes_comment = get_text("quant.bayes_c_neutral", lang)
-        if bayes and bayes.has_signal:
-            if bayes.posterior > market.yes_price + 0.05:
-                bayes_comment = get_text("quant.bayes_c_strong_yes", lang)
-            elif bayes.posterior < market.yes_price - 0.05:
-                bayes_comment = get_text("quant.bayes_c_weak_yes", lang)
-            else:
-                bayes_comment = get_text("quant.bayes_c_confirm", lang)
-
-        # 4. Edge
-        edge_raw = deep.edge
-        edge_pct = int(edge_raw * 100)
-        edge_sign = "+" if edge_pct > 0 else ""
+        # --- 2. RECOMMENDATION LOGIC ---
+        # Rule: Edge >= 2.0 pp AND Kelly > 0 -> CONSIDER
+        # Else -> SKIP
         
-        # 5. Kelly
+        kelly_fraction_safe = 0.0
+        fraction_name = "0"
         if deep.kelly:
-            k_full = deep.kelly.kelly_full
-            k_safe = deep.kelly.kelly_fraction 
-            k_capped_pct = deep.kelly.kelly_capped_pct
-            k_time_adj_pct = deep.kelly.kelly_time_adj_pct
-            k_final_pct = deep.kelly.kelly_final_pct
-            days_to_resolve = deep.kelly.days_to_resolve
-        else:
-            k_full = 0.0
-            k_safe = 0.0
-            k_capped_pct = 0.0
-            k_time_adj_pct = 0.0
-            k_final_pct = 0.0
-            days_to_resolve = 0
-
-        kelly_fraction = int(k_full * 100)
-        kelly_fraction_safe = int(k_safe * 100)
-        
-        # 6. Theta
-        theta_val = 0.0
-        theta_comment = "-" 
-        
-        if deep.greeks and deep.greeks.theta:
-            target_side = deep.recommended_side
-            if target_side not in ["YES", "NO"]:
-                target_side = deep.greeks.theta.dominant_side
+            # Use the conservative/safe fraction recommended by the system
+            kelly_fraction_safe = deep.kelly.kelly_final_pct 
+            if kelly_fraction_safe is None: kelly_fraction_safe = 0.0
+            fraction_name = deep.kelly.fraction_name
             
-            if target_side == "YES":
-                theta_val = deep.greeks.theta.theta_yes
-            else:
-                theta_val = deep.greeks.theta.theta_no
-                
-            theta_daily = f"{theta_val:+.1f}¢"
-            theta_comment = get_text("quant.theta_market", lang) if theta_val < 0 else get_text("quant.theta_yours", lang)
+        # Strict Thresholds
+        is_positive_setup = (edge_pp >= 2.0) and (kelly_fraction_safe > 0.0)
+        
+        # Determine Direction
+        rec_side = "YES" if edge_abs > 0 else "NO"
+        
+        # Localization Keys
+        if is_positive_setup:
+            short_intro_key = "deep.shortly"
+            conclusion_key = "deep.final_word"
         else:
-            theta_daily = "-"
-        
-        # 7. Internals
-        wa = market.whale_analysis
-        tilt_str = f"{int(wa.dominance_pct)}% {wa.dominance_side}" if wa and wa.is_significant else get_text("quant.mom_stable", lang)
-        
-        vol_mom = get_text("quant.mom_stable", lang)
-        if market.score_breakdown.get('volume', 0) > 15:
-            vol_mom = get_text("quant.mom_grow", lang)
-        elif market.score_breakdown.get('volume', 0) < 5:
-             vol_mom = get_text("quant.mom_drop", lang)
-             
-        # Liquidity score interpretation
-        liq_score = market.score_breakdown.get('liquidity', 0)
-        if liq_score >= 8:
-            # Should have localizable keys for high/med/low, using raw strings for now or reuse existing logic
-            # Existing 'unified.liq_high' exists.
-            liq_desc = f"{get_text('unified.liq_high', lang)} (${format_volume(market.liquidity)})"
-        elif liq_score >= 4:
-            liq_desc = f"{get_text('unified.liq_med', lang)} (${format_volume(market.liquidity)})"
-        else:
-            liq_desc = f"{get_text('unified.liq_low', lang)} (${format_volume(market.liquidity)})"
-            
-        recency = get_text("quant.rec_old", lang)
-        if wa and wa.hours_since_last_trade < 1:
-            recency = get_text("quant.rec_active", lang, time=f"{int(wa.hours_since_last_trade*60)}m")
-        elif wa:
-            recency = get_text("quant.rec_mod", lang, time=str(int(wa.hours_since_last_trade)))
+            rec_side = "N/A" # Not relevant for skip
+            short_intro_key = "deep.shortly_skip"
+            conclusion_key = "deep.final_word_skip"
 
-        # --- SETUP SUMMARY ---
-        setup_key = "quant.setup_neut"
-        if edge_pct > 3 and kelly_fraction_safe > 0:
-            setup_key = "quant.setup_bull"
-        elif edge_pct < -3:
-            setup_key = "quant.setup_bear"
-            
-        setup_str = get_text(setup_key, lang)
-        advice_str = get_text("quant.intro_NoRec", lang)
-        if kelly_fraction_safe > 0:
-            advice_str = get_text("quant.intro_Rec", lang)
+        # --- 3. CONSTRUCT TEXT ---
         
-        pp_unit = "p.p." if lang == "en" else "п.п."
-        intro = f"Setup {setup_str}, edge {edge_sign}{edge_pct} {pp_unit}{advice_str}"
-        # For full localization of "Setup ...", strictly speaking I should have a composite key, 
-        # but user specifically asked for "Setup [setup], edge..." structure in Ukrainian example.
-        # So I'm mimicking that structure.
-
-        # --- BUILD TEXT ---
+        # HEADER
+        safe_q = market.question.replace("{", "(").replace("}", ")")
         text = f"🔎 {get_text('unified.analysis_title', lang)}\n{safe_q}\n\n"
         
-        # More risk-aware brief intro
-        risk_intro = get_text("quant.setup_expl", lang, side=deep.recommended_side, edge=edge_pct)
-        advice_str = get_text("quant.intro_NoRec", lang)
-        if kelly_fraction_safe > 0:
-            advice_str = get_text("quant.intro_Rec", lang)
-        text += f"{get_text('unified.briefly', lang)}: {risk_intro} {advice_str}\n{get_text('quant.recommendation', lang)}\n\n"
+        # SUMMARY (Briefly)
+        # Using the same edge logic as below
+        text += f"{get_text(short_intro_key, lang, side=rec_side)}\n\n"
         
-        text += "────────────────────────────\n"
+        # PRICES & LIQUIDITY
+        text += f"💰 <b>{get_text('deep.prices_vol', lang)}</b>\n"
+        text += f"• YES: {int(market.yes_price*100)}¢  NO: {int(market.no_price*100)}¢\n"
+        # Calculate Gap/spread
+        gap = abs(market.yes_price - market.no_price) * 100
+        # text += f"• Gap: {gap:.0f}¢\n" # Optional
+        text += f"• {get_text('unified.liq', lang)}: {format_volume(market.liquidity)}\n\n"
         
-        mc_runs_formatted = f"{mc_runs:,}"
-        text += f"{get_text('quant.header_mc', lang).replace('🎲 MONTE CARLO', '🎲 <b>MONTE CARLO</b>')} {get_text('quant.mc_runs', lang, runs=mc_runs_formatted)}\n"
-        text += f"• {get_text('quant.mc_prob', lang, prob=mc_prob_up)}\n"
-        text += f"• {get_text('quant.mc_expected_pnl', lang, pnl=mc_expected_pnl if abs(float(mc_expected_pnl or 0)) > 0.01 else '≈ 0')}\n"
-        # Add P5/P95 ranges if available in Monte Carlo result and values are different
-        if mc and hasattr(mc, 'percentile_5') and hasattr(mc, 'percentile_95'):
-            p5 = int(mc.percentile_5 * 100)
-            p95 = int(mc.percentile_95 * 100)
-            # Only show range if P5 and P95 are different (meaningful distribution)
-            if p5 != p95:
-                text += f"• {get_text('quant.mc_range', lang, p5=p5, p95=p95)}\n"
-        text += "\n"
-        
-        text += f"{get_text('quant.header_bayes', lang).replace('🧠 BAYESIAN LAYER', '🧠 <b>BAYESIAN LAYER</b>')}\n"
-        text += f"• {get_text('quant.bayes_prior', lang, pct=bayes_prior)}\n"
-        text += f"• {get_text('quant.bayes_post', lang, pct=bayes_posterior)}\n"
-        text += f"• {get_text('quant.bayes_comment_label', lang, text=bayes_comment)}\n\n"
-        
-        text += f"{get_text('quant.header_edge', lang).replace('📐 EDGE', '📐 <b>EDGE</b>')}\n"
-        # Use the Bayesian posterior as the final model probability to ensure consistency
-        try:
-            bayes_posterior_pct = int(float(bayes_posterior) * 100) if bayes_posterior is not None else int(market.yes_price * 100)
-        except (ValueError, TypeError):
-            bayes_posterior_pct = int(market.yes_price * 100)
-        text += f"• {get_text('quant.model_prob', lang, pct=bayes_posterior_pct).replace(f'Model probability: {bayes_posterior_pct}%', f'Model probability: <b>{bayes_posterior_pct}%</b>')}\n"
-        text += f"• {get_text('quant.market_impl', lang, pct=int(market.yes_price*100)).replace(f'Market implied: {int(market.yes_price*100)}%', f'Market implied: <b>{int(market.yes_price*100)}%</b>')}\n"
-        # Recalculate edge based on Bayesian posterior to ensure consistency
-        bayes_edge_pct = abs(bayes_posterior_pct - int(market.yes_price * 100))
-        bayes_edge_sign = '+' if bayes_posterior_pct > int(market.yes_price * 100) else '-'
-        text += f"• {get_text('quant.edge_val', lang, sign=bayes_edge_sign, pct=bayes_edge_pct).replace(f'Edge: {bayes_edge_sign}{bayes_edge_pct}', f'Edge: <b>{bayes_edge_sign}{bayes_edge_pct}</b>')} {get_text('quant.on_side', lang, side=deep.recommended_side)}\n\n"
-        
-        if edge_pct <= 0:
-            text += f"{get_text('quant.edge_bad', lang)}\n"
-        else:
-             text += f"{get_text('quant.edge_good', lang)}\n"
-        text += "\n"
-        
-        # Combined Kelly and Time Horizon section
-        text += f"{get_text('quant.header_kelly', lang).replace('💰 KELLY CRITERION', '💰 <b>KELLY CRITERION</b>')}\n"
-        try:
-            kelly_fraction_display = float(kelly_fraction) if kelly_fraction is not None else 0
-            text += f"• {get_text('quant.kelly_full', lang, pct=kelly_fraction_display).replace(f'Full Kelly: {kelly_fraction_display}%', f'Full Kelly: <b>{kelly_fraction_display}%</b>')}\n"
-        except (ValueError, TypeError):
-            text += f"• {get_text('quant.kelly_full', lang, pct=0).replace(f'Full Kelly: 0%', f'Full Kelly: <b>0%</b>')}\n"
-        if kelly_fraction_safe <= 0:
-             text += f"• {get_text('quant.kelly_zero', lang)}\n"
-        else:
-             # Time-adjusted Kelly information
-             try:
-                 k_time_adj_pct_display = float(k_time_adj_pct) if k_time_adj_pct is not None else 0
-                 k_final_pct_display = float(k_final_pct) if k_final_pct is not None else 0
-                 text += f"• {get_text('quant.kelly_time_adj_combined', lang, pct=k_time_adj_pct_display, days=days_to_resolve).replace(f'With horizon: {k_time_adj_pct_display:.1f}%', f'With horizon: <b>{k_time_adj_pct_display:.1f}%</b>').replace(f'~{days_to_resolve}d', f'<b>~{days_to_resolve}d</b>')}\n"
-                 text += f"• {get_text('quant.kelly_final_rec', lang, pct=k_final_pct_display).replace(f'Recommended entry: ~{k_final_pct_display:.1f}%', f'Recommended entry: <b>~{k_final_pct_display:.1f}%</b>')}\n"
-             except (ValueError, TypeError):
-                 text += f"• {get_text('quant.kelly_time_adj_combined', lang, pct=0, days=days_to_resolve).replace(f'With horizon: 0.0%', f'With horizon: <b>0.0%</b>').replace(f'~{days_to_resolve}d', f'<b>~{days_to_resolve}d</b>')}\n"
-                 text += f"• {get_text('quant.kelly_final_rec', lang, pct=0).replace(f'Recommended entry: ~0.0%', f'Recommended entry: <b>~0.0%</b>')}\n"
-             # Only show time comment if the market is long-term (> 30 days) and time adjustment is applied
-             if days_to_resolve > 30 and k_time_adj_pct < k_capped_pct:
-                 text += f"• {get_text('quant.kelly_time_comment', lang)}\n"
-             elif days_to_resolve <= 7:
-                 text += f"• Short-term market, time-adjust not applied.\n"
-        text += "\n"
-        
-        # Market internals and smart money flow section
-        # Extract required data from market and whale analysis
-        yes_price_cents = int(market.yes_price * 100)
-        no_price_cents = int(market.no_price * 100)
-        spread_cents = abs(yes_price_cents - no_price_cents)
-        
-        vol_24h_formatted = format_volume(market.volume_24h)
-        vol_total_formatted = format_volume(market.volume_total)
-        liquidity_formatted = format_volume(market.liquidity)
-        
-        # Determine liquidity label
-        if market.liquidity < 50000:
-            liq_label = get_text('quant.liq_low', lang)
-        elif market.liquidity < 200000:
-            liq_label = get_text('quant.liq_medium', lang)
-        else:
-            liq_label = get_text('quant.liq_high', lang)
-        
-        # Smart money data
+        # WHALE FLOW (Brief)
         wa = market.whale_analysis
-        if wa:
-            smart_yes_usd = wa.yes_volume
-            smart_no_usd = wa.no_volume
-            total_smart = smart_yes_usd + smart_no_usd
-            
-            if total_smart > 0:
-                smart_yes_pct = int((smart_yes_usd / total_smart) * 100)
-                smart_no_pct = 100 - smart_yes_pct
-                
-                # Determine tilt label
-                if smart_yes_pct >= 70:
-                    tilt_label = get_text('quant.tilt_strong_yes', lang)
-                elif smart_yes_pct >= 55:
-                    tilt_label = get_text('quant.tilt_slight_yes', lang)
-                elif smart_yes_pct >= 45:
-                    tilt_label = get_text('quant.tilt_balanced', lang)
-                elif smart_yes_pct >= 30:
-                    tilt_label = get_text('quant.tilt_slight_no', lang)
-                else:
-                    tilt_label = get_text('quant.tilt_strong_no', lang)
-                
-                # Last whale trade info
-                last_whale_usd = wa.top_trade_size
-                last_whale_side = wa.top_trade_side
-                
-                # Calculate time since last whale trade
-                if wa.last_trade_timestamp > 0:
-                    import time as _time
-                    hours_since = (_time.time() - wa.last_trade_timestamp) / 3600
-                    if hours_since < 1:
-                        minutes = int(hours_since * 60)
-                        last_whale_ago = f"{minutes}m"
-                    elif hours_since < 24:
-                        last_whale_ago = f"{int(hours_since)}h"
-                    else:
-                        last_whale_ago = f"{int(hours_since/24)}d"
-                else:
-                    last_whale_ago = "N/A"
-            else:
-                smart_yes_pct = 50
-                smart_no_pct = 50
-                tilt_label = get_text('quant.tilt_balanced', lang)
-                last_whale_usd = 0
-                last_whale_side = "N/A"
-                last_whale_ago = "N/A"
+        text += f"🐋 <b>{get_text('deep.flow', lang)}</b>\n"
+        if wa and wa.is_significant:
+            text += f"• Tilt: {int(wa.dominance_pct)}% {wa.dominance_side}\n"
+            text += f"• Top: {format_volume(wa.top_trade_size)} → {wa.top_trade_side}\n"
         else:
-            smart_yes_pct = 50
-            smart_no_pct = 50
-            tilt_label = get_text('quant.tilt_balanced', lang)
-            smart_yes_usd = 0
-            smart_no_usd = 0
-            last_whale_usd = 0
-            last_whale_side = "N/A"
-            last_whale_ago = "N/A"
+            text += f"• {get_text('detail.no_whale_activity', lang)}\n"
+        text += "\n"
+
+        # PROBABILITIES & EDGE (The Critical Block)
+        text += f"{get_text('deep.probs', lang)}\n"
+        text += f"• {get_text('deep.prob_market', lang, pct=f'{p_market*100:.1f}')}\n"
         
-        # Add market internals section
-        text += f"{get_text('quant.header_market', lang).replace('🔹 Market Metrics', '🔹 <b>Market Metrics</b>') if 'Market Metrics' in get_text('quant.header_market', lang) else get_text('quant.header_market', lang)}\n"
-        text += f"{get_text('quant.prices_line', lang, yes_price=yes_price_cents, no_price=no_price_cents)}\n"
-        text += f"{get_text('quant.price_gap_line', lang, gap=spread_cents)}\n"
-        text += f"{get_text('quant.volume_line', lang, vol_24h=vol_24h_formatted, vol_total=vol_total_formatted)}\n"
-        text += f"{get_text('quant.liquidity_line', lang, liq_label=liq_label, liquidity=liquidity_formatted)}\n\n"
-                
-        # Add smart money flow section
-        text += f"{get_text('quant.smart_tilt_header', lang).replace('🐋 Smart Money Flow', '🐋 <b>Smart Money Flow</b>') if 'Smart Money Flow' in get_text('quant.smart_tilt_header', lang) else get_text('quant.smart_tilt_header', lang)}\n"
-        text += f"{get_text('quant.smart_tilt_line', lang, smart_yes_pct=smart_yes_pct, smart_no_pct=smart_no_pct)}\n"
-        text += f"{get_text('quant.smart_yes_usd_line', lang, smart_yes_usd=int(smart_yes_usd))}\n"
-        text += f"{get_text('quant.smart_no_usd_line', lang, smart_no_usd=int(smart_no_usd))}\n"
-        text += f"{get_text('quant.tilt_direction_line', lang, tilt_label=tilt_label)}\n"
-        text += f"{get_text('quant.last_whale_line', lang, last_whale_usd=int(last_whale_usd), last_whale_side=last_whale_side, last_whale_ago=last_whale_ago)}\n\n"
-                
-        text += f"{get_text('quant.header_theta', lang).replace('⏳ TIME / THETA', '⏳ <b>TIME / THETA</b>') if 'TIME / THETA' in get_text('quant.header_theta', lang) else get_text('quant.header_theta', lang)}\n"
-        # Calculate approximate daily theta based on days to resolve
-        try:
-            theta_daily_float = float(theta_daily) if theta_daily is not None else 0.0
-            approx_daily = theta_daily_float / max(1, days_to_resolve) if days_to_resolve > 0 else theta_daily_float
-            text += f"• {get_text('quant.theta_time_edge', lang, val=theta_daily)} (~{approx_daily:.1f}¢/day)\n"
-        except (ValueError, TypeError):
-            text += f"• {get_text('quant.theta_time_edge', lang, val=theta_daily)}\n"
-        text += f"• {get_text('quant.theta_short', lang, text=theta_comment)}\n\n"
-                
-        # Skip the duplicate internals section to avoid duplication
-        # text += f"{get_text('quant.internals_tilt', lang, val=tilt_str)}\n"
-        # text += f"{get_text('quant.internals_mom', lang, val=vol_mom)}\n"
-        # text += f"{get_text('quant.internals_ratio', lang, val=market.score_breakdown.get('sm_ratio', 0))}\n"
-        # text += f"{get_text('quant.internals_liq', lang, val=liq_desc)}\n"
-        # text += f"{get_text('quant.internals_rec', lang, val=recency)}\n\n"
+        # MODEL PROBABILITY (Fixed format)
+        text += f"• {get_text('deep.prob_model', lang, pct=f'{p_model*100:.1f}')}\n"
         
-        text += f"{get_text('quant.header_concl', lang).replace('🏁 CONCLUSION', '🏁 <b>CONCLUSION</b>')}\n"
-        if kelly_fraction_safe > 0 and edge_pct > 2:
-             text += get_text("quant.concl_good", lang, edge=edge_pct, kelly=kelly_fraction_safe)
+        # EDGE (Fixed format)
+        edge_sign = "+" if edge_pp > 0 else ""
+        roi = (edge_abs / p_market) * 100 if p_market > 0 else 0.0
+        emoji = "🟢" if edge_pp > 0 else "🔴"
+        
+        # Use deep.edge_line but we need to ensure formatting matches
+        # deep.edge_line: "• Edge: {emoji} <b>{diff} п.п.</b> (ROI {roi}%)"
+        edge_str = f"{edge_sign}{edge_pp:.1f}"
+        text += f"{get_text('deep.edge_line', lang, emoji=emoji, diff=edge_str, roi=f'{roi:.1f}')}\n\n"
+
+        # SIZING
+        text += f"{get_text('deep.sizing_title', lang)}\n"
+        if is_positive_setup:
+            text += f"{get_text('deep.edge_expl', lang, m_pct=f'{p_market*100:.1f}', my_pct=f'{p_model*100:.1f}', diff=f'{edge_pp:.1f}')}\n"
+            text += f"{get_text('deep.cons_stake', lang, pct=f'{kelly_fraction_safe:.1f}', fract=fraction_name)}\n"
         else:
-             text += get_text("quant.concl_bad", lang)
+            text += "• Edge < 2% або Kelly = 0 → <b>SKIP</b>\n"
+        text += "\n"
+
+        # SCENARIOS (Monte Carlo)
+        mc = deep.monte_carlo
+        if mc:
+            text += f"{get_text('deep.risk_scenarios', lang)}\n"
+            # Try to format percentiles if available (Crypto mode)
+            if mc.mode == "crypto":
+                p5 = mc.percentile_5 if hasattr(mc, 'percentile_5') else 0
+                p95 = mc.percentile_95 if hasattr(mc, 'percentile_95') else 0
+                val_p5 = f"${p5:,.2f}" if p5 >= 1000 else f"${p5:.2f}"
+                val_p95 = f"${p95:,.2f}" if p95 >= 1000 else f"${p95:.2f}"
+                text += f"• P5: {val_p5}\n• P95: {val_p95}\n"
+            text += f"{get_text('deep.win_prob', lang, pct=f'{mc.probability_yes*100:.1f}')}\n\n"
         
-        # Add final disclaimer
-        text += f"\n{get_text('quant.disclaimer', lang)}"
-        
-        # Risks
-        risks = []
-        if market.liquidity < 50000: 
-            risks.append(get_text("unified.risk_low_liq", lang))
-        if wa and wa.dominance_pct > 70 and wa.dominance_side != deep.recommended_side: 
-            risks.append(get_text("unified.risk_whale_opp", lang))
-        if market.days_to_close > 60: 
-            risks.append(get_text("unified.risk_long_term", lang))
-        
-        if risks:
-            # "Risks" label is unified.risks (might contain "(3 points)" in text, stripping or using separate key would be better but using as is for now)
-            # Actually unified.risks is "Risks (3 points)" or similar.
-            # I'll just use "⚠️" + joined risks.
-            text += f"\n⚠️ {', '.join(risks)}."
-            
+        # CONCLUSION
+        text += f"{get_text('deep.conclusion', lang)}\n"
+        if is_positive_setup:
+            text += get_text(conclusion_key, lang, side=rec_side, pct=f"{kelly_fraction_safe:.1f}")
+        else:
+            text += get_text(conclusion_key, lang, edge=f"{edge_pp:.1f}")
+
         return text
 
     except Exception as e:
@@ -628,4 +424,3 @@ def _format_simple_analysis(market: MarketStats, lang: str) -> str:
     except Exception as e:
         logger.error(f"Simple Format Error: {e}", exc_info=True)
         return f"⚠️ <b>Analysis Error</b>: {e}"
-
