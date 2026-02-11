@@ -313,9 +313,9 @@ class TradeNotificationService:
                     await self._update_last_trade_timestamp(sub.wallet_id, current_ts)
                 return
             
-            # SAFEGUARD: If timestamp is too old (>60 min), reset to now.
-            # Increased from 5 min to 1 hour to better handle short downtimes.
-            max_age_seconds = 3600
+            # SAFEGUARD: If timestamp is too old (>10 min), reset to now.
+            # Reduced from 60 min to 10 min to avoid spamming "old" trades after downtime.
+            max_age_seconds = 600
             if current_ts - max_timestamp > max_age_seconds:
                 logger.warning(
                     f"Wallet {wallet_address[:10]}... has stale timestamp "
@@ -334,9 +334,9 @@ class TradeNotificationService:
             if not trades:
                 return
             
-            # Filter: trades at or after max_timestamp (handle same-second trades)
-            # Duplicates are handled by _processed_trades cache
-            new_trades = [t for t in trades if t.timestamp >= max_timestamp]
+            # Filter: trades strictly AFTER max_timestamp to avoid duplicates
+            # Duplicates are handled by _processed_trades cache, but that is empty on restart.
+            new_trades = [t for t in trades if t.timestamp > max_timestamp]
             
             if not new_trades:
                 return
