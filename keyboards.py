@@ -247,4 +247,24 @@ def get_stats_range_keyboard(lang: str, wallet_id: int) -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text=get_text("btn.stats_all_time", lang), callback_data=f"stats_range:365:{wallet_id}"))
     builder.row(InlineKeyboardButton(text=get_text("btn.back", lang), callback_data=f"wallet:view:{wallet_id}"))
     return builder.as_markup()
+
+
+def get_markets_selection_keyboard(lang: str, count: int) -> InlineKeyboardMarkup:
+    """Keyboard for selecting a market for deep research."""
+    builder = InlineKeyboardBuilder()
+    row = []
+    for i in range(count):
+        # Callback: sel_mk:INDEX
+        row.append(InlineKeyboardButton(
+            text=f"🔍 {i+1}", 
+            callback_data=f"sel_mk:{i}"
+        ))
+        if len(row) == 3: # 3 buttons per row
+            builder.row(*row)
+            row = []
+    if row:
+        builder.row(*row)
+            
+    builder.row(InlineKeyboardButton(text=get_text("btn.back_to_menu", lang), callback_data="menu:analyze_link"))
+    return builder.as_markup()
     

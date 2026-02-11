@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.filters import Command, CommandStart
 from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
@@ -18,6 +18,7 @@ from database import db
 from repository import UserRepository, WalletRepository
 from polymarket_api import api_client
 from i18n import get_text, get_side_text, get_pnl_emoji, SUPPORTED_LANGUAGES
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from keyboards import (
     get_language_keyboard,
     get_main_menu_keyboard,
@@ -34,10 +35,11 @@ from keyboards import (
     get_stats_range_keyboard,
     get_wallet_settings_keyboard,
     get_min_amount_keyboard,
+    get_markets_selection_keyboard,
 )
 from config import get_settings
 from market_intelligence import market_intelligence
-from services.format_service import format_market_detail, format_volume
+from services.format_service import format_market_detail, format_volume, format_market_card
 from services.user_service import resolve_user
 
 # Create router
@@ -61,6 +63,7 @@ class AddWalletStates(StatesGroup):
 class AnalyzeEventStates(StatesGroup):
     """States for analyze event flow."""
     waiting_for_link = State()
+    viewing_results = State()
 
 
 # ==================== COMMAND HANDLERS ====================
@@ -318,40 +321,28 @@ async def process_analyze_link(message: Message, state: FSMContext) -> None:
             
         # Check if this is a multi-outcome event
         if len(markets) > 1:
-            # Multi-outcome event: show TOP-3
-            top_markets = markets[:3]
+            # Multi-outcome event: show TOP-5
+            top_markets = markets[:5]
             
-            text = get_text("multi_market_header", lang, count=len(markets))
+            text = get_text("multi_market_header", lang, count=len(markets)) + "\n\n"
             
             for i, market in enumerate(top_markets, 1):
-                rec = market_intelligence.generate_recommendation(market)
-                
-                signal_emoji = "🟢" if market.signal_score >= 70 else "🟡" if market.signal_score >= 50 else "🔴"
-                
-                text += f"<b>{i}. {market.question[:80]}{'...' if len(market.question) > 80 else ''}</b>\n"
-                text += f"💰 YES: {int(market.yes_price*100)}¢ · NO: {int(market.no_price*100)}¢\n"
-                text += get_text("multi_market_signal", lang, vol=format_volume(market.volume_24h), emoji=signal_emoji, score=market.signal_score) + "\n"
-                
-                # Whale info if available
-                wa = market.whale_analysis
-                if wa and wa.is_significant:
-                    whale_side = wa.dominance_side
-                    whale_pct = int(wa.dominance_pct)
-                    text += f"🐋 Smart Money: {whale_pct}% {whale_side}\n"
-                
-                # Always show recommendation with side
-                if rec.should_bet:
-                    text += get_text("multi_market_rec_yes", lang, side=rec.side) + "\n"
-                else:
-                    text += get_text("multi_market_rec_no", lang, side=rec.side) + "\n"
-                
-                text += "\n"
+                # Use unified card format
+                text += format_market_card(market, i, lang) + "\n"
             
-            # Footer with link
-            if markets:
-                from config import get_referral_link
-                event_url = get_referral_link(markets[0].event_slug)
-                text += get_text("multi_market_link", lang, url=event_url)
+            # Save state for interactive selection
+            await state.update_data(found_markets=markets)
+            await state.set_state(AnalyzeEventStates.viewing_results)
+            
+            keyboard = get_markets_selection_keyboard(lang, len(top_markets))
+            
+            await working_msg.edit_text(
+                text,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+            return
         else:
             # Single outcome: show detailed view
             best_market = markets[0]
@@ -377,6 +368,88 @@ async def process_analyze_link(message: Message, state: FSMContext) -> None:
 
 
 
+
+
+# ==================== ANALYSE INTERACTIVE FLOW ====================
+
+@router.callback_query(F.data.startswith("sel_mk:"), AnalyzeEventStates.viewing_results)
+async def callback_select_market(callback: CallbackQuery, state: FSMContext) -> None:
+    """Show Deep Research for selected market."""
+    try:
+        parts = callback.data.split(":")
+        index = int(parts[1])
+        
+        data = await state.get_data()
+        markets = data.get("found_markets")
+        
+        # Check if markets exist in state.
+        if not markets or index >= len(markets):
+            await callback.answer("Unable to load market. Please restart analysis.", show_alert=True)
+            return
+            
+        market = markets[index]
+        rec = market_intelligence.generate_recommendation(market)
+        
+        # Determine language
+        async with db.session() as session:
+            user_repo = UserRepository(session)
+            user = await user_repo.get_by_telegram_id(callback.from_user.id)
+            lang = user.language if user else "en"
+            
+        text = format_market_detail(market, rec, lang)
+        
+        # Back button
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text=get_text("btn.back", lang), callback_data="back_to_results"))
+        
+        await callback.message.edit_text(
+            text,
+            reply_markup=builder.as_markup(),
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+    except Exception as e:
+        logger.error(f"Error viewing details: {e}")
+        await callback.answer("Error displaying details")
+    
+    await callback.answer()
+
+
+@router.callback_query(F.data == "back_to_results", AnalyzeEventStates.viewing_results)
+async def callback_back_to_results(callback: CallbackQuery, state: FSMContext) -> None:
+    """Back to list of markets."""
+    try:
+        data = await state.get_data()
+        markets = data.get("found_markets")
+        
+        if not markets:
+            await callback.answer("Session expired.", show_alert=True)
+            return
+            
+        # Language
+        async with db.session() as session:
+            user_repo = UserRepository(session)
+            user = await user_repo.get_by_telegram_id(callback.from_user.id)
+            lang = user.language if user else "en"
+            
+        # Re-render list
+        top_markets = markets[:5]
+        text = get_text("multi_market_header", lang, count=len(markets)) + "\n\n"
+        for i, market in enumerate(top_markets, 1):
+            text += format_market_card(market, i, lang) + "\n"
+            
+        keyboard = get_markets_selection_keyboard(lang, len(top_markets))
+        
+        await callback.message.edit_text(
+            text,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+    except Exception as e:
+        logger.error(f"Error back to results: {e}")
+        
+    await callback.answer()
 
 
 # ==================== ADD WALLET FLOW ====================
