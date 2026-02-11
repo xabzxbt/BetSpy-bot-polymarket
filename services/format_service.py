@@ -221,171 +221,236 @@ def format_market_links_footer(markets: List[MarketStats], start_idx: int, lang:
 
 def format_unified_analysis(market: MarketStats, deep_result: Any, lang: str) -> str:
     """
-    Unified Human-Readable Analysis Format.
-    Replaces format_market_detail and Deep Analysis view.
-    Generates a coherent analyst report.
+    Dispatcher:
+    - If Deep Analysis is available: returns strictly formatted "Quant Analyst" report.
+    - If not: returns "Simple Fact-Based" report.
+    """
+    if deep_result:
+        return _format_quant_analysis(market, deep_result, lang)
+    else:
+        return _format_simple_analysis(market, lang)
+
+
+def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
+    """
+    Strict Quant Analyst Template as requested by user.
     """
     try:
-        # --- 1. PREPARE DATA ---
-        is_deep = deep_result is not None
+        # --- PREPARE METRICS ---
         
-        # Prices
+        # 1. Market & Setup
+        safe_q = market.question.replace("{", "(").replace("}", ")")
         yes_price = market.yes_price
         no_price = market.no_price
-        market_prob = yes_price * 100
         
-        # Signal / Score / Recommendations
-        if is_deep:
-            model_prob = deep_result.model_probability * 100
-            edge = deep_result.edge * 100
-            kelly_pct = (deep_result.kelly.kelly_fraction * 100) if deep_result.kelly else 0
-            rec_side = deep_result.recommended_side
-        else:
-            # Fallback heuristics
-            model_prob = market.signal_score # Rough proxy
-            edge = model_prob - market_prob
-            kelly_pct = 0
-            rec_side = market.recommended_side
+        # 2. Monte Carlo
+        mc = deep.monte_carlo
+        mc_runs = mc.num_simulations if mc else 10000
+        mc_prob_up = int(mc.probability_yes * 100) if mc else 0
+        mc_expected_pnl = f"{mc.edge:+.2f}" if mc else "дані відсутні"
+        
+        # 3. Bayesian
+        bayes = deep.bayesian
+        bayes_prior = int(market.yes_price * 100) # Prior is usually market
+        bayes_posterior = int(bayes.posterior * 100) if bayes else int(market.yes_price * 100)
+        
+        bayes_comment = "кити не змінили картину"
+        if bayes and bayes.has_signal:
+            if bayes.posterior > market.yes_price + 0.05:
+                bayes_comment = "кити суттєво підсилюють YES"
+            elif bayes.posterior < market.yes_price - 0.05:
+                bayes_comment = "кити тиснуть на NO, послаблюють YES"
+            else:
+                bayes_comment = "активність китів підтверджує ринок"
+        elif not bayes:
+             bayes_comment = "дані відсутні"
 
-        # Liquidity Level
-        liq = market.liquidity
-        if liq < 50_000:
-            liq_key = "unified.liq_low"
-        elif liq < 250_000:
-            liq_key = "unified.liq_med"
-        else:
-            liq_key = "unified.liq_high"
-            
-        liq_text = get_text(liq_key, lang)
+        # 4. Edge
+        edge_raw = deep.edge
+        edge_pct = int(edge_raw * 100)
+        edge_sign = "+" if edge_pct > 0 else ""
         
-        # Whale Sentiment
+        # 5. Kelly
+        if deep.kelly:
+            k_full = deep.kelly.kelly_full
+            k_safe = deep.kelly.kelly_fraction # This is already reduced by fraction (e.g. 0.25)
+        else:
+            k_full = 0.0
+            k_safe = 0.0
+
+        kelly_fraction = int(k_full * 100)
+        kelly_fraction_safe = int(k_safe * 100)
+        
+        # 6. Theta
+        theta_val = deep.greeks.theta if deep.greeks else 0.0
+        theta_daily = f"{theta_val:+.1f}¢" if deep.greeks else "дані відсутні"
+        theta_comment = "ви платите за час (theta-)" if theta_val < 0 else "час грає на вас (theta+)"
+        
+        # 7. Internals
         wa = market.whale_analysis
-        if wa and wa.is_significant:
-            whales_pct = int(wa.dominance_pct)
-            if wa.dominance_side == "YES":
-                whales_key = "unified.whales_strong_yes"
-            elif wa.dominance_side == "NO":
-                whales_key = "unified.whales_strong_no"
-            else:
-                whales_key = "unified.whales_mixed"
+        tilt_str = f"{int(wa.dominance_pct)}% {wa.dominance_side}" if wa and wa.is_significant else "нейтрально"
+        
+        vol_mom = "стабільно"
+        if market.score_breakdown.get('volume', 0) > 15:
+            vol_mom = "зростання активності"
+        elif market.score_breakdown.get('volume', 0) < 5:
+             vol_mom = "спад активності"
+             
+        # Liquidity score interpretation
+        liq_score = market.score_breakdown.get('liquidity', 0)
+        if liq_score >= 8:
+            liq_desc = f"висока (${format_volume(market.liquidity)})"
+        elif liq_score >= 4:
+            liq_desc = f"середня (${format_volume(market.liquidity)})"
         else:
-            whales_key = "unified.whales_mixed"
-            whales_pct = 50
-
-        whales_text = get_text(whales_key, lang)
-        
-        # --- 2. BUILD TEXT ---
-        
-        # HEADER (Safe escaping)
-        safe_q = market.question.replace("{", "(").replace("}", ")")
-        text = get_text("unified.header", lang, question=safe_q) + "\n\n"
-        
-        # SHORT SUMMARY
-        # Determine template based on rec_side and strength
-        if rec_side == "YES":
-            if edge > 10 or market.signal_score > 70:
-                sum_key = "unified.short_yes_strong"
-            else:
-                sum_key = "unified.short_yes_mod"
-            rec_key = "unified.rec_buy"
-        elif rec_side == "NO":
-            if edge < -10 or market.signal_score < 30: # Edge is negative for YES means NO is good? 
-                # If Deep Analysis returns edge for NO, it might be positive for NO side.
-                # Usually edge is calculated for the recommended side.
-                # Assuming edge is favorable for rec_side.
-                sum_key = "unified.short_no_strong"
-            else:
-                sum_key = "unified.short_no_mod"
-            rec_key = "unified.rec_buy" # "Buy NO"
-        else:
-            sum_key = "unified.short_neutral"
-            rec_key = "unified.rec_wait"
-        
-        # Recommendation text
-        text += get_text(sum_key, lang) + "\n"
-        if rec_side in ["YES", "NO"]:
-            text += get_text(rec_key, lang, side=rec_side) + "\n"
-        else:
-            text += get_text(rec_key, lang) + "\n"
+            liq_desc = f"низька (${format_volume(market.liquidity)})"
             
+        recency = "давно"
+        if wa and wa.hours_since_last_trade < 1:
+            recency = f"активно ({int(wa.hours_since_last_trade*60)}m ago)"
+        elif wa:
+            recency = f"помірно ({int(wa.hours_since_last_trade)}h ago)"
+
+        # --- SETUP SUMMARY ---
+        setup = "нейтральний"
+        if edge_pct > 3 and kelly_fraction_safe > 0:
+            setup = "bullish (є edge)"
+        elif edge_pct < -3:
+            setup = "bearish (YES переоцінений)"
+            
+        intro = f"Сетап {setup}, edge {edge_sign}{edge_pct} п.п."
+        if kelly_fraction_safe == 0:
+            intro += ", позиція не рекомендується."
+        else:
+            intro += ", можна розглянути вхід."
+
+        # --- BUILD TEXT ---
+        text = f"🔎 АНАЛІЗ\n{safe_q}\n\n"
+        text += f"Коротко: {intro}\n\n"
+        
         text += "────────────────────────────\n"
         
-        # PRICES
-        text += get_text("unified.section_prices", lang) + "\n"
-        text += get_text("unified.prices_line", lang, yes=format_price(yes_price), no=format_price(no_price)) + "\n"
-        text += get_text("unified.liquidity_line", lang, liq_text=liq_text, vol=format_volume(market.volume_24h)) + "\n\n"
+        text += "🎲 Monte Carlo\n"
+        text += f"- Кількість симуляцій: {mc_runs}\n"
+        text += f"- Ймовірність плюсового результату: {mc_prob_up}%\n"
+        text += f"- Середній очікуваний PnL: {mc_expected_pnl}\n\n"
         
-        # WHALES
-        text += get_text("unified.section_whales", lang) + "\n"
-        text += get_text("unified.whales_sentiment", lang, sentiment=whales_text, pct=whales_pct) + "\n"
-        if wa and wa.top_trade_size > 0:
-            text += get_text("unified.whales_last_trade", lang, amount=format_volume(wa.top_trade_size), side=wa.top_trade_side, time=f"{int(wa.hours_since_last_trade*60)}m ago") + "\n"
-        text += "\n"
+        text += "🧠 Bayesian\n"
+        text += f"- Початкова ймовірність (prior): {bayes_prior}%\n"
+        text += f"- Оновлена ймовірність (posterior): {bayes_posterior}%\n"
+        text += f"- Коментар: {bayes_comment}.\n\n"
         
-        # PROBABILITIES
-        text += get_text("unified.section_probs", lang) + "\n"
-        text += get_text("unified.prob_est", lang, prob=f"{int(model_prob)}") + "\n"
-        
-        diff = model_prob - market_prob
-        if diff > 5:
-            text += get_text("unified.prob_cmp_higher", lang, market=f"{int(market_prob)}") + "\n"
-        elif diff < -5:
-            text += get_text("unified.prob_cmp_lower", lang, market=f"{int(market_prob)}") + "\n"
+        text += "📐 Edge\n"
+        text += f"- Edge: {edge_sign}{edge_pct} п.п.\n"
+        if edge_pct <= 0:
+            text += "- Математично ставка НЕвигідна (edge ≤ 0).\n"
         else:
-            text += get_text("unified.prob_cmp_equal", lang, market=f"{int(market_prob)}") + "\n"
+             text += "- Математична перевага присутня.\n"
         text += "\n"
         
-        # EDGE
-        text += get_text("unified.section_edge", lang) + "\n"
-        if abs(edge) > 2:
-            text += get_text("unified.edge_mismatch", lang, market=f"{int(market_prob)}", model=f"{int(model_prob)}", edge=f"{abs(edge):.1f}") + "\n"
-            if kelly_pct > 0:
-                text += get_text("unified.kelly_safe", lang, pct=f"{int(kelly_pct)}") + "\n"
-            else:
-                text += get_text("unified.kelly_zero", lang) + "\n"
+        text += "💰 Kelly Criterion\n"
+        text += f"- Оптимальна частка (Kelly): {kelly_fraction}%\n"
+        if kelly_fraction <= 0:
+            text += "- Рекомендована ставка: 0% (пропустити).\n"
         else:
-            text += get_text("unified.edge_none", lang) + "\n"
+            text += f"- Рекомендована консервативна ставка: {kelly_fraction_safe}% від банкролу.\n"
         text += "\n"
         
-        # RISKS
-        text += get_text("unified.section_risks", lang) + "\n"
-        risks_shown = 0
-        if market.liquidity < 50_000:
-            text += get_text("unified.risk_low_liq", lang) + "\n"
-            risks_shown += 1
-        if market.days_to_close <= 2:
-            text += get_text("unified.risk_time", lang) + "\n"
-            risks_shown += 1
-        # Check Volatility if available (Deep)
-        vol = 0
-        if deep_result and deep_result.greeks and deep_result.greeks.vega:
-             vol = deep_result.greeks.vega.recent_vol_24h * 100
-        if vol > 80:
-            text += get_text("unified.risk_volatility", lang) + "\n"
-            risks_shown += 1
+        text += "⏳ Theta\n"
+        text += f"- Орієнтовний \"time edge\": {theta_daily} на день.\n"
+        text += f"- Коротко: {theta_comment}.\n\n"
+
+        text += f"├ 🐋 Smart Money Tilt: {tilt_str}\n"
+        text += f"├ 📈 Volume Momentum: {vol_mom}\n"
+        text += f"├ 💡 Smart/Retail Ratio: {market.score_breakdown.get('sm_ratio', 0)}/15\n"
+        text += f"├ 💧 Liquidity: {liq_desc}\n"
+        text += f"└ ⏱️ Activity Recency: {recency}\n\n"
         
-        # Check alignment mismatch
-        if rec_side == "YES" and wa and wa.dominance_side == "NO" and wa.dominance_pct > 60:
-             text += get_text("unified.risk_whale_opp", lang) + "\n"
-             risks_shown += 1
-        
-        if risks_shown == 0:
-            text += get_text("unified.risk_generic", lang) + "\n"
-        text += "\n"
-        
-        # CONCLUSION
-        text += get_text("unified.section_concl", lang) + "\n"
-        if rec_side in ["YES", "NO"] and abs(edge) > 3 and kelly_pct > 0:
-            max_alloc = min(kelly_pct, 15) # Cap at 15% for safety advice
-            text += get_text("unified.concl_buy", lang, side=rec_side, pct=f"{int(max_alloc)}")
-        elif abs(edge) < 3:
-            text += get_text("unified.concl_wait", lang)
+        text += "🏁 ВИСНОВОК\n"
+        if kelly_fraction_safe > 0 and edge_pct > 2:
+             text += f"Маємо підтверджений edge {edge_pct}%. Рекомендуємо вхід на {kelly_fraction_safe}% банкролу (консервативно). "
         else:
-            text += get_text("unified.concl_avoid", lang)
+             text += "На даний момент чіткого edge немає або ризики зависокі. Краще утриматись (HOLD). "
+        
+        # Risks
+        risks = []
+        if market.liquidity < 50000: risks.append("низька ліквідність")
+        if wa and wa.dominance_pct > 70 and wa.dominance_side != deep.recommended_side: risks.append("smart money проти вас")
+        if market.days_to_close > 60: risks.append("довгий лок капіталу")
+        
+        if risks:
+            text += f"\n⚠️ Ризики: {', '.join(risks)}."
             
         return text
 
     except Exception as e:
-        logger.error(f"Format Unified Error: {e}", exc_info=True)
+        logger.error(f"Quant Format Error: {e}", exc_info=True)
         return f"⚠️ <b>Analysis Display Error</b>: {e}"
+
+
+def _format_simple_analysis(market: MarketStats, lang: str) -> str:
+    """
+    Simplified Fact-Based Format (Fallback).
+    """
+    try:
+        # Prices
+        yes_price = market.yes_price
+        no_price = market.no_price
+        market_prob = int(yes_price * 100)
+        
+        # Smart Money / Whales
+        wa = market.whale_analysis
+        whale_str = "—"
+        last_whale_str = "—"
+        whale_side = "NEUTRAL"
+        whale_pct = 50
+        
+        if wa and wa.is_significant:
+            whale_side = wa.dominance_side
+            whale_pct = int(wa.dominance_pct)
+            whale_str = f"{whale_pct}% {get_text('unified.in', lang)} {whale_side}"
+            
+            # Last whale trade
+            if wa.top_trade_size > 0:
+                ago = f"{int(wa.hours_since_last_trade*60)}m" if wa.hours_since_last_trade < 1 else f"{int(wa.hours_since_last_trade)}h"
+                last_whale_str = f"{format_volume(wa.top_trade_size)} → {wa.top_trade_side} ({ago} ago)"
+        
+        rec_side = market.recommended_side
+        
+        # HEADER
+        safe_q = market.question.replace("{", "(").replace("}", ")")
+        text = f"🔎 {get_text('unified.analysis_title', lang)} <b>{safe_q}</b>\n\n"
+        
+        # SHORT SUMMARY (Fact-based)
+        summary_key = "unified.summary_neutral"
+        if rec_side == "YES":
+            summary_key = "unified.summary_buy_yes"
+        elif rec_side == "NO":
+            summary_key = "unified.summary_buy_no"
+            
+        text += f"{get_text('unified.briefly', lang)}: {get_text(summary_key, lang, side=whale_side, pct=whale_pct)}\n"
+        
+        text += "────────────────────────────\n"
+        
+        # MONEY & PRICES
+        text += f"💰 <b>{get_text('unified.prices_vol', lang)}</b>\n"
+        text += f"• YES: {int(yes_price*100)}¢ NO: {int(no_price*100)}¢\n"
+        text += f"• {get_text('unified.vol', lang)}: {format_volume(market.volume_24h)} | {get_text('unified.liq', lang)}: {format_volume(market.liquidity)}\n\n"
+        
+        # WHALE FLOW
+        text += f"🐋 <b>{get_text('unified.flow', lang)}</b>\n"
+        text += f"• Smart money: {whale_str}\n"
+        text += f"• {get_text('unified.last_whale', lang)}: {last_whale_str}\n\n"
+        
+        # Conclusion
+        text += f"🏁 <b>{get_text('unified.conclusion_title', lang)}</b>\n"
+        if rec_side != "NEUTRAL":
+             text += f"Можливий вхід в {rec_side} (див. деталі в Deep Analysis)."
+        else:
+             text += get_text("unified.concl_final_wait", lang)
+             
+        return text
+    except Exception as e:
+        logger.error(f"Simple Format Error: {e}", exc_info=True)
+        return f"⚠️ <b>Analysis Error</b>: {e}"
 
