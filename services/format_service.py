@@ -344,22 +344,37 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
 
         # --- BUILD TEXT ---
         text = f"🔎 {get_text('unified.analysis_title', lang)}\n{safe_q}\n\n"
-        text += f"{get_text('unified.briefly', lang)}: {intro}\n\n"
+        
+        # More risk-aware brief intro
+        risk_intro = get_text("quant.setup_expl", lang, side=deep.recommended_side, edge=edge_pct)
+        advice_str = get_text("quant.intro_NoRec", lang)
+        if kelly_fraction_safe > 0:
+            advice_str = get_text("quant.intro_Rec", lang)
+        text += f"{get_text('unified.briefly', lang)}: {risk_intro} {advice_str}\n{get_text('quant.recommendation', lang)}\n\n"
         
         text += "────────────────────────────\n"
         
-        text += f"{get_text('quant.header_mc', lang)}\n"
-        text += f"{get_text('quant.mc_runs', lang, runs=mc_runs)}\n"
-        text += f"{get_text('quant.mc_prob', lang, prob=mc_prob_up)}\n"
-        text += f"{get_text('quant.mc_pnl', lang, pnl=mc_expected_pnl)}\n\n"
+        mc_runs_formatted = f"{mc_runs:,}"
+        text += f"{get_text('quant.header_mc', lang)} {get_text('quant.mc_runs', lang, runs=mc_runs_formatted)}\n"
+        text += f"• {get_text('quant.mc_prob', lang, prob=mc_prob_up)}\n"
+        text += f"• {get_text('quant.mc_expected_pnl', lang, pnl=mc_expected_pnl if abs(float(mc_expected_pnl or 0)) > 0.01 else '≈ 0')}\n"
+        # Add P5/P95 ranges if available in Monte Carlo result
+        if mc and hasattr(mc, 'percentile_5') and hasattr(mc, 'percentile_95'):
+            p5 = int(mc.percentile_5 * 100)
+            p95 = int(mc.percentile_95 * 100)
+            text += f"• {get_text('quant.mc_range', lang, p5=p5, p95=p95)}\n"
+        text += "\n"
         
         text += f"{get_text('quant.header_bayes', lang)}\n"
-        text += f"{get_text('quant.bayes_prior', lang, pct=bayes_prior)}\n"
-        text += f"{get_text('quant.bayes_post', lang, pct=bayes_posterior)}\n"
-        text += f"{get_text('quant.bayes_comment_label', lang, text=bayes_comment)}\n\n"
+        text += f"• {get_text('quant.bayes_prior', lang, pct=bayes_prior)}\n"
+        text += f"• {get_text('quant.bayes_post', lang, pct=bayes_posterior)}\n"
+        text += f"• {get_text('quant.bayes_comment_label', lang, text=bayes_comment)}\n\n"
         
         text += f"{get_text('quant.header_edge', lang)}\n"
-        text += f"{get_text('quant.edge_val', lang, sign=edge_sign, pct=edge_pct)}\n"
+        text += f"• {get_text('quant.model_prob', lang, pct=int(yes_price*100))}\n"
+        text += f"• {get_text('quant.market_impl', lang, pct=int(market.yes_price*100))}\n"
+        text += f"• {get_text('quant.edge_val', lang, sign=edge_sign, pct=edge_pct)} {get_text('quant.on_side', lang, side=deep.recommended_side)}\n\n"
+        
         if edge_pct <= 0:
             text += f"{get_text('quant.edge_bad', lang)}\n"
         else:
@@ -367,16 +382,18 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         text += "\n"
         
         text += f"{get_text('quant.header_kelly', lang)}\n"
-        text += f"{get_text('quant.kelly_opt', lang, pct=kelly_fraction)}\n"
-        if kelly_fraction <= 0:
-             text += f"{get_text('quant.kelly_zero', lang)}\n"
+        text += f"• {get_text('quant.kelly_full', lang, pct=kelly_fraction)}\n"
+        if kelly_fraction_safe <= 0:
+             text += f"• {get_text('quant.kelly_zero', lang)}\n"
         else:
-             text += f"{get_text('quant.kelly_safe', lang, pct=kelly_fraction_safe)}\n"
+             # Explain that kelly_fraction_safe is about 1/4 of full Kelly
+             text += f"• {get_text('quant.kelly_conservative', lang, pct=kelly_fraction_safe)}\n"
+             text += f"• {get_text('quant.kelly_caution', lang)}\n"
         text += "\n"
         
         text += f"{get_text('quant.header_theta', lang)}\n"
-        text += f"{get_text('quant.theta_val', lang, val=theta_daily)}\n"
-        text += f"{get_text('quant.theta_short', lang, text=theta_comment)}\n\n"
+        text += f"• {get_text('quant.theta_time_edge', lang, val=theta_daily)}\n"
+        text += f"• {get_text('quant.theta_short', lang, text=theta_comment)}\n\n"
 
         text += f"{get_text('quant.internals_tilt', lang, val=tilt_str)}\n"
         text += f"{get_text('quant.internals_mom', lang, val=vol_mom)}\n"
@@ -389,6 +406,9 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
              text += get_text("quant.concl_good", lang, edge=edge_pct, kelly=kelly_fraction_safe)
         else:
              text += get_text("quant.concl_bad", lang)
+        
+        # Add final disclaimer
+        text += f"\n{get_text('quant.disclaimer', lang)}"
         
         # Risks
         risks = []
