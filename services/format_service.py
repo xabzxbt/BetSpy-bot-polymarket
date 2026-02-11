@@ -210,6 +210,8 @@ def format_market_detail(market: MarketStats, rec: BetRecommendation, lang: str)
     return text
 
 
+def format_market_links_footer(markets: List[MarketStats], start_idx: int, lang: str) -> str:
+    text = "\n🔗 <b>Links:</b>\n"
     for i, m in enumerate(markets[:5]):
         idx = start_idx + i
         text += f"  {idx}. <a href='{m.market_url}'>{html.escape(m.question[:40])}</a>\n"
