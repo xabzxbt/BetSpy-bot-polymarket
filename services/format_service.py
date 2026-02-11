@@ -233,12 +233,14 @@ def format_unified_analysis(market: MarketStats, deep_result: Any, lang: str) ->
 
 def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
     """
-    Consumer-Friendly Deep Analysis (TL;DR + Simplified Terms).
+    Consumer-Friendly Deep Analysis (3-Level Structure).
+    Level 1: Instant Signal
+    Level 2: Simple Explanation
+    Level 3: Technical Details
     """
     try:
-        # --- 1. METRICS & LOGIC ---
+        # --- 1. METRICS & LOGIC (UNCHANGED) ---
         p_model = deep.model_probability
-
         # Fix 300% bug
         if p_model > 1.0: p_model = p_model / 100.0
         p_model = max(0.0, min(1.0, p_model))
@@ -249,166 +251,158 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         
         # Kelly data
         k_safe = 0.0
-        k_time_adj = 0.0
         fraction_name = "0"
-        days_to_resolve = market.days_to_close
         
         if deep.kelly:
             k_safe = deep.kelly.kelly_final_pct or 0.0
-            k_time_adj = deep.kelly.kelly_time_adj_pct or 0.0
             fraction_name = deep.kelly.fraction_name
 
-        # Rec Logic
-        is_positive_setup = (edge_pp >= 2.0) and (k_safe > 0.0)
         rec_side = "YES" if edge_raw > 0 else "NO"
+        is_positive_setup = (abs(edge_pp) >= 2.0) and (k_safe > 0.0)
         
-        # Determine Keys and TL;DR content
-        reasons = []
-        action_str = ""
+        pp_unit = get_text("quant.pp", lang)
         
-        if is_positive_setup:
-            signal_key = "deep.tldr.signal_buy"
-            conclusion_key = "deep.final_word"
-            
-            # Reasons
-            reasons.append(f"Модель дає перевагу <b>+{edge_pp:.1f}%</b>")
-            
-            wa = market.whale_analysis
-            if wa and wa.is_significant and wa.dominance_side == rec_side:
-                reasons.append(f"Кити активно ставлять на <b>{rec_side}</b>")
-            elif p_market < 0.4:
-                reasons.append(f"Ціна {int(p_market*100)}¢ статистично вигідна")
-            else:
-                 reasons.append("Математична перевага підтверджена")
-                 
-            reasons.append(f"Ризик/профіт на вашу користь")
-            
-            action_str = f"Ставити <b>{k_safe:.1f}%</b> від банку"
-
-        else:
-            signal_key = "deep.tldr.signal_skip"
-            conclusion_key = "deep.final_word_skip"
-            
-            # Reasons
-            if edge_pp < 2.0:
-                reasons.append(f"Перевага (Edge) занадто мала ({edge_pp:.1f}%)")
-            else:
-                reasons.append("Модель не бачить переваги")
-                
-            reasons.append("Ризики переважають потенційний прибуток")
-            reasons.append("Краще зачекати кращої ціни")
-            
-            action_str = "Шукати нагоди в інших маркетах"
-
-        # --- 2. BUILD TEXT ---
+        # --- 2. CONFIDENCE SCORE CALCULATION ---
+        # Formula: Base (max 50) + Whale (25) + Liq (15) + Certainty (10)
         
-        safe_q = html.escape(market.question)
+        score_base = min(50, abs(edge_pp) * 10)
         
-        # === TL;DR BLOCK ===
-        text = f"{get_text(signal_key, lang, side=rec_side)}\n\n"
-        
-        text += f"{get_text('deep.tldr.why', lang)}\n"
-        for r in reasons:
-            text += f"• {r}\n"
-        
-        text += f"\n{get_text('deep.tldr.action', lang, action=action_str)}\n"
-        text += "────────────────────────────\n"
-        
-        # HEADER (Standard)
-        text += f"🔎 {safe_q}\n\n"
-        
-        # PRICES & VOL
-        text += f"{get_text('deep.prices_vol', lang)}\n" 
-        text += f"• YES: <b>{int(market.yes_price*100)}¢</b>  NO: <b>{int(market.no_price*100)}¢</b>\n"
-        text += f"• {get_text('detail.liquidity', lang, vol=f'<b>{format_volume(market.liquidity)}</b>')}\n"
-        text += f"• Vol 24h: <b>{format_volume(market.volume_24h)}</b>\n\n"
-
-        # WHALE FLOW
+        score_whale = 0
         wa = market.whale_analysis
-        text += f"{get_text('deep.flow', lang)}\n"
+        whale_agrees = False
         if wa and wa.is_significant:
-             text += f"• Tilt: <b>{int(wa.dominance_pct)}% {wa.dominance_side}</b> {get_text('deep.expl.tilt', lang)}\n"
-             text += f"• Top: <b>{format_volume(wa.top_trade_size)}</b> → {wa.top_trade_side}\n"
-        else:
-             text += f"• {get_text('detail.no_whale_activity', lang)}\n"
-        text += "\n"
+            if wa.dominance_side == rec_side:
+                score_whale = 25
+                whale_agrees = True
+            elif wa.dominance_side != "NEUTRAL":
+                # Whale disagrees
+                pass
 
-        # MONTE CARLO (Simplified Header)
+        score_liq = 0
+        if market.liquidity >= 50000: score_liq = 15
+        elif market.liquidity >= 10000: score_liq = 10
+        elif market.liquidity >= 2000: score_liq = 5
+        
+        score_cert = 0
+        # If model is far from 50/50
+        if p_model >= 0.60 or p_model <= 0.40:
+            score_cert = 10
+            
+        conf_score = int(min(100, score_base + score_whale + score_liq + score_cert))
+        
+        # --- 3. LEVEL 1: INSTANT SIGNAL ---
+        # 🟢 BUY YES @ X¢  or  🛑 SKIP
+        # Confidence: X/100 · Edge: ±X% · Size: $X
+        
+        l1_text = ""
+        if is_positive_setup:
+            price_display = int(market.yes_price * 100) if rec_side == "YES" else int(market.no_price * 100)
+            l1_text += f"{get_text('l1.signal_buy', lang, side=rec_side, price=price_display)}\n"
+            
+            # Size calc
+            size_str = f"{k_safe:.1f}%"
+            l1_text += f"{get_text('l1.stats', lang, score=conf_score, edge=f'{edge_pp:+.1f}', size=size_str)}\n"
+        else:
+            l1_text += f"{get_text('l1.signal_skip', lang)}\n"
+            l1_text += f"{get_text('l1.stats_skip', lang, score=conf_score, edge=f'{edge_pp:+.1f}')}\n"
+            
+        l1_text += "\n"
+
+        # --- 4. LEVEL 2: SIMPLE EXPLANATION ---
+        # 💬 WHY:
+        # • [Whale]
+        # • [Model]
+        # • [Risk]
+        # ⚡ ACTION: ...
+        
+        l2_text = f"{get_text('l2.why', lang)}\n"
+        reasons = []
+        
+        # Reason 1: Whales
+        if wa and wa.is_significant:
+            if whale_agrees:
+                reasons.append(get_text('l2.reason_whale_good', lang, side=rec_side))
+            else:
+                reasons.append(get_text('l2.reason_whale_bad', lang, side=wa.dominance_side))
+        else:
+             reasons.append(get_text('l2.reason_whale_none', lang))
+             
+        # Reason 2: Model
+        # "Model sees X% vs Market Y%"
+        reasons.append(get_text('l2.reason_model_view', lang, model=f"{p_model*100:.0f}", market=f"{p_market*100:.0f}"))
+        
+        # Reason 3: Risk/Factor
+        if market.liquidity < 2000:
+            reasons.append(get_text('l2.risk_liq', lang))
+        elif market.days_to_close > 30:
+            reasons.append(get_text('l2.risk_time', lang))
+        elif not is_positive_setup:
+             reasons.append(get_text('l2.risk_low_edge', lang))
+        else:
+             reasons.append(get_text('l2.factor_good', lang))
+             
+        for r in reasons:
+            l2_text += f"• {r}\n"
+            
+        # ACTION
+        action_val = ""
+        if is_positive_setup:
+             action_val = get_text('l2.act_buy', lang, pct=f"{k_safe:.1f}")
+        else:
+             action_val = get_text('l2.act_wait', lang)
+             
+        l2_text += f"\n{get_text('l2.action_label', lang, action=action_val)}\n"
+        
+        # Separator
+        l2_text += "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+
+        # --- 5. LEVEL 3: TECHNICAL DETAILS (ALL MODELS) ---
+        # 📊 MODELS & DATA
+        l3_text = f"{get_text('l3.header', lang)}\n\n"
+        
+        # MC
         mc = deep.monte_carlo
         if mc:
-            text += f"{get_text('deep.head.model', lang)}\n"
-            mc_prob = mc.probability_yes * 100
-            text += f"• Prob (Sim): <b>{mc_prob:.1f}%</b>\n"
+            mc_runs = 10000 
+            mc_pnl = mc.edge if mc.edge else 0.0
+            l3_text += f"🎲 <b>Monte Carlo:</b> {mc.probability_yes*100:.1f}% YES\n"
+            l3_text += f"   <i>({get_text('l3.mc_detail', lang, runs=mc_runs, pnl=f'{mc_pnl:+.2f}')})</i>\n"
             
-            # Hidden PnL Logic
-            mc_edge = mc.edge if mc.edge else 0.0
-            if abs(mc_edge) > 0.05:
-                text += f"• Expected PnL: <b>{mc_edge:+.2f}</b>\n"
-
-            if mc.mode == "crypto":
-                 p5 = mc.percentile_5 if hasattr(mc, 'percentile_5') else 0
-                 p95 = mc.percentile_95 if hasattr(mc, 'percentile_95') else 0
-                 val_p5 = f"${p5:,.2f}" if p5 >= 1000 else f"${p5:.2f}"
-                 val_p95 = f"${p95:,.2f}" if p95 >= 1000 else f"${p95:.2f}"
-                 text += f"• Range: <b>{val_p5} — {val_p95}</b>\n"
-            text += "\n"
-
-        # BAYESIAN (Simplified Header)
+        # Bayesian
         bayes = deep.bayesian
         if bayes:
-            text += f"{get_text('deep.head.signals', lang)}\n"
-            text += f"• Posterior: <b>{bayes.posterior*100:.1f}%</b> {get_text('deep.expl.post', lang)}\n"
-            b_comm = "Neutral"
-            if bayes.has_signal: 
-                 if bayes.posterior > p_market: b_comm = "Bullish"
-                 else: b_comm = "Bearish"
-            text += f"• Signal: {b_comm}\n\n"
-
-        # EDGE & PROBS
-        text += f"{get_text('deep.probs', lang)}\n"
-        text += f"• {get_text('deep.prob_market', lang, pct=f'<b>{p_market*100:.1f}%</b>')}\n"
-        text += f"• {get_text('deep.prob_model', lang, pct=f'<b>{p_model*100:.1f}%</b>')}\n"
-        
-        edge_sign = "+" if edge_pp > 0 else ""
-        roi = (edge_raw / p_market) * 100 if p_market > 0 else 0.0
-        emoji = "🟢" if edge_pp > 0 else "🔴"
-        edge_str = f"{edge_sign}{edge_pp:.1f}"
-        
-        text += f"• Edge: {emoji} <b>{edge_str} п.п.</b> {get_text('deep.expl.edge', lang)}\n\n"
-
-        # KELLY (Simplified Header)
-        text += f"{get_text('deep.head.sizing', lang)}\n"
+            sig_str = "Neutral"
+            if bayes.has_signal:
+                sig_str = "Strong" if abs(bayes.posterior - bayes.prior) > 0.05 else "Weak"
+            l3_text += f"🧠 <b>Bayesian:</b> {bayes.prior*100:.0f}% → {bayes.posterior*100:.1f}%\n"
+            l3_text += f"   <i>(signal: {sig_str})</i>\n"
+            
+        # Kelly
         if deep.kelly:
-            if is_positive_setup:
-                 text += f"• <b>REC: {k_safe:.1f}%</b> ({fraction_name})\n"
-                 text += f"• Full Kelly: {deep.kelly.kelly_full*100:.1f}%\n"
-            else:
-                 text += f"• Edge &lt; 2%: <b>SKIP</b>\n"
-        else:
-            text += "• N/A\n"
-        text += "\n"
-        
-        # THETA (Simplified Header)
+            l3_text += f"💰 <b>Kelly:</b> Full {deep.kelly.kelly_full*100:.1f}%, Time {deep.kelly.kelly_time_adj_pct:.1f}%\n"
+            l3_text += f"   <i>(Rec: {k_safe:.1f}%)</i>\n"
+            
+        # Theta
         if deep.greeks and deep.greeks.theta:
              th = deep.greeks.theta.theta_yes if rec_side == "YES" else deep.greeks.theta.theta_no
-             # Check threshold < 1 cent (as requested, sticking to 0.5 for safety or 0.1)
-             # User said: "Hide Theta if < 1¢". So abs(th) >= 1.0 needed to show.
-             if abs(th) >= 0.5: 
-                text += f"{get_text('deep.head.time', lang)}\n"
-                text += f"• Decay: <b>{th:+.2f}¢</b>/day\n\n"
-
-        # CONCLUSION
-        text += f"{get_text('deep.conclusion', lang)}\n"
-        if is_positive_setup:
-            text += get_text(conclusion_key, lang, side=rec_side, pct=f"{k_safe:.1f}")
-        else:
-            text += get_text(conclusion_key, lang, edge=f"{edge_pp:.1f}")
+             th_side = get_text('theta_yours', lang) if abs(th) > 0 else get_text('theta_market', lang)
+             l3_text += f"⏳ <b>Theta:</b> {th:+.2f}¢/day\n"
+             
+        l3_text += "\n"
+        
+        # Whale Flow
+        if wa:
+            l3_text += f"🐋 <b>Whale Flow:</b> ${format_volume(wa.yes_volume)} YES / ${format_volume(wa.no_volume)} NO\n"
+            l3_text += f"   <i>(Tilt: {wa.dominance_side} {wa.dominance_pct:.0f}%)</i>\n"
             
-        if not text.strip().endswith("."):
-            text = text.strip() + "."
+        # Liquidity & Time
+        liq_lbl = "High" if market.liquidity > 25000 else ("Low" if market.liquidity < 2000 else "Mid")
+        l3_text += f"💧 <b>Liq:</b> ${format_volume(market.liquidity)} ({liq_lbl})\n"
+        l3_text += f"⏱️ <b>Time:</b> {market.days_to_close}d to resolution\n"
 
-        return text
-    
+        # Combine
+        return l1_text + l2_text + l3_text
+
     except Exception as e:
         logger.error(f"Quant Format Error: {e}", exc_info=True)
         return f"⚠️ <b>Analysis Info Error</b>: {e}"
