@@ -424,6 +424,96 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
             text += f"• {get_text('quant.kelly_final_rec', lang, pct=k_final_pct)}\n\n"
             text += f"{get_text('quant.kelly_time_comment', lang)}\n\n"
         
+        # Market internals and smart money flow section
+        # Extract required data from market and whale analysis
+        yes_price_cents = int(market.yes_price * 100)
+        no_price_cents = int(market.no_price * 100)
+        spread_cents = abs(yes_price_cents - no_price_cents)
+        
+        vol_24h_formatted = format_volume(market.volume_24h)
+        vol_total_formatted = format_volume(market.volume_total)
+        liquidity_formatted = format_volume(market.liquidity)
+        
+        # Determine liquidity label
+        if market.liquidity < 50000:
+            liq_label = get_text('quant.liq_low', lang)
+        elif market.liquidity < 200000:
+            liq_label = get_text('quant.liq_medium', lang)
+        else:
+            liq_label = get_text('quant.liq_high', lang)
+        
+        # Smart money data
+        wa = market.whale_analysis
+        if wa:
+            smart_yes_usd = wa.yes_volume
+            smart_no_usd = wa.no_volume
+            total_smart = smart_yes_usd + smart_no_usd
+            
+            if total_smart > 0:
+                smart_yes_pct = int((smart_yes_usd / total_smart) * 100)
+                smart_no_pct = 100 - smart_yes_pct
+                
+                # Determine tilt label
+                if smart_yes_pct >= 70:
+                    tilt_label = get_text('quant.tilt_strong_yes', lang)
+                elif smart_yes_pct >= 55:
+                    tilt_label = get_text('quant.tilt_slight_yes', lang)
+                elif smart_yes_pct >= 45:
+                    tilt_label = get_text('quant.tilt_balanced', lang)
+                elif smart_yes_pct >= 30:
+                    tilt_label = get_text('quant.tilt_slight_no', lang)
+                else:
+                    tilt_label = get_text('quant.tilt_strong_no', lang)
+                
+                # Last whale trade info
+                last_whale_usd = wa.top_trade_size
+                last_whale_side = wa.top_trade_side
+                
+                # Calculate time since last whale trade
+                if wa.last_trade_timestamp > 0:
+                    import time as _time
+                    hours_since = (_time.time() - wa.last_trade_timestamp) / 3600
+                    if hours_since < 1:
+                        minutes = int(hours_since * 60)
+                        last_whale_ago = f"{minutes}m"
+                    elif hours_since < 24:
+                        last_whale_ago = f"{int(hours_since)}h"
+                    else:
+                        last_whale_ago = f"{int(hours_since/24)}d"
+                else:
+                    last_whale_ago = "N/A"
+            else:
+                smart_yes_pct = 50
+                smart_no_pct = 50
+                tilt_label = get_text('quant.tilt_balanced', lang)
+                last_whale_usd = 0
+                last_whale_side = "N/A"
+                last_whale_ago = "N/A"
+        else:
+            smart_yes_pct = 50
+            smart_no_pct = 50
+            tilt_label = get_text('quant.tilt_balanced', lang)
+            smart_yes_usd = 0
+            smart_no_usd = 0
+            last_whale_usd = 0
+            last_whale_side = "N/A"
+            last_whale_ago = "N/A"
+        
+        # Add market internals section
+        text += f"{get_text('quant.header_market', lang)}\n"
+        text += f"{get_text('quant.prices_line', lang, yes_price=yes_price_cents, no_price=no_price_cents)}\n"
+        text += f"{get_text('quant.spread_line', lang, spread=spread_cents)}\n"
+        text += f"{get_text('quant.volume_line', lang, vol_24h=vol_24h_formatted, vol_total=vol_total_formatted)}\n"
+        text += f"{get_text('quant.liquidity_line', lang, liq_label=liq_label, liquidity=liquidity_formatted)}\n\n"
+        
+        # Add smart money flow section
+        text += f"{get_text('quant.smart_tilt_header', lang)}\n"
+        text += f"{get_text('quant.smart_tilt_line', lang, smart_yes_pct=smart_yes_pct, smart_no_pct=smart_no_pct)}\n"
+        text += f"{get_text('quant.smart_yes_usd_line', lang, smart_yes_usd=int(smart_yes_usd))}\n"
+        text += f"{get_text('quant.smart_no_usd_line', lang, smart_no_usd=int(smart_no_usd))}\n"
+        text += f"{get_text('quant.tilt_direction_line', lang, tilt_label=tilt_label)}\n"
+        text += f"{get_text('quant.last_whale_line', lang, last_whale_usd=int(last_whale_usd), last_whale_side=last_whale_side, last_whale_ago=last_whale_ago)}\n\n"
+        
         text += f"{get_text('quant.header_theta', lang)}\n"
         text += f"• {get_text('quant.theta_time_edge', lang, val=theta_daily)}\n"
         text += f"• {get_text('quant.theta_short', lang, text=theta_comment)}\n\n"
