@@ -259,8 +259,25 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
             k_safe = deep.kelly.kelly_final_pct or 0.0
             fraction_name = deep.kelly.fraction_name
 
-        rec_side = "YES" if edge_raw > 0 else "NO"
-        is_positive_setup = (abs(edge_pp) >= 2.0) and (k_safe > 0.0)
+        # Correct Edge Logic
+        rec_side = "SKIP"
+        edge_pp = 0.0
+        
+        if p_model > p_market:
+            rec_side = "YES"
+            edge_pp = (p_model - p_market) * 100
+        elif (1.0 - p_model) > (1.0 - p_market):
+            rec_side = "NO"
+            edge_pp = ((1.0 - p_model) - (1.0 - p_market)) * 100
+            
+        edge_raw = edge_pp / 100.0 # Backwards compat if needed
+        
+        is_positive_setup = (edge_pp >= 2.0) and (k_safe > 0.0)
+        
+        # If skip, edge is effectively 0 for display unless we want to show why
+        if not is_positive_setup:
+             # Revert to raw diff for skip context
+             edge_pp = (p_model - p_market) * 100
         
         pp_unit = get_text("quant.pp", lang)
         
@@ -359,12 +376,18 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
              reasons.append(get_text('l2.reason_whale_none', lang))
              
         # Reason 2: Model
-        model_txt = get_text('l2.reason_model_view', lang, model=f"{p_model*100:.0f}", market=f"{p_market*100:.0f}")
+        # Reason 2: Model
+        if rec_side == "NO":
+             model_txt = get_text('l2.reason_model_view', lang, model=f"{(1-p_model)*100:.0f}", market=f"{(1-p_market)*100:.0f}")
+             model_txt += f" (+{edge_pp:.1f}% edge)" # Explicit edge
+        else:
+             model_txt = get_text('l2.reason_model_view', lang, model=f"{p_model*100:.0f}", market=f"{p_market*100:.0f}")
+             
         if abs(edge_pp) < 1.0:
              no_edge_str = "no edge"
              try: no_edge_str = get_text("l3.kelly_no_edge", lang)
              except: pass
-             model_txt += f" ({no_edge_str})"
+             model_txt = get_text('l2.reason_model_view', lang, model=f"{p_model*100:.0f}", market=f"{p_market*100:.0f}") + f" ({no_edge_str})"
              
         reasons.append(model_txt)
         
@@ -426,8 +449,15 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
                 sig_str = "Neutral"
 
             prior_disp = market.yes_price
-            l3_text += f"🧠 <b>{get_text('l3.bayes_label', lang)}:</b> {prior_disp*100:.0f}% → {bayes.posterior*100:.1f}%\n"
-            l3_text += f"   <i>({get_text('l3.signal_label', lang)}: {sig_str})</i>\n"
+            post_disp = bayes.posterior
+            
+            if rec_side == "NO":
+                 # Show NO probabilities
+                 l3_text += f"🧠 <b>{get_text('l3.bayes_label', lang)}:</b> {(1-prior_disp)*100:.0f}% YES → {(1-post_disp)*100:.1f}% YES\n"
+                 l3_text += f"   <i>(= {(1-(1-post_disp))*100:.0f}% NO / {get_text('l3.signal_label', lang)}: {sig_str})</i>\n"
+            else:
+                 l3_text += f"🧠 <b>{get_text('l3.bayes_label', lang)}:</b> {prior_disp*100:.0f}% → {post_disp*100:.1f}%\n"
+                 l3_text += f"   <i>({get_text('l3.signal_label', lang)}: {sig_str})</i>\n"
             
         # Kelly
         if deep.kelly:
