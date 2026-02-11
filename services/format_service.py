@@ -315,6 +315,13 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         
         # --- 3. LEVEL 1: INSTANT SIGNAL ---
         l1_text = ""
+        
+        # Header: Title + Stats
+        q_title = html.escape(market.question)
+        l1_text += f"<b>{q_title}</b>\n\n"
+        l1_text += f"💰 {get_text('detail.yes', lang)} {format_price(market.yes_price)} · {get_text('detail.no', lang)} {format_price(market.no_price)} · Vol: {format_volume(market.volume_24h)}\n"
+        l1_text += "────────────────────────────\n"
+        
         if is_positive_setup:
             price_display = int(market.yes_price * 100) if rec_side == "YES" else int(market.no_price * 100)
             l1_text += f"{get_text('l1.signal_buy', lang, side=rec_side, price=price_display)}\n"

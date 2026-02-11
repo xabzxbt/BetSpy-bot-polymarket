@@ -138,6 +138,8 @@
   "detail.score_sm_ratio": "  SM%: {v}/{max}",
   "detail.score_liquidity": "  Liq: {v}/{max}",
   "detail.score_recency": "  Time: {v}/{max}",
+  "detail.yes": "YES",
+  "detail.no": "NO",
   "detail.signal": "{emoji} <b>Alpha Score: {score}/100</b>",
   "detail.rec_bet": "✅ <b>BUY: {side} @ {price}</b>",
   "detail.rec_target": "🎯 Tgt: {target} (+{pct}%) | 🛑 Stop: {stop}",
