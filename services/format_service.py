@@ -282,9 +282,26 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         kelly_fraction_safe = int(k_safe * 100)
         
         # 6. Theta
-        theta_val = deep.greeks.theta if deep.greeks else 0.0
-        theta_daily = f"{theta_val:+.1f}¢" if deep.greeks else "дані відсутні"
-        theta_comment = "ви платите за час (theta-)" if theta_val < 0 else "час грає на вас (theta+)"
+        theta_val = 0.0
+        theta_comment = "дані відсутні"
+        
+        if deep.greeks and deep.greeks.theta:
+            # Determine which side's Theta to show
+            # If we recommend a side, show Theta for that side
+            # Otherwise, show Theta for the dominant side (market favorite)
+            target_side = deep.recommended_side
+            if target_side not in ["YES", "NO"]:
+                target_side = deep.greeks.theta.dominant_side
+            
+            if target_side == "YES":
+                theta_val = deep.greeks.theta.theta_yes
+            else:
+                theta_val = deep.greeks.theta.theta_no
+                
+            theta_daily = f"{theta_val:+.1f}¢"
+            theta_comment = "ви платите за час (theta-)" if theta_val < 0 else "час грає на вас (theta+)"
+        else:
+            theta_daily = "дані відсутні"
         
         # 7. Internals
         wa = market.whale_analysis
