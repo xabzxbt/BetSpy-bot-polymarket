@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 from sqlalchemy import select, update
 from loguru import logger
 
-from config import get_settings
+from config import get_settings, get_profile_link
 from polymarket_api import api_client, Trade
 from models import User, TrackedWallet, OpenPosition
 from i18n import get_text, get_side_text
@@ -588,6 +588,7 @@ class TradeNotificationService:
     ) -> str:
         """Format trade notification message."""
         side_text = get_side_text(trade.side, lang)
+        profile_link = get_profile_link(trade.proxy_wallet)
         
         return get_text(
             "new_trade",
@@ -600,6 +601,7 @@ class TradeNotificationService:
             usdc_size=trade.usdc_size,
             price=trade.price,
             market_link=trade.market_link,
+            profile_link=profile_link,
         )
     
     def _format_close_notification(
@@ -614,6 +616,7 @@ class TradeNotificationService:
     ) -> str:
         """Format position close notification with PnL."""
         side_text = get_side_text(trade.side, lang)
+        profile_link = get_profile_link(trade.proxy_wallet)
         
         # Determine emoji based on PnL
         if pnl > 0:
@@ -643,6 +646,7 @@ class TradeNotificationService:
             pnl_abs=abs(pnl),
             pnl_percent=pnl_percent,
             market_link=trade.market_link,
+            profile_link=profile_link,
         )
     
     def _format_sell_notification(
@@ -653,6 +657,7 @@ class TradeNotificationService:
     ) -> str:
         """Format SELL notification when no entry price is known."""
         side_text = get_side_text(trade.side, lang)
+        profile_link = get_profile_link(trade.proxy_wallet)
         
         return get_text(
             "trade_closed_no_entry",
@@ -665,6 +670,7 @@ class TradeNotificationService:
             usdc_size=trade.usdc_size,
             price=trade.price,
             market_link=trade.market_link,
+            profile_link=profile_link,
         )
 
     def _format_batch_trade_notification(
@@ -690,9 +696,11 @@ class TradeNotificationService:
         import datetime
         latest_time = datetime.datetime.fromtimestamp(latest_timestamp).strftime('%H:%M')
         
+        profile_link = get_profile_link(first_trade.proxy_wallet)
+        
         # Create the header with summary
         header = f"🐋 <b>НОВІ УГОДИ ({trade_count})</b>\n"
-        header += f"├ <b>{wallet_name}</b>\n"
+        header += f"├ <a href='{profile_link}'>{wallet_name}</a>\n"
         header += f"├ Угода: {latest_time}\n"
         header += f"├ Всього: ${total_usdc:.2f} USDC\n"
         header += f"└ Трейди: {trade_count}\n\n"

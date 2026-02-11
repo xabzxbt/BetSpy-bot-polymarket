@@ -138,3 +138,15 @@ def get_referral_link(event_slug: str, market_slug: str = "") -> str:
     
     return base_url
 
+
+def get_profile_link(address: str) -> str:
+    """Generate Polymarket profile link with referral code."""
+    settings = get_settings()
+    base_url = f"https://polymarket.com/profile/{address}"
+
+    if settings.polymarket_referral_code:
+        ref_code = settings.polymarket_referral_code.strip().rstrip('-')
+        return f"{base_url}?via={ref_code}"
+    
+    return base_url
+
