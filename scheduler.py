@@ -699,25 +699,38 @@ class TradeNotificationService:
         profile_link = get_profile_link(first_trade.proxy_wallet)
         
         # Create the header with summary
-        header = f"🐋 <b>НОВІ УГОДИ ({trade_count})</b>\n"
-        header += f"├ <a href='{profile_link}'>{wallet_name}</a>\n"
-        header += f"├ Угода: {latest_time}\n"
-        header += f"├ Всього: ${total_usdc:.2f} USDC\n"
-        header += f"└ Трейди: {trade_count}\n\n"
+        header = get_text(
+            "batch_trade.header", lang,
+            count=trade_count,
+            profile_link=profile_link,
+            wallet_name=wallet_name,
+            time=latest_time,
+            total_usdc=total_usdc
+        )
         
         # Add individual trades (limit to 5 to avoid too long messages)
-        body = "<b>ДЕТАЛІ:</b>\n"
+        body = get_text("batch_trade.details", lang) + "\n"
+        
         for i, trade in enumerate(trades[:5]):  # Limit to first 5 trades in the message
             side_text = get_side_text(trade.side, lang)
-            body += f"├ {side_text} {trade.title[:30]}{'...' if len(trade.title) > 30 else ''}\n"
-            body += f"├ Сума: ${trade.usdc_size:.2f} USDC\n"
-            body += f"└ Ціна: {trade.price:.4f}\n\n"
+            # Truncate title
+            title = trade.title[:35] + ("..." if len(trade.title) > 35 else "")
+            
+            item = get_text(
+                "batch_trade.item", lang,
+                market_title=title,
+                side=side_text,
+                outcome=trade.outcome,
+                price=trade.price,
+                usdc_size=trade.usdc_size
+            )
+            body += item + "\n\n"
         
         # If there are more than 5 trades, add a note
         if len(trades) > 5:
-            body += f"<i>+ще {len(trades) - 5} угод(и)...</i>\n\n"
+            body += get_text("batch_trade.more", lang, count=len(trades) - 5)
         
-        footer = "💡 Перевір свій кабінет для детального аналізу"
+        footer = get_text("batch_trade.footer", lang)
         
         return header + body + footer
     
