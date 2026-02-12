@@ -51,16 +51,16 @@ async def hot_categories_handler(callback: CallbackQuery):
     """Menu with category filters"""
     _, lang = await resolve_user(callback.from_user)
     
-    text = "📊 <b>Market Categories</b>\nSelect a category to see trending markets:"
+    text = get_text("hot.categories_title", lang)
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🏀 Sports", callback_data="hot_sports"),
-            InlineKeyboardButton(text="₿ Crypto", callback_data="hot_crypto"),
+            InlineKeyboardButton(text=get_text("btn.sports", lang), callback_data="hot_sports"),
+            InlineKeyboardButton(text=get_text("btn.crypto", lang), callback_data="hot_crypto"),
         ],
         [
-            InlineKeyboardButton(text="🏛 Politics", callback_data="hot_politics"),
-            InlineKeyboardButton(text="◀️ Back to HOT", callback_data="hot_all"),
+            InlineKeyboardButton(text=get_text("btn.politics", lang), callback_data="hot_politics"),
+            InlineKeyboardButton(text=get_text("btn.back_hot", lang), callback_data="hot_all"),
         ],
     ])
     
@@ -81,10 +81,10 @@ async def hot_sports_handler(callback: CallbackQuery):
         limit=10
     )
     
-    text = format_hot_markets(markets, "Sports", lang)
+    text = format_hot_markets(markets, get_text("cat.sports", lang), lang)
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Back", callback_data="hot_all")],
+        [InlineKeyboardButton(text=get_text("btn.back_hot", lang), callback_data="hot_all")],
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -104,10 +104,10 @@ async def hot_crypto_handler(callback: CallbackQuery):
         limit=10
     )
     
-    text = format_hot_markets(markets, "Crypto", lang)
+    text = format_hot_markets(markets, get_text("cat.crypto", lang), lang)
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Back", callback_data="hot_all")],
+        [InlineKeyboardButton(text=get_text("btn.back_hot", lang), callback_data="hot_all")],
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -127,10 +127,10 @@ async def hot_politics_handler(callback: CallbackQuery):
         limit=10
     )
     
-    text = format_hot_markets(markets, "Politics", lang)
+    text = format_hot_markets(markets, get_text("cat.politics", lang), lang)
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Back", callback_data="hot_all")],
+        [InlineKeyboardButton(text=get_text("btn.back_hot", lang), callback_data="hot_all")],
     ])
     
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")

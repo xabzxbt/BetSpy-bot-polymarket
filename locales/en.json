@@ -262,7 +262,15 @@
   "hot.total_risk": "Total Risk: {risk}% of bankroll",
   "hot.advice": "⚠️ Don't take all bets — pick the best 2-3.",
   "hot.title_global": "Hot Today (Global)",
+  "hot.desc": "Top volume & whale action:",
+  "hot.edge_zero": "📈 Edge: ~0 (market ≈ model)",
+  "hot.skip": "💼 0% (SKIP)",
+  "hot.categories_title": "📊 <b>Market Categories</b>\nSelect a category to see trending markets:",
   "btn.categories": "📊 Categories",
   "btn.signals": "⚡ Signals",
+  "btn.sports": "🏀 Sports",
+  "btn.crypto": "₿ Crypto",
+  "btn.politics": "🏛 Politics",
+  "btn.back_hot": "◀️ Back to HOT",
   "bayes_c_confirm": "Confirms market"
 }

@@ -784,8 +784,8 @@ def format_hot_line(idx: int, m: MarketStats, lang: str) -> str:
         edge_str = f"📈 Edge: {edge_val*100:+.1f}% → {rec_side}"
         size_str = f"💼 {kelly_pct:.1f}%"
     else:
-        edge_str = "📈 Edge: ~0 (market ≈ model)"
-        size_str = "💼 0% (SKIP)"
+        edge_str = get_text("hot.edge_zero", lang)
+        size_str = get_text("hot.skip", lang)
     
     # Smart Money conflict marker
     sm_icon = ""
@@ -830,7 +830,7 @@ def format_hot_markets(markets: List[MarketStats], category_name: str, lang: str
     
     # Header
     text = f"🔥 <b>Hot {category_name}</b>\n\n"
-    text += "Top volume & whale action:\n\n"
+    text += f"{get_text('hot.desc', lang)}\n\n"
     
     # List markets
     for idx, m in enumerate(markets[:10], start=1):
