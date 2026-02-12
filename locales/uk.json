@@ -347,6 +347,6 @@
   "holders.comparison_med": "   Med PnL:  ${yes_med} vs ${no_med} {check}",
   "holders.comparison_count": "   Smart >$3K: {yes_count} vs {no_count} {check}",
   "holders.comparison_prof": "   Profitable: {yes_pct}% vs {no_pct}% {check}",
-  "holders.line_empty": "   {side}: N/A (дані відсутні або <3 холдери)",
+  "holders.line_empty": "   {side}: N/A (дані відсутні або &lt;3 холдери)",
   "bayes_c_confirm": "Підтверджує ринок"
 }
