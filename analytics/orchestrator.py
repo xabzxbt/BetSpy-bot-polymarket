@@ -156,6 +156,7 @@ async def run_deep_analysis(
                     market.condition_id,
                     yes_price=market.yes_price,
                     no_price=market.no_price,
+                    limit=250,  # Increased per user request to 250 (requires high API rate limit)
                 )
         
         tasks["holders"] = _fetch_holders_task()

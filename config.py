@@ -90,13 +90,13 @@ class Settings(BaseSettings):
 
     # Rate Limiting
     api_rate_limit_requests: int = Field(
-        default=30,
+        default=100,
         ge=1,
         description="Maximum API requests per period",
     )
 
     api_rate_limit_period_seconds: int = Field(
-        default=60,
+        default=10,
         ge=1,
         description="Rate limit period in seconds",
     )

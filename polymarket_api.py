@@ -450,8 +450,8 @@ class PolymarketApiClient:
             
             logger.info(f"Found {len(raw_holders)} raw holders for {condition_id}")
             
-            # Take top 30 for analysis
-            top_holders = raw_holders[:30]
+            # Take all holders returned by API (controlled by limit param)
+            top_holders = raw_holders
             
             yes_positions = []
             no_positions = []
