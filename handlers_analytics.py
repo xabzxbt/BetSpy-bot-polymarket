@@ -62,6 +62,15 @@ async def callback_deep_analysis(callback: CallbackQuery) -> None:
         # TODO: load user bankroll from DB (for now use default)
         bankroll = DEFAULT_BANKROLL
 
+        # --- TEMPORARY TEST AS REQUESTED ---
+        try:
+            from polymarket_api import PolymarketApiClient
+            async with PolymarketApiClient() as api:
+                await api.test_holders_endpoint(market.condition_id)
+        except Exception as e:
+            logger.error(f"Test endpoint failed: {e}")
+        # -----------------------------------
+
         result = await run_deep_analysis(
             market=market,
             bankroll=bankroll,

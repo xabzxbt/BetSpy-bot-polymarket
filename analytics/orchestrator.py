@@ -125,7 +125,7 @@ async def run_deep_analysis(
     price_history = PriceHistory()
     crypto_data = None
     trades = []
-    holders_positions = []
+    holders_positions = ([], []) # (yes, no)
 
     # Determine which CLOB token ID to use for price history
     clob_id = market.clob_token_ids[0] if market.clob_token_ids else ""
@@ -179,6 +179,10 @@ async def run_deep_analysis(
                     trades = result
                 elif key == "holders" and result:
                     holders_positions = result
+                    yes_h, no_h = result
+                    logger.info(f"Market holders (Orchestrator): {len(yes_h)} YES, {len(no_h)} NO")
+                    if not yes_h and not no_h:
+                        logger.warning(f"No holders data for market {market.condition_id}. Check /holders endpoint.")
 
     except Exception as e:
         errors["data_fetch"] = str(e)
@@ -312,8 +316,9 @@ async def run_deep_analysis(
     holders_res = None
     
     try:
-        yes_stats = calculate_side_stats(holders_positions, "YES")
-        no_stats = calculate_side_stats(holders_positions, "NO")
+        yes_holders, no_holders = holders_positions
+        yes_stats = calculate_side_stats(yes_holders, "YES")
+        no_stats = calculate_side_stats(no_holders, "NO")
         
         # Calculate Smart Score
         # We need model probability for the score logic

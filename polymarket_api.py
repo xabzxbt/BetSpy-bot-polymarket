@@ -419,174 +419,114 @@ class PolymarketApiClient:
         condition_id: str,
         yes_price: float = 0.5,
         no_price: float = 0.5,
-        limit: int = 100,  # Limit for initial holder list
-    ) -> List[Position]:
+        limit: int = 100,
+    ) -> Tuple[List[Position], List[Position]]:
         """
-        Get position holders for a specific market.
-        
-        Methodology:
-        1. Call /holders to get list of wallets (and raw amounts).
-        2. For top N holders, call /positions to get valid PnL/Entry Price data.
-           (Since /holders endpoint usually doesn't give PnL).
-        
-        NOTE: /positions requires 'user' param. match specific conditionId to avoid fetching all user positions.
+        Get market holders split by YES/NO outcome.
+        Returns: (yes_positions, no_positions)
         """
-        # Endpoint provided by user: /holders
-        # Params: market (conditionId), limit
         url = f"{self.data_api_url}/holders"
         params = {
             "market": condition_id,
             "limit": limit,
-            # "minBalance": "1" # Optional
         }
-
+        
         try:
-            # 1. Get List of Holders
-            # Note: This endpoint might return { "holders": [...] } or just [...]
-            # User example: { "token": "...", "holders": [...] }
             response = await self._request("GET", url, params)
             
             raw_holders = []
             if isinstance(response, dict) and "holders" in response:
                 raw_holders = response["holders"]
             elif isinstance(response, list):
-                # Handle list of token objects (e.g. [{token:..., holders:[...]}, ...])
                 if response and isinstance(response[0], dict) and "holders" in response[0]:
                     for item in response:
                         raw_holders.extend(item.get("holders", []))
                 else:
-                    # Assume flat list of holders
                     raw_holders = response
-            else:
-                logger.warning(f"Unexpected /holders response format: {type(response)}")
-                return []
             
             if not raw_holders:
-                return []
-
-            logger.info(f"Found {len(raw_holders)} raw holders. Fetching details for top {min(len(raw_holders), 30)}...")
-
-            # 2. Fetch detailed positions for top 30 to get PnL
-            # We can't do all 1000 due to rate limits/time.
-            # Analytical compromise: Stats will be based on TOP holders, which is often what we want for "Smart Money".
+                logger.warning(f"No holders found for condition {condition_id}")
+                return [], []
             
-            top_holders = raw_holders[:30] # Analyze top 30 whales/holders
+            logger.info(f"Found {len(raw_holders)} raw holders for {condition_id}")
             
-            async def _fetch_pos(h_data):
+            # Take top 30 for analysis
+            top_holders = raw_holders[:30]
+            
+            yes_positions = []
+            no_positions = []
+            
+            async def _fetch_and_classify(h_data):
                 wallet = h_data.get("proxyWallet")
-                holder_asset_id = h_data.get("asset") # Asset ID from /holders (e.g. token ID)
-
-                # logger.debug(f"_fetch_pos called: wallet={wallet}, asset={holder_asset_id}")
-
                 if not wallet:
-                    logger.warning(f"No proxyWallet in holder data: {h_data}")
                     return None
-                    
-                pos = None
                 
-                # Get specific position for this market
                 try:
-                    # logger.debug(f"Fetching /positions for wallet={wallet}")
+                    # Get detailed position for this wallet
                     p_url = f"{self.data_api_url}/positions"
                     p_params = {
-                        "user": wallet, 
-                        "limit": 100,
-                        "sortBy": "CURRENT",
-                        "sortDirection": "DESC"
-                    } 
+                        "user": wallet.lower(),
+                        "limit": 50,
+                    }
                     
                     pos_data = await self._request("GET", p_url, p_params)
-                    
-                    # Determine count safely
                     p_list = pos_data if isinstance(pos_data, list) else []
                     
-                    # Result is list of positions. Find the one matching our market.
+                    # Find position matching our market
                     for item in p_list:
-                        # 1. Check Condition ID match
-                        if condition_id and item.get("conditionId") == condition_id:
+                        if item.get("conditionId") == condition_id:
                             pos = Position.from_api_response(item)
-                            break
-                        
-                        # 2. Check Asset ID match
-                        if holder_asset_id and item.get("asset") == holder_asset_id:
-                            pos = Position.from_api_response(item)
-                            break
+                            
+                            # Enrich with profile PnL
+                            try:
+                                profile = await self.get_profile(wallet)
+                                if profile:
+                                    pos.holder_lifetime_pnl = profile.pnl
+                                    pos.holder_volume = profile.volume
+                            except Exception as e:
+                                logger.debug(f"Profile fetch failed for {wallet}: {e}")
+                            
+                            return pos
                     
-                    # If not found in detailed positions, use raw data as fallback
-                    if not pos:
-                        logger.debug(f"No matching position found in /positions, creating fallback for {wallet}")
-                        
-                        # Raw data: amount (shares). We can calc value approx.
-                        outcome_idx = h_data.get("outcomeIndex")
-                        outcome = "YES" if outcome_idx == 0 else "NO"
-                        
-                        # Estimate price and value
-                        est_price = yes_price if outcome == "YES" else no_price
-                        size = float(h_data.get("amount", 0))
-
-                        # logger.debug(f"Fallback data: outcome={outcome}, outcomeIdx={outcome_idx}, size={size}")
-                        
-                        if size > 0:
-                            est_value = size * est_price
-                            pos = Position(
-                                condition_id=condition_id,
-                                asset=holder_asset_id or "",
-                                outcome=outcome,
-                                outcome_index=outcome_idx,
-                                size=size,
-                                avg_price=est_price,
-                                cur_price=est_price,
-                                current_value=est_value,
-                                initial_value=est_value, # Approx
-                                cash_pnl=0.0,
-                                percent_pnl=0.0,
-                                realized_pnl=0.0,
-                                proxy_wallet=wallet,
-                                title="Unknown",
-                                slug="unknown",
-                                event_slug="unknown",
-                                holder_lifetime_pnl=0.0,
-                                holder_volume=0.0
-                            )
-                            logger.info(f"✓ Created fallback position: {wallet} {outcome} size={size:.2f} val=${est_value:.2f}")
-
-                    # ENRICH WITH PROFILE DATA (PnL)
-                    if pos:
-                        try:
-                            profile = await self.get_profile(wallet)
-                            if profile:
-                                pos.holder_lifetime_pnl = profile.pnl
-                                pos.holder_volume = profile.volume
-                                # Use profile name for better display if title is missing
-                                if pos.title == "Unknown" and profile.display_name:
-                                    pos.title = profile.display_name
-                        except Exception as e:
-                            logger.warning(f"Failed to enrich profile for {wallet}: {e}")
-
-                    return pos
-
-                except Exception as e:
-                    logger.error(f"✗ Exception in _fetch_pos for {wallet}: {type(e).__name__}: {e}", exc_info=True)
+                    # No matching position found
                     return None
-
-            # Run parallel fetches
-            results = await asyncio.gather(*[_fetch_pos(h) for h in top_holders], return_exceptions=True)
+                    
+                except Exception as e:
+                    logger.debug(f"Failed to fetch position for {wallet}: {e}")
+                    return None
             
-            valid_positions = []
-            for i, res in enumerate(results):
+            # Fetch all in parallel
+            results = await asyncio.gather(
+                *[_fetch_and_classify(h) for h in top_holders],
+                return_exceptions=True
+            )
+            
+            for res in results:
                 if isinstance(res, Position):
-                    valid_positions.append(res)
-                    # logger.debug(f"✓ Position {i}: {res.outcome} ${res.current_value:.2f}")
-                else:
-                    if res is not None:
-                        logger.warning(f"✗ Position {i}: {type(res)}")
+                    if res.outcome_index == 0:  # YES
+                        yes_positions.append(res)
+                    else:  # NO
+                        no_positions.append(res)
             
-            logger.info(f"Collected {len(valid_positions)} valid positions from {len(top_holders)} holders")
-            return valid_positions
-
+            logger.info(f"Classified holders: {len(yes_positions)} YES, {len(no_positions)} NO")
+            return yes_positions, no_positions
+            
         except Exception as e:
             logger.error(f"Failed to get holders for {condition_id}: {e}")
-            return []
+            return [], []
+
+    async def test_holders_endpoint(self, condition_id: str):
+        """Debug method to test /holders endpoint"""
+        url = f"{self.data_api_url}/holders"
+        params = {"market": condition_id, "limit": 20}
+        
+        try:
+            data = await self._request("GET", url, params)
+            logger.info(f"Raw /holders response: {data}")
+            return data
+        except Exception as e:
+            logger.error(f"/holders failed: {e}")
+            raise
 
     async def get_user_pnl_series(self, wallet_address: str, interval: str = "ALL") -> List[Dict[str, Any]]:
         """Get user PnL history series (Frontend API)."""
