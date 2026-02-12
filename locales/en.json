@@ -244,7 +244,7 @@
   "theta_yours": "Time is on your side (+)",
   "theta_market": "Time is against you (-)",
   "holders.title": "👥 <b>HOLDERS ANALYSIS:</b>",
-  "holders.line": "   {side}: {count} holders | Med: ${median} | Smart >$5K: {count_5k} ({pct}%)",
+  "holders.line": "   {side}: {count} holders | Med: ${median} | Smart >$3K: {count_5k} ({pct}%)",
   "holders.smart_score": "   🎯 Smart Score: {side} {score}/100",
   "holders.top_holder": "   🔥 Top holder {side}: ${profit} (@{addr}...)",
   "l2.reason_holders_median": "Holders median {side}: +${val} vs {opp}: -${opp_val}",
@@ -253,7 +253,8 @@
   "holders.top_holder_with_winrate": "🔥 Top holder {side}: ${profit} | {winrate}% win rate ({wins}W-{losses}L) (@{addr}...)",
   "holders.comparison_title": "👥 YES vs NO:",
   "holders.comparison_med": "   Med PnL:  ${yes_med} vs ${no_med} {check}",
-  "holders.comparison_count": "   Smart >$5K: {yes_count} vs {no_count} {check}",
+  "holders.comparison_count": "   Smart >$3K: {yes_count} vs {no_count} {check}",
   "holders.comparison_prof": "   Profitable: {yes_pct}% vs {no_pct}% {check}",
+  "holders.line_empty": "   {side}: N/A (no data or <3 holders)",
   "bayes_c_confirm": "Confirms market"
 }

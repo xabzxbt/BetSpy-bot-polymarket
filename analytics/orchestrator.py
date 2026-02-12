@@ -364,7 +364,7 @@ async def run_deep_analysis(
             # Top holder by PnL
             top = max(positions, key=lambda p: getattr(p, "holder_lifetime_pnl", 0.0))
             top_profit = getattr(top, "holder_lifetime_pnl", 0.0)
-            top_addr = getattr(top, "proxy_wallet", "") # Position object has proxy_wallet
+            top_addr = getattr(top, "wallet_address", getattr(top, "proxy_wallet", ""))
 
             # Extra stats matching SideStats
             above_10k = sum(1 for p in positions if getattr(p, "current_value", 0.0) > 10000)

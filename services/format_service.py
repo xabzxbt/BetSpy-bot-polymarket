@@ -117,7 +117,7 @@ def format_holders_block(holders: Any, lang: str) -> str:
         line_yes = get_text("holders.line", lang, side="YES", 
             count=yes.count, 
             median=f"{yes.median_pnl:+.0f}",
-            count_5k=yes.smart_count_5k, # Using Smart (Lifetime PnL > 5k, really 3k now)
+            count_5k=yes.smart_count_5k, # Using Smart (Lifetime PnL > 3k)
             pct=f"{smart_pct_yes:.1f}"
         )
     
@@ -130,7 +130,7 @@ def format_holders_block(holders: Any, lang: str) -> str:
         line_no = get_text("holders.line", lang, side="NO", 
             count=no.count, 
             median=f"{no.median_pnl:+.0f}",
-            count_10k=no.smart_count_5k, # Using Smart > 5k for consistency
+            count_10k=no.smart_count_5k, # Using Smart > 3k for consistency
             count_5k=no.smart_count_5k,  # Param definition might vary in locale keys
             pct=f"{smart_pct_no:.1f}"
         )
@@ -226,7 +226,7 @@ def format_comparison(yes_stats: Any, no_stats: Any, lang: str) -> str:
             check=get_check(yes_med, no_med)
         )
         
-        # Smart Count >$5K (Lifetime Profit)
+        # Smart Count >$3K (Lifetime Profit)
         yes_smart = yes_stats.smart_count_5k
         no_smart = no_stats.smart_count_5k
         count_line = get_text("holders.comparison_count", lang,
