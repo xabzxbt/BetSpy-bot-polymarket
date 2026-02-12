@@ -66,7 +66,7 @@ class DeepAnalysis:
 
     @property
     def has_edge(self) -> bool:
-        return abs(self.edge) >= 0.03
+        return abs(self.edge) >= 0.02
 
     @property
     def edge_pct(self) -> float:
@@ -216,15 +216,34 @@ async def run_deep_analysis(
         errors["bayesian"] = str(e)
         logger.warning(f"Bayesian failed: {e}")
 
-    # --- Phase 3: Consensus probability ---
-    model_prob = _consensus_probability(
-        signal_prob=signal_prob,
+    # --- Phase 3: Unified model probability ---
+    # Uses Bayesian + MC only (no signal_prob which was biased by whale tilt).
+    # This prevents the contradiction where signal_prob=24% but MC/Bayes=13-14%.
+    model_prob = _compute_model_probability(
         mc_result=mc_result,
         bayesian_result=bayesian_result,
         market_price=market.yes_price,
     )
 
-    # --- Phase 4: Kelly ---
+    # --- Phase 4: Edge & recommendation ---
+    # 2 p.p. threshold (down from 3) as requested
+    EDGE_THRESHOLD = 0.02
+
+    edge_yes = model_prob - market.yes_price
+    edge_no = -edge_yes  # symmetric: (1-model) - (1-market) = market - model
+
+    if edge_yes > EDGE_THRESHOLD:
+        rec_side = "YES"
+        edge = edge_yes
+    elif edge_no > EDGE_THRESHOLD:
+        rec_side = "NO"
+        edge = edge_no
+    else:
+        # Guardrail: model ≈ market → no edge → SKIP
+        rec_side = "NEUTRAL"
+        edge = 0.0
+
+    # --- Phase 5: Kelly (uses unified model_prob) ---
     kelly_result = None
     try:
         kelly_result = calculate_kelly(
@@ -238,38 +257,41 @@ async def run_deep_analysis(
         errors["kelly"] = str(e)
         logger.warning(f"Kelly failed: {e}")
 
-    # --- Phase 5: Final verdict ---
-    # --- Phase 5: Final verdict ---
-    # Calculate raw edge for YES side first
-    raw_yes_edge = model_prob - market.yes_price
-    
-    # Threshold for recommendation (3% edge)
-    EDGE_THRESHOLD = 0.03
-    
-    if raw_yes_edge > EDGE_THRESHOLD:
-        rec_side = "YES"
-        edge = raw_yes_edge
-    elif raw_yes_edge < -EDGE_THRESHOLD:
-        rec_side = "NO"
-        edge = -raw_yes_edge
-    else:
-        rec_side = "NEUTRAL"
-        edge = 0.0
-        
-        # Soft fallback: if we have strong signal but no model edge (rare)
-        if market.signal_score >= 80:
-             rec_side = "YES"
-             edge = 0.05
-        elif market.signal_score <= 20:
-             rec_side = "NO"
-             edge = 0.05
+    # Force Kelly to 0 when there's no edge (guardrail)
+    if rec_side == "NEUTRAL" and kelly_result and kelly_result.kelly_final_pct > 0:
+        kelly_result = calculate_kelly(
+            model_prob=market.yes_price,  # force model=market → edge=0 → Kelly=0
+            market_price=market.yes_price,
+            bankroll=bankroll,
+            fraction=kelly_fraction,
+            days_to_resolve=market.days_to_close,
+        )
 
-    # Confidence: blend of signal score and model agreement
-    confidence = market.signal_score
-    if mc_result and abs(mc_result.edge) > 0.05:
-        confidence = min(100, confidence + 10)
-    if bayesian_result and bayesian_result.has_signal:
-        confidence = min(100, confidence + 5)
+    # --- Phase 6: Confidence ---
+    # When model ≈ market (SKIP), confidence reflects certainty that there is NO edge
+    if rec_side == "NEUTRAL":
+        # High confidence that edge is absent (60-80 range)
+        confidence = 65
+        if bayesian_result and abs(bayesian_result.posterior - bayesian_result.prior) < 0.02:
+            confidence = 75  # Bayesian explicitly confirms market
+        if mc_result and abs(mc_result.edge) < 0.02:
+            confidence = min(80, confidence + 5)  # MC also confirms
+    else:
+        # BUY scenario: confidence reflects conviction in the edge
+        conf_base = min(50, abs(edge) * 100 * 10)  # |edge_pp| * 10, max 50
+        conf_whale = 0
+        wa = market.whale_analysis
+        if wa and wa.is_significant and wa.dominance_side == rec_side:
+            conf_whale = 25
+        conf_liq = 0
+        if market.liquidity >= 50000:
+            conf_liq = 15
+        elif market.liquidity >= 10000:
+            conf_liq = 10
+        elif market.liquidity >= 2000:
+            conf_liq = 5
+        conf_cert = 10 if (model_prob >= 0.60 or model_prob <= 0.40) else 0
+        confidence = int(min(95, conf_base + conf_whale + conf_liq + conf_cert))
 
     return DeepAnalysis(
         market=market,
@@ -291,53 +313,48 @@ async def run_deep_analysis(
 # Helpers
 # =====================================================================
 
-def _consensus_probability(
-    signal_prob: float,
+def _compute_model_probability(
     mc_result: Optional[MonteCarloResult],
     bayesian_result: Optional[BayesianResult],
     market_price: float,
 ) -> float:
     """
-    Weighted average of all probability estimates.
+    Compute a single unified model_yes_prob from Bayesian + MC results.
 
-    Weights are dynamic based on market type (Crypto vs Generic).
+    Logic:
+    - If Bayesian moved significantly (|posterior - prior| >= 2 p.p.):
+        model_prob = 0.7 * bayes_posterior + 0.3 * mc_prob
+        (Bayesian is primary, MC provides baseline support)
+    - If Bayesian barely moved (|posterior - prior| < 2 p.p.):
+        Model confirms market → model_prob ≈ market_price
+        This forces edge ≈ 0 → Kelly = 0 → SKIP
+
+    The old signal_to_probability (whale-tilt-based) is intentionally excluded
+    because it can produce inflated probabilities (e.g. 24%) that contradict
+    the actual model outputs (MC=13%, Bayes=14%), causing the Pisa-type bug.
     """
-    # Signal: Always trust smart money/signal engine (Base truth)
-    w_signal = 0.40
-    
-    # Bayesian: High trust if real trades exist
-    w_bayesian = 0.40
-    
-    # Monte Carlo:
-    # - Crypto: High trust (math based on asset price)
-    # - Generic: LOW trust (random walk is noisy for fundamental events)
-    w_mc_crypto = 0.40
-    w_mc_generic = 0.05  # Drastically reduced from 0.35 to prevent random walk bias
+    bayes_posterior = market_price
+    bayes_shift = 0.0
 
-    # Collect estimates
-    estimates = []
-    
-    # 1. Signal Prob (Base)
-    estimates.append((signal_prob, w_signal))
+    if bayesian_result:
+        bayes_posterior = bayesian_result.posterior
+        bayes_shift = abs(bayes_posterior - bayesian_result.prior)
 
-    # 2. Monte Carlo
+    # MC probability (for generic markets this equals market_price)
+    mc_prob = market_price
     if mc_result:
-        weight = w_mc_crypto if mc_result.mode == "crypto" else w_mc_generic
-        estimates.append((mc_result.probability_yes, weight))
+        mc_prob = mc_result.probability_yes
 
-    # 3. Bayesian
-    if bayesian_result and bayesian_result.has_signal:
-        estimates.append((bayesian_result.posterior, w_bayesian))
+    # Decision: does the model have independent signal?
+    if bayes_shift >= 0.02:
+        # Bayesian detected meaningful evidence → blend with MC
+        model_prob = 0.7 * bayes_posterior + 0.3 * mc_prob
+    else:
+        # No meaningful Bayesian shift → model confirms market price
+        # This prevents phantom edges from whale-tilt inflation
+        model_prob = market_price
 
-    # Normalize
-    total_weight = sum(w for _, w in estimates)
-    if total_weight <= 0:
-        return market_price
-
-    consensus = sum(e * w for e, w in estimates) / total_weight
-
-    # Clamp
-    return max(0.03, min(0.97, consensus))
+    return max(0.03, min(0.97, model_prob))
 
 
 async def _fetch_trades(market: MarketStats) -> List[Dict[str, Any]]:

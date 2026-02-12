@@ -303,6 +303,7 @@
   "l2.reason_whale_bad": "Великі гравці проти {side} ({pct}% грошей, {amt})",
   "l2.reason_whale_none": "Немає сильної активності китів",
   "l2.reason_model_view": "Модель {model}% vs Ринок {market}%",
+  "l2.reason_model_confirms": "Модель підтверджує ринок ({model}% ≈ {market}%, немає edge)",
   "l2.risk_liq": "Низька ліквідність (ризик прослизання)",
   "l2.risk_time": "Довгий термін (ризик заморозки)",
   "l2.risk_low_edge": "Перевага занадто мала (<2%)",

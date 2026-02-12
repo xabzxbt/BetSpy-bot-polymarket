@@ -211,6 +211,7 @@
   "l2.reason_whale_bad": "Крупные игроки против {side} ({pct}% денег, {amt})",
   "l2.reason_whale_none": "Нет сильной активности китов",
   "l2.reason_model_view": "Модель видит {model}% vs Рынок {market}%",
+  "l2.reason_model_confirms": "Модель подтверждает рынок ({model}% ≈ {market}%, нет edge)",
   "l2.risk_liq": "Низкая ликвидность (риск проскальзывания)",
   "l2.risk_time": "Долгий срок (заморозка капитала)",
   "l2.risk_low_edge": "Edge слишком мал (<2%)",

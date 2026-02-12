@@ -211,6 +211,7 @@
   "l2.reason_whale_bad": "Big players opposing {side} ({pct}% vol, {amt})",
   "l2.reason_whale_none": "No significant whale activity",
   "l2.reason_model_view": "Model sees {model}% vs Market {market}%",
+  "l2.reason_model_confirms": "Model confirms market ({model}% ≈ {market}%, no edge)",
   "l2.risk_liq": "Low liquidity (slippage risk)",
   "l2.risk_time": "Long duration (locked capital risk)",
   "l2.risk_low_edge": "Edge too small (<2%)",

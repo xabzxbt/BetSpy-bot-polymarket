@@ -241,78 +241,84 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
     Level 3: Technical Details
     """
     try:
-        # --- 1. METRICS & LOGIC (UNCHANGED) ---
+        # --- 1. METRICS & LOGIC ---
+        # Use the unified model_yes_prob from the orchestrator.
+        # This is already computed via Bayesian + MC blend (no whale-tilt inflation).
         p_model = deep.model_probability
-        # Fix 300% bug
-        if p_model > 1.0: p_model = p_model / 100.0
+        if p_model > 1.0:
+            p_model = p_model / 100.0
         p_model = max(0.0, min(1.0, p_model))
-        
+
         p_market = market.yes_price
-        edge_raw = p_model - p_market
-        edge_pp = edge_raw * 100.0
-        
+
+        # Guardrail: if model ≈ market (< 2 p.p.) → force SKIP
+        model_confirms_market = abs(p_model - p_market) < 0.02
+
         # Kelly data
         k_safe = 0.0
-        fraction_name = "0"
-        
         if deep.kelly:
             k_safe = deep.kelly.kelly_final_pct or 0.0
-            fraction_name = deep.kelly.fraction_name
 
-        # Correct Edge Logic
+        # Edge logic: YES vs NO side
+        edge_yes = (p_model - p_market) * 100          # p.p.
+        edge_no = ((1.0 - p_model) - (1.0 - p_market)) * 100  # = -edge_yes
+
         rec_side = "SKIP"
         edge_pp = 0.0
-        
-        if p_model > p_market:
+
+        if model_confirms_market:
+            # Hard guardrail: model ≈ market → SKIP, edge ≈ 0, Kelly = 0
+            rec_side = "SKIP"
+            edge_pp = 0.0
+            k_safe = 0.0
+        elif edge_yes > 2.0 and edge_yes > edge_no:
             rec_side = "YES"
-            edge_pp = (p_model - p_market) * 100
-        elif (1.0 - p_model) > (1.0 - p_market):
+            edge_pp = edge_yes
+        elif edge_no > 2.0 and edge_no > edge_yes:
             rec_side = "NO"
-            edge_pp = ((1.0 - p_model) - (1.0 - p_market)) * 100
-            
-        edge_raw = edge_pp / 100.0 # Backwards compat if needed
-        
-        is_positive_setup = (edge_pp >= 2.0) and (k_safe > 0.0)
-        
-        # If skip, edge is effectively 0 for display unless we want to show why
-        if not is_positive_setup:
-             # Revert to raw diff for skip context
-             edge_pp = (p_model - p_market) * 100
-        
+            edge_pp = edge_no
+        else:
+            rec_side = "SKIP"
+            edge_pp = 0.0
+
+        is_positive_setup = (rec_side in ("YES", "NO")) and (edge_pp >= 2.0) and (k_safe > 0.0)
+
+        # Cap recommended size for mass users (max 5-6%)
+        if k_safe > 6.0:
+            k_safe = 6.0
+
         pp_unit = get_text("quant.pp", lang)
-        
+
         # --- 2. CONFIDENCE SCORE CALCULATION ---
-        # Formula: Base (max 50) + Whale (25) + Liq (15) + Certainty (10)
-        
-        score_base = min(50, abs(edge_pp) * 10)
-        
-        score_whale = 0
         wa = market.whale_analysis
         whale_agrees = False
-        if wa and wa.is_significant:
-            if wa.dominance_side == rec_side:
-                score_whale = 25
-                whale_agrees = True
-            elif wa.dominance_side != "NEUTRAL":
-                # Whale disagrees
-                pass
 
-        score_liq = 0
-        if market.liquidity >= 50000: score_liq = 15
-        elif market.liquidity >= 10000: score_liq = 10
-        elif market.liquidity >= 2000: score_liq = 5
-        
-        score_cert = 0
-        # If model is far from 50/50
-        if p_model >= 0.60 or p_model <= 0.40:
-            score_cert = 10
-            
-        # Cap confidence at 95
-        conf_score = int(min(95, score_base + score_whale + score_liq + score_cert))
-        
-        # Boost confidence for strong SKIP (Efficient Market Hypothesis)
-        if not is_positive_setup and abs(edge_pp) < 1.0 and whale_agrees:
-             conf_score = max(conf_score, 75)
+        if model_confirms_market:
+            # SKIP because model ≈ market: confidence reflects certainty
+            # that there is NO edge (high confidence in the SKIP decision)
+            conf_score = 65
+            bayes = deep.bayesian
+            if bayes and abs(bayes.posterior - bayes.prior) < 0.02:
+                conf_score = 75  # Bayesian explicitly confirms
+            if wa and wa.is_significant:
+                conf_score = min(80, conf_score + 5)
+        else:
+            # BUY scenario: confidence reflects conviction in the edge
+            score_base = min(50, abs(edge_pp) * 10)
+            score_whale = 0
+            if wa and wa.is_significant:
+                if wa.dominance_side == rec_side:
+                    score_whale = 25
+                    whale_agrees = True
+            score_liq = 0
+            if market.liquidity >= 50000:
+                score_liq = 15
+            elif market.liquidity >= 10000:
+                score_liq = 10
+            elif market.liquidity >= 2000:
+                score_liq = 5
+            score_cert = 10 if (p_model >= 0.60 or p_model <= 0.40) else 0
+            conf_score = int(min(95, score_base + score_whale + score_liq + score_cert))
         
         # Calculate Potential ROI (if wins)
         # ROI = (Payout - Stake) / Stake = (1 - Price) / Price
@@ -375,20 +381,24 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         else:
              reasons.append(get_text('l2.reason_whale_none', lang))
              
-        # Reason 2: Model
-        # Reason 2: Model
-        if rec_side == "NO":
-             model_txt = get_text('l2.reason_model_view', lang, model=f"{(1-p_model)*100:.0f}", market=f"{(1-p_market)*100:.0f}")
-             model_txt += f" (+{edge_pp:.1f}% edge)" # Explicit edge
+        # Reason 2: Model view
+        if model_confirms_market:
+            # Model confirms market — show explicit "no edge" message
+            model_txt = get_text('l2.reason_model_confirms', lang,
+                                 model=f"{p_model*100:.0f}",
+                                 market=f"{p_market*100:.0f}")
+        elif rec_side == "NO":
+            model_txt = get_text('l2.reason_model_view', lang,
+                                 model=f"{(1-p_model)*100:.0f}",
+                                 market=f"{(1-p_market)*100:.0f}")
+            model_txt += f" (+{edge_pp:.1f}% edge)"
         else:
-             model_txt = get_text('l2.reason_model_view', lang, model=f"{p_model*100:.0f}", market=f"{p_market*100:.0f}")
-             
-        if abs(edge_pp) < 1.0:
-             no_edge_str = "no edge"
-             try: no_edge_str = get_text("l3.kelly_no_edge", lang)
-             except: pass
-             model_txt = get_text('l2.reason_model_view', lang, model=f"{p_model*100:.0f}", market=f"{p_market*100:.0f}") + f" ({no_edge_str})"
-             
+            model_txt = get_text('l2.reason_model_view', lang,
+                                 model=f"{p_model*100:.0f}",
+                                 market=f"{p_market*100:.0f}")
+            if edge_pp >= 2.0:
+                model_txt += f" (+{edge_pp:.1f}% edge)"
+
         reasons.append(model_txt)
         
         # Reason 3: Risk/Factor - Enhanced Logic
