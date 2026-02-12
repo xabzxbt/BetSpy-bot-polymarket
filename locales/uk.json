@@ -106,6 +106,7 @@
   "trade.side_buy": "🟢 КУПІВЛЯ",
   "trade.side_sell": "🔴 ПРОДАЖ",
   "new_trade": "🐋 <b>КИТ: ТРЕЙД</b>\n├ 👤 <a href='{profile_link}'>{wallet_name}</a>\n├ 📊 {market_title}\n├ {side} {outcome}\n├ 📦 {size:.2f} @ {price:.4f}\n├ 💰 ${usdc_size:.2f}\n└ 🔗 <a href='{market_link}'>Market</a> | <a href='{profile_link}'>Profile</a>",
+  "new_trade_small": "🔔 <b>ТРЕЙД</b>\n├ 👤 <a href='{profile_link}'>{wallet_name}</a>\n├ 📊 {market_title}\n├ {side} {outcome}\n├ 📦 {size:.2f} @ {price:.4f}\n├ 💰 ${usdc_size:.2f}\n└ 🔗 <a href='{market_link}'>Market</a> | <a href='{profile_link}'>Profile</a>",
   "trade_closed": "💰 <b>ЗАКРИТО</b>\n├ 👤 <a href='{profile_link}'>{wallet_name}</a>\n├ 📊 {market_title}\n├ {side} {outcome}\n├ 💵 Продано: ${usdc_size:.2f}\n├ 📈 {entry_price:.4f} → {exit_price:.4f}\n├ {pnl_emoji} <b>PnL: {pnl_sign}${pnl_abs:.2f} ({pnl_percent:+.1f}%)</b>\n└ 🔗 <a href='{market_link}'>Market</a> | <a href='{profile_link}'>Profile</a>",
   "trade_closed_no_entry": "🔴 <b>ПРОДАНО</b>\n├ 👤 <a href='{profile_link}'>{wallet_name}</a>\n├ 📊 {market_title}\n├ {side} {outcome}\n├ 💰 ${usdc_size:.2f}\n└ 🔗 <a href='{market_link}'>Market</a> | <a href='{profile_link}'>Profile</a>",
   "batch_trade.header": "🐋 <b>КИТ: ПАКЕТ ({count})</b>\n├ 👤 <a href='{profile_link}'>{wallet_name}</a>\n├ 🕒 {time}\n├ 💰 Всього: ${total_usdc:.2f}\n└ 🔢 Трейдів: {count}",

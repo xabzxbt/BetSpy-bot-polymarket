@@ -591,8 +591,14 @@ class TradeNotificationService:
         side_text = get_side_text(trade.side, lang)
         profile_link = get_profile_link(trade.proxy_wallet)
         
+        # Choose key based on size 
+        key = "new_trade"
+        # If trade < $1000, don't call it "WHALE", just "TRADE"
+        if trade.usdc_size < 1000:
+            key = "new_trade_small"
+
         return get_text(
-            "new_trade",
+            key,
             lang,
             wallet_name=html.escape(wallet_name),
             market_title=trade.title,

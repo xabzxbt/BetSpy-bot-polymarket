@@ -107,6 +107,7 @@
   "trade.side_buy": "🟢 BUY",
   "trade.side_sell": "🔴 SELL",
   "new_trade": "🐋 <b>WHALE TRADE</b>\n├ 👤 <a href='{profile_link}'>{wallet_name}</a>\n├ 📊 {market_title}\n├ {side} {outcome}\n├ 📦 {size:.2f} @ {price:.4f}\n├ 💰 ${usdc_size:.2f}\n└ 🔗 <a href='{market_link}'>Market</a> | <a href='{profile_link}'>Profile</a>",
+  "new_trade_small": "🔔 <b>TRADE</b>\n├ 👤 <a href='{profile_link}'>{wallet_name}</a>\n├ 📊 {market_title}\n├ {side} {outcome}\n├ 📦 {size:.2f} @ {price:.4f}\n├ 💰 ${usdc_size:.2f}\n└ 🔗 <a href='{market_link}'>Market</a> | <a href='{profile_link}'>Profile</a>",
   "trade_closed": "💰 <b>CLOSED</b>\n├ 👤 <a href='{profile_link}'>{wallet_name}</a>\n├ 📊 {market_title}\n├ {side} {outcome}\n├ 💵 Sold: ${usdc_size:.2f}\n├ 📈 {entry_price:.4f} → {exit_price:.4f}\n├ {pnl_emoji} <b>PnL: {pnl_sign}${pnl_abs:.2f} ({pnl_percent:+.1f}%)</b>\n└ 🔗 <a href='{market_link}'>Market</a> | <a href='{profile_link}'>Profile</a>",
   "trade_closed_no_entry": "🔴 <b>SOLD</b>\n├ 👤 <a href='{profile_link}'>{wallet_name}</a>\n├ 📊 {market_title}\n├ {side} {outcome}\n├ 💰 ${usdc_size:.2f}\n└ 🔗 <a href='{market_link}'>Market</a> | <a href='{profile_link}'>Profile</a>",
   "batch_trade.header": "🐋 <b>WHALE BATCH ({count})</b>\n├ 👤 <a href='{profile_link}'>{wallet_name}</a>\n├ 🕒 {time}\n├ 💰 Total: ${total_usdc:.2f}\n└ 🔢 Trades: {count}",
