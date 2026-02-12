@@ -35,3 +35,7 @@ dashboard.py
 htmlcov/
 .coverage
 
+# Temporary Check Scripts
+check_*.py
+patch_*.py
+
