@@ -128,7 +128,7 @@ class Position:
             outcome=data.get("outcome", ""),
             outcome_index=int(data.get("outcomeIndex", 0)),
             redeemable=data.get("redeemable", False),
-            redeemable=data.get("redeemable", False),
+
             holder_lifetime_pnl=0.0, # Default, will be enriched later
             holder_volume=0.0, # Default, will be enriched later
             holder_first_trade_timestamp=0, # Default, will be enriched later
