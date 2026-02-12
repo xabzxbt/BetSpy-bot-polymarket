@@ -316,26 +316,117 @@ async def run_deep_analysis(
     holders_res = None
     
     try:
+        from types import SimpleNamespace
+        
         yes_holders, no_holders = holders_positions
-        yes_stats = calculate_side_stats(yes_holders, "YES")
-        no_stats = calculate_side_stats(no_holders, "NO")
+        
+        def _calc_holder_stats(positions, side: str):
+            if not positions:
+                return SimpleNamespace(
+                    side=side,
+                    count=0,
+                    median_pnl=0.0,
+                    smart_count_5k=0,
+                    profitable_pct=0.0,
+                    top_holder_profit=0.0,
+                    top_holder_address="",
+                    top_holder_wins=0,
+                    top_holder_losses=0,
+                    # Added for compatibility with existing SideStats if needed
+                    profitable_count=0,
+                    above_5k_count=0,
+                    above_10k_count=0,
+                    above_50k_count=0,
+                    smart_count_10k=0
+                )
+
+            # Calculate stats from enriched positions
+            # holder_lifetime_pnl is populated in get_market_holders
+            pnls = [getattr(p, "holder_lifetime_pnl", 0.0) for p in positions]
+            pnls = [x for x in pnls if x is not None] # Safety check
+            
+            if not pnls:
+                 median = 0.0
+            else:
+                 pnls_sorted = sorted(pnls)
+                 median = pnls_sorted[len(pnls_sorted) // 2]
+
+            # Smart Money (Lifetime Profit > 5k)
+            smart_5k = sum(1 for p in positions if getattr(p, "holder_lifetime_pnl", 0.0) >= 5000)
+            
+            # Profitable %
+            profitable = sum(1 for p in positions if getattr(p, "holder_lifetime_pnl", 0.0) > 0)
+            profitable_pct = (profitable / len(positions)) * 100 if positions else 0.0
+
+            # Top holder by PnL
+            top = max(positions, key=lambda p: getattr(p, "holder_lifetime_pnl", 0.0))
+            top_profit = getattr(top, "holder_lifetime_pnl", 0.0)
+            top_addr = getattr(top, "proxy_wallet", "") # Position object has proxy_wallet
+
+            # Extra stats matching SideStats
+            above_10k = sum(1 for p in positions if getattr(p, "current_value", 0.0) > 10000)
+            
+            return SimpleNamespace(
+                side=side,
+                count=len(positions),
+                median_pnl=median,
+                smart_count_5k=smart_5k,
+                profitable_pct=profitable_pct,
+                top_holder_profit=top_profit,
+                top_holder_address=top_addr,
+                top_holder_wins=0,
+                top_holder_losses=0,
+                # Extra fields for formatter compatibility
+                above_10k_count=above_10k,
+                above_5k_pct=(smart_5k/len(positions)*100) if positions else 0.0 # metric for smart money
+            )
+
+        yes_stats_obj = _calc_holder_stats(yes_holders, "YES")
+        no_stats_obj = _calc_holder_stats(no_holders, "NO")
         
         # Calculate Smart Score
-        # We need model probability for the score logic
-        s_score, s_side, s_breakdown = calc_smart_score(
-            yes_stats, no_stats, market.whale_analysis, model_prob
+        # Simple Logic as requested
+        yes_smart = yes_stats_obj.smart_count_5k
+        no_smart = no_stats_obj.smart_count_5k
+        
+        wa = market.whale_analysis
+        
+        # Base score on smart holder count difference
+        smart_side = "NEUTRAL"
+        smart_score = 50
+        
+        if yes_smart > no_smart:
+            smart_side = "YES"
+            diff = yes_smart - no_smart
+            smart_score = min(100, 50 + diff * 10)
+        elif no_smart > yes_smart:
+             smart_side = "NO"
+             diff = no_smart - yes_smart
+             smart_score = min(100, 50 + diff * 10)
+             
+        # Breakdown
+        smart_score_breakdown = {
+            "holders": float(smart_score * 0.4),
+            "tilt": float(abs(wa.tilt) * 100 * 0.3) if wa else 0.0,
+            "model": 0.0 # simplified
+        }
+
+        # Build final object for DeepAnalysis.holders
+        holders_res = SimpleNamespace(
+            yes_stats=yes_stats_obj,
+            no_stats=no_stats_obj,
+            smart_score=smart_score,
+            smart_score_side=smart_side,
+            smart_score_breakdown=smart_score_breakdown
         )
         
-        holders_res = HoldersAnalysisResult(
-            yes_stats=yes_stats,
-            no_stats=no_stats,
-            smart_score=s_score,
-            smart_score_side=s_side,
-            smart_score_breakdown=s_breakdown
-        )
+        logger.info(f"Holders Analysis Computed: YES Smart={yes_smart}, NO Smart={no_smart}, Score={smart_side} {smart_score}")
+
     except Exception as e:
         logger.warning(f"Holders analysis failed: {e}")
         errors["holders"] = str(e)
+        import traceback
+        logger.debug(traceback.format_exc())
 
 
     # --- Phase 6: Confidence ---
