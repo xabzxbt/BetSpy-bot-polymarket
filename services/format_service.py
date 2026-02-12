@@ -385,7 +385,7 @@ def format_unified_analysis(market: MarketStats, deep_result: Any, lang: str) ->
     - If not: returns "Simple Fact-Based" report.
     """
     if deep_result:
-        return _format_quant_analysis_v2(market, deep_result, lang)
+        return _format_quant_analysis_v3(market, deep_result, lang)
     else:
         return _format_simple_analysis(market, lang)
 
@@ -926,6 +926,216 @@ def _format_quant_analysis_v2(market: MarketStats, deep: Any, lang: str) -> str:
     except Exception as e:
         logger.error(f"Quant format error: {e}", exc_info=True)
         return _format_simple_analysis(market, lang)
+
+
+def _format_quant_analysis_v3(market: MarketStats, deep: Any, lang: str) -> str:
+    """
+    Consumer-Friendly Deep Analysis (Strict Layout).
+    Matches user's exact visual request:
+    Header -> Signal -> Why -> Action -> Detailed
+    """
+    try:
+        # --- 0. PRE-CALC METRICS ---
+        p_model = deep.model_probability
+        if p_model > 1.0: p_model /= 100.0
+        p_model = max(0.0, min(1.0, p_model))
+        p_market = market.yes_price
+
+        # Guardrail: if model ≈ market (< 2 p.p.) → force SKIP
+        model_confirms_market = abs(p_model - p_market) < 0.02
+        if model_confirms_market:
+            p_model = p_market 
+
+        # Kelly
+        k_safe = deep.kelly.kelly_final_pct if deep.kelly else 0.0
+        
+        # Edge
+        edge_pp = deep.edge * 100 if deep.edge else 0.0
+        rec_side = deep.recommended_side or "NEUTRAL"
+        
+        # Confidence
+        conf_score = deep.confidence if deep.confidence else 50
+        
+        # Sizing Logic
+        if conf_score < 30: k_safe *= 0.3
+        elif conf_score < 50: k_safe *= 0.6
+        k_safe = min(6.0, round(k_safe, 1))
+
+        is_positive_setup = (rec_side in ("YES", "NO")) and (abs(edge_pp) >= 2.0) and (k_safe > 0.0)
+        
+        # Formatting Helpers
+        edge_disp = f"{edge_pp:+.1f}%" if abs(edge_pp) >= 1.0 else "~0%"
+        
+        # ---------------------------
+        # 1. HEADER
+        # ---------------------------
+        text = ""
+        # Counter-Strike: Sinners vs fnatic (BO3)
+        text += f"<b>{html.escape(market.question)}</b>\n\n"
+        
+        # 💰 YES 59¢ · NO 40¢ · Vol 24h: $113K
+        text += f"💰 YES {format_price(market.yes_price)} · NO {format_price(market.no_price)} · Vol 24h: {format_volume(market.volume_24h)}\n"
+        text += "────────────────────────────\n"
+
+        # ---------------------------
+        # 2. SIGNAL
+        # ---------------------------
+        if is_positive_setup:
+            price_disp = int(market.yes_price*100) if rec_side == "YES" else int(market.no_price*100)
+            # "✅ BUY YES @ 59¢"
+            sig_text = get_text("l1.signal_buy", lang, side=rec_side, price=price_disp)
+        else:
+            # "🛑 SKIP"
+            sig_text = get_text("l1.signal_skip", lang)
+            
+        text += f"{sig_text}\n"
+        
+        # Confidence line
+        conf_lbl = "Confidence"
+        if "l1.confidence" in get_text("l1.confidence", lang):
+             conf_lbl = get_text("l1.confidence", lang)
+        
+        text += f"{conf_lbl}: {conf_score}/100 · Edge: {edge_disp}\n\n"
+
+        # ---------------------------
+        # 3. WHY (Bulleted)
+        # ---------------------------
+        why_lbl = "WHY"
+        if "l2.why" in get_text("l2.why_label", lang):
+             why_lbl = get_text("l2.why_label", lang)
+             
+        text += f"💬 {why_lbl}:\n"
+        
+        # Bullet 1: Model
+        if model_confirms_market:
+            m_pct = f"{p_model*100:.0f}%"
+            text += f"• {get_text('l2.bullet_model_confirms', lang, val=m_pct)}\n"
+        else:
+            m_pct = f"{p_model*100:.0f}%"
+            text += f"• {get_text('l2.bullet_model_view', lang, val=m_pct, edge=edge_disp)}\n"
+
+        # Bullet 2: Whales & Smart Money
+        wa = market.whale_analysis
+        holders = getattr(deep, "holders", None)
+        
+        mix_reasons = []
+        if wa and wa.is_significant:
+            mix_reasons.append(f"Whale Flow ({wa.dominance_side} {wa.dominance_pct:.0f}%)")
+        
+        if holders:
+            sm_score = holders.smart_score
+            sm_side = holders.smart_score_side
+            mix_reasons.append(f"Smart Money ({sm_side} {sm_score}/100)")
+            
+        if mix_reasons:
+            text += f"• {' & '.join(mix_reasons)}\n"
+            
+        # Bullet 3: Value/Action Rationale
+        if is_positive_setup:
+            text += f"• {get_text('l2.bullet_value_good', lang)}\n"
+        else:
+            text += f"• {get_text('l2.bullet_value_bad', lang)}\n"
+            
+        text += "\n"
+            
+        # ---------------------------
+        # 4. ACTION
+        # ---------------------------
+        if is_positive_setup:
+            act_text = get_text("l2.act_buy_short", lang, pct=f"{k_safe:.1f}%")
+        else:
+            act_text = get_text("l2.act_wait_short", lang, kelly=f"{k_safe:.1f}%")
+            
+        act_lbl = "ACTION"
+        if "l2.action" in get_text("l2.action_label_short", lang):
+             act_lbl = get_text("l2.action_label_short", lang)
+        
+        text += f"⚡️ {act_lbl}: {act_text}\n"
+        text += "────────────────────────────\n"
+
+        # ---------------------------
+        # 5. DETAILED
+        # ---------------------------
+        det_lbl = "DETAILED"
+        if "l3.header" in get_text("l3.header_short", lang):
+             det_lbl = get_text("l3.header_short", lang)
+             
+        text += f"📊 {det_lbl}\n\n"
+        
+        # MC
+        mc = deep.monte_carlo
+        if mc:
+            text += f"🎲 Monte Carlo: {mc.probability_yes*100:.1f}% YES (10000 sims)\n"
+            
+        # Bayesian
+        bayes = deep.bayesian
+        if bayes:
+            prior = market.yes_price * 100
+            post = bayes.posterior * 100
+            if abs(post - prior) < 2.0:
+                 b_msg = get_text("bayes_c_confirm", lang)
+            else:
+                 b_msg = f"{prior:.0f}% → {post:.0f}%"
+            text += f"🧠 Bayesian: {b_msg}\n"
+            
+        # Kelly
+        k_full = deep.kelly.kelly_full * 100 if deep.kelly else 0.0
+        if k_full <= 0:
+             k_reason = "no edge"
+             if "l3.kelly_no_edge" in get_text("l3.kelly_no_edge", lang):
+                  k_reason = get_text("l3.kelly_no_edge", lang)
+             text += f"💰 Kelly: 0% ({k_reason})\n\n"
+        else:
+             text += f"💰 Kelly: {k_safe:.1f}% (Full {k_full:.1f}%)\n\n"
+        
+        # Whale Flow Breakdown
+        if wa:
+            text += f"🐋 Whale Flow (24h):\n"
+            total_v = wa.yes_volume + wa.no_volume
+            y_share = (wa.yes_volume / total_v * 100) if total_v else 0
+            n_share = 100 - y_share
+            
+            text += f"   YES: {format_volume(wa.yes_volume)} ({y_share:.0f}%) | max: {format_volume(wa.biggest_yes_size)}\n"
+            
+            last_no_time = ""
+            if wa.last_trade_timestamp > 0 and wa.last_trade_side == "NO":
+                 ago = (time.time() - wa.last_trade_timestamp) / 3600
+                 last_no_time = f" ({ago:.1f}h ago)"
+            
+            text += f"   NO:  {format_volume(wa.no_volume)} ({n_share:.0f}%) | max: {format_volume(wa.biggest_no_size)}{last_no_time}\n\n"
+
+        # Smart Money Breakdown
+        if holders:
+            text += f"👥 Smart Money:\n"
+            
+            def fmt_h_line(stats):
+                if stats.count == 0: return "N/A"
+                return f"{stats.count} holders ({stats.smart_count_5k} smart, med PnL {int(stats.median_pnl):+})"
+
+            text += f"   YES: {fmt_h_line(holders.yes_stats)}\n"
+            text += f"   NO:  {fmt_h_line(holders.no_stats)}\n"
+            text += f"   🎯 Smart Score: {holders.smart_score_side} {holders.smart_score}/100\n"
+            
+            top_h_side = "YES" if holders.yes_stats.top_holder_profit > holders.no_stats.top_holder_profit else "NO"
+            best_stats = holders.yes_stats if top_h_side == "YES" else holders.no_stats
+            if best_stats.top_holder_profit != 0:
+                 text += f"   🔥 Top holder: {format_volume(best_stats.top_holder_profit)} lifetime PnL\n"
+            
+            text += "\n"
+
+        # Footer
+        liq_lbl = "MED"
+        if market.liquidity > 100000: liq_lbl = "HIGH"
+        elif market.liquidity < 5000: liq_lbl = "LOW"
+        c_time = f"{market.days_to_close}d" if market.days_to_close > 0 else "<1d"
+        
+        text += f"💧 Liq: {format_volume(market.liquidity)} ({liq_lbl}) | ⏱️ Closes: {c_time}"
+
+        return text
+
+    except Exception as e:
+        logger.error(f"Quant Format V3 Error: {e}", exc_info=True)
+        return f"⚠️ <b>Analysis Info Error</b>: {e}"
 
 
 def _format_simple_analysis(market: MarketStats, lang: str) -> str:
