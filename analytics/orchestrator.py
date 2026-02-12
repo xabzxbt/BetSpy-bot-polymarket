@@ -156,7 +156,7 @@ async def run_deep_analysis(
                     market.condition_id,
                     yes_price=market.yes_price,
                     no_price=market.no_price,
-                    limit=250,  # Increased per user request to 250 (requires high API rate limit)
+                    limit=100,  # "Rocket Mode": Top 100 is enough for Smart Money analysis
                 )
         
         tasks["holders"] = _fetch_holders_task()
@@ -354,7 +354,10 @@ async def run_deep_analysis(
             veterans = 0
             novoregs = 0
             
-            for p in positions:
+            # Filter analyzed positions (non-dust, where we fetched profile)
+            analyzed_positions = [p for p in positions if getattr(p, "holder_first_trade_timestamp", 0) > 0]
+
+            for p in analyzed_positions:
                 ts = getattr(p, "holder_first_trade_timestamp", 0)
                 if ts > 0:
                     age = now_ts - ts
@@ -365,7 +368,7 @@ async def run_deep_analysis(
 
             # Calculate stats from enriched positions
             # holder_lifetime_pnl is populated in get_market_holders
-            pnls = [getattr(p, "holder_lifetime_pnl", 0.0) for p in positions]
+            pnls = [getattr(p, "holder_lifetime_pnl", 0.0) for p in analyzed_positions]
             pnls = [x for x in pnls if x is not None] # Safety check
             
             if not pnls:
@@ -375,11 +378,14 @@ async def run_deep_analysis(
                  median = pnls_sorted[len(pnls_sorted) // 2]
 
             # Smart Money (Lifetime Profit > 3k)
-            smart_3k = sum(1 for p in positions if getattr(p, "holder_lifetime_pnl", 0.0) >= SMART_PNL_THRESHOLD)
+            smart_3k = sum(1 for p in analyzed_positions if getattr(p, "holder_lifetime_pnl", 0.0) >= SMART_PNL_THRESHOLD)
             
             # Profitable %
-            profitable = sum(1 for p in positions if getattr(p, "holder_lifetime_pnl", 0.0) > 0)
-            profitable_pct = (profitable / len(positions)) * 100 if positions else 0.0
+            if analyzed_positions:
+                profitable = sum(1 for p in analyzed_positions if getattr(p, "holder_lifetime_pnl", 0.0) > 0)
+                profitable_pct = (profitable / len(analyzed_positions)) * 100
+            else:
+                profitable_pct = 0.0
 
             # Top holder by PnL
             top = max(positions, key=lambda p: getattr(p, "holder_lifetime_pnl", 0.0))

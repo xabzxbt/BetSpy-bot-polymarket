@@ -484,9 +484,9 @@ class PolymarketApiClient:
                             
                             # Enrich with profile PnL
                             # OPTIMIZATION: "Dust Filter"
-                            # Skip heavy PnL analysis for positions < $10
+                            # Skip heavy PnL analysis for positions < $50 (Rocket Mode)
                             try:
-                                is_dust = pos.current_value < 10.0
+                                is_dust = pos.current_value < 50.0
                                 if not is_dust:
                                     profile = await self.get_profile(wallet)
                                     if profile:
