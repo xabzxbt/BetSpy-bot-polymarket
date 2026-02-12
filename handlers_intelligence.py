@@ -204,13 +204,18 @@ async def callback_market_detail(callback: CallbackQuery) -> None:
             pass
 
         # Run Deep Analysis
+        error_info = None
         try:
             deep_result = await run_deep_analysis(market)
         except Exception as e:
             logger.error(f"Deep analysis error: {e}")
             deep_result = None
+            error_info = str(e)
 
         text = format_unified_analysis(market, deep_result, lang)
+        
+        if error_info:
+            text += f"\n\n🛑 <b>DEBUG ERROR:</b> {html.escape(error_info)}"
 
         await callback.message.edit_text(
             text,
