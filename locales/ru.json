@@ -254,5 +254,6 @@
   "holders.comparison_title": "👥 YES vs NO:",
   "holders.comparison_med": "   Med PnL:  ${yes_med} vs ${no_med} {check}",
   "holders.comparison_count": "   >$10K:    {yes_count} vs {no_count} {check}",
-  "holders.comparison_prof": "   Profitable: {yes_pct}% vs {no_pct}% {check}"
+  "holders.comparison_prof": "   Profitable: {yes_pct}% vs {no_pct}% {check}",
+  "bayes_c_confirm": "Подтверждает рынок"
 }

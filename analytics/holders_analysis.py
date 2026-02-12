@@ -8,6 +8,7 @@ for a specific market to determine smart money conviction.
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple
 import statistics
+from loguru import logger
 
 from polymarket_api import Position
 from market_intelligence import WhaleAnalysis
@@ -55,7 +56,10 @@ def calculate_side_stats(positions: List[Position], side: str) -> SideStats:
     """
     # Filter positions by side (outcome)
     # The API returns 'outcome' as 'YES' or 'NO' usually.
+    # Debug logging
+    logger.info(f"Side {side}: processing {len(positions)} raw positions")
     side_positions = [p for p in positions if p.outcome == side and p.size > 0]
+    logger.info(f"Side {side}: filtered to {len(side_positions)} valid positions (>0)")
     
     count = len(side_positions)
     if count == 0:
@@ -200,29 +204,56 @@ def calculate_smart_score(
     # 3. Model Prob (0-1)
     model_no_prob = 1.0 - model_yes_prob
     
-    # Calculate Composite Score for YES
-    score_yes = (
-        0.4 * yes_h_score +                 # 0-100
-        0.3 * (wa_yes_tilt * 100) +         # 0-100
-        0.3 * (model_yes_prob * 100)        # 0-100
-    )
-    
-    # Calculate Composite Score for NO
-    score_no = (
-        0.4 * no_h_score +
-        0.3 * (wa_no_tilt * 100) +
-        0.3 * (model_no_prob * 100)
-    )
-    
-    if score_no > score_yes:
-        return int(score_no), "NO", {
-            "holders": no_h_score,
+    # Check if we have NO holders data at all (count=0 for both)
+    # If so, rebalance weights: 50% Whales, 50% Model
+    if yes_stats.count == 0 and no_stats.count == 0:
+        score_yes = (
+            0.5 * (wa_yes_tilt * 100) +
+            0.5 * (model_yes_prob * 100)
+        )
+        score_no = (
+            0.5 * (wa_no_tilt * 100) +
+            0.5 * (model_no_prob * 100)
+        )
+        
+        # Breakdown has 0 for holders
+        breakdown_yes = {
+            "holders": 0.0,
+            "tilt": wa_yes_tilt * 100,
+            "model": model_yes_prob * 100
+        }
+        breakdown_no = {
+            "holders": 0.0,
             "tilt": wa_no_tilt * 100,
             "model": model_no_prob * 100
         }
+        
     else:
-        return int(score_yes), "YES", {
+        # Standard weights: 40% Holders, 30% Whales, 30% Model
+        score_yes = (
+            0.4 * yes_h_score +                 # 0-100
+            0.3 * (wa_yes_tilt * 100) +         # 0-100
+            0.3 * (model_yes_prob * 100)        # 0-100
+        )
+        
+        score_no = (
+            0.4 * no_h_score +
+            0.3 * (wa_no_tilt * 100) +
+            0.3 * (model_no_prob * 100)
+        )
+        
+        breakdown_yes = {
             "holders": yes_h_score,
             "tilt": wa_yes_tilt * 100,
             "model": model_yes_prob * 100
         }
+        breakdown_no = {
+            "holders": no_h_score,
+            "tilt": wa_no_tilt * 100,
+            "model": model_no_prob * 100
+        }
+    
+    if score_no > score_yes:
+        return int(score_no), "NO", breakdown_no
+    else:
+        return int(score_yes), "YES", breakdown_yes

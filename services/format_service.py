@@ -472,7 +472,8 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         holders = deep.holders
         
         # Reason 1: Whales
-        if wa and wa.is_significant:
+        # Only show whale reason if model doesn't force a SKIP (user request)
+        if wa and wa.is_significant and not model_confirms_market:
             wa_vol = wa.yes_volume if rec_side == "YES" else wa.no_volume
             # If whale disagrees
             whale_agree_side = wa.dominance_side == rec_side
@@ -489,7 +490,8 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
                 side_shown = wa.dominance_side
                 if side_shown == "NEUTRAL": side_shown = "Other"
                 reasons.append(get_text('l2.reason_whale_bad', lang, side=side_shown, pct=wa_pct_str, amt=wa_amt_str))
-        else:
+        elif not wa or not wa.is_significant:
+             # Only show "no activity" if purely no activity, not if suppressed
              reasons.append(get_text('l2.reason_whale_none', lang))
              
         # Reason 2: Model view
