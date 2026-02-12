@@ -294,9 +294,19 @@ class PolymarketApiClient:
             await self.init()
 
         async with self._limiter:
-            logger.debug(f"API Request: {method} {url} params={params}")
+            # Convert params to string to avoid aiohttp/yarl TypeError with bools
+            safe_params = None
+            if params:
+                safe_params = {}
+                for k, v in params.items():
+                    if isinstance(v, bool):
+                        safe_params[k] = str(v).lower()
+                    else:
+                        safe_params[k] = str(v)
+
+            logger.debug(f"API Request: {method} {url} params={safe_params}")
             try:
-                async with self._session.request(method, url, params=params) as response:
+                async with self._session.request(method, url, params=safe_params) as response:
                     if response.status == 429:
                         retry_after = response.headers.get("Retry-After", "60")
                         logger.warning(f"Rate limited. Retry after {retry_after}s")
@@ -484,9 +494,9 @@ class PolymarketApiClient:
                             
                             # Enrich with profile PnL
                             # OPTIMIZATION: "Dust Filter"
-                            # Skip heavy PnL analysis for positions < $50 (Rocket Mode)
+                            # Skip heavy PnL analysis only for tiny positions < $5 (was $50)
                             try:
-                                is_dust = pos.current_value < 50.0
+                                is_dust = pos.current_value < 5.0
                                 if not is_dust:
                                     profile = await self.get_profile(wallet)
                                     if profile:
