@@ -257,3 +257,29 @@ def calculate_smart_score(
         return int(score_no), "NO", breakdown_no
     else:
         return int(score_yes), "YES", breakdown_yes
+
+
+def calculate_holders_analysis(
+    positions: List[Position],
+    yes_price: float,
+    no_price: float,
+    model_yes_prob: float,
+    whale_analysis: Optional[WhaleAnalysis] = None
+) -> HoldersAnalysisResult:
+    """
+    Orchestrate the calculation of full holders analysis.
+    """
+    yes_stats = calculate_side_stats(positions, "YES")
+    no_stats = calculate_side_stats(positions, "NO")
+    
+    score, side, breakdown = calculate_smart_score(
+        yes_stats, no_stats, whale_analysis, model_yes_prob
+    )
+    
+    return HoldersAnalysisResult(
+        yes_stats=yes_stats,
+        no_stats=no_stats,
+        smart_score=score,
+        smart_score_side=side,
+        smart_score_breakdown=breakdown
+    )
