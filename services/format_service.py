@@ -103,6 +103,10 @@ def format_holders_block(holders: Any, lang: str) -> str:
     """Format holders analysis block."""
     if not holders:
         return ""
+        
+    # NEW: Hide entire block if no holders data
+    if holders.yes_stats.count == 0 and holders.no_stats.count == 0:
+        return ""
     
     # Format Yes line
     yes = holders.yes_stats
