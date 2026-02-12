@@ -21,7 +21,7 @@ from typing import Optional, List, Dict, Any
 
 from loguru import logger
 
-from market_intelligence import MarketStats
+from market_intelligence import MarketStats, HoldersAnalysis
 from analytics.data_fetcher import data_fetcher, PriceHistory, CryptoData
 from analytics.probability import signal_to_probability, calculate_edge
 from analytics.kelly import KellyResult, calculate_kelly, DEFAULT_BANKROLL
@@ -60,17 +60,16 @@ class Orchestrator:
     
     def __init__(self):
         self.base_kelly = 3.0  # Base 3% Kelly size
-    
-    async def analyze_market(self, market: MarketStats) -> DeepAnalysisResult:
+
+    def _calculate_confidence_and_sizing(
+        self, market: MarketStats, rec_side: str, edge: float, model_prob: float, holders_res: Any
+    ) -> Tuple[int, float, bool, List[Dict]]:
         """
-        Deep analysis with corrected confidence calculation.
-        Includes proportional smart conflict penalty.
+        Standardized confidence and sizing logic.
+        Returns: (confidence, kelly_pct, is_positive_setup, conflicts)
         """
-        # Note: Holders data is already on the market object in this model
-        holders_res = getattr(market, "holders", None) or HoldersAnalysis(smart_score=0, smart_score_side="NEUTRAL")
-        
         # 1. Base confidence from edge (up to 40 pts)
-        edge_abs = abs(getattr(market, "effective_edge", 0))
+        edge_abs = abs(edge)
         conf_base = min(40, int(edge_abs * 500))  # 8% edge = 40 pts max
         
         # 2. Liquidity bonus (up to 10 pts)
@@ -81,60 +80,109 @@ class Orchestrator:
         
         # 4. Model Certainty (up to 10 pts)
         # Extreme probabilities provide more confidence in the direction
-        prob = market.yes_price if market.rec_side == "YES" else market.no_price
+        prob = market.yes_price if rec_side == "YES" else market.no_price
         cert_bonus = 10 if (prob >= 0.80 or prob <= 0.20) else 0
         
         # 5. SMART CONFLICT HANDLING - Proportional penalty
-        if holders_res.smart_score_side == market.rec_side:
-            # Alignment with smart money - positive
-            conf_smart = holders_res.smart_score * 0.4
-        elif holders_res.smart_score >= 80:
-            # VERY STRONG conflict (Smart Score 80+ against us)
-            conf_smart = -min(50, holders_res.smart_score * 0.5)
-        elif holders_res.smart_score >= 60:
-            # Strong conflict
-            conf_smart = -min(30, holders_res.smart_score * 0.3)
-        elif holders_res.smart_score >= 40:
-            # Moderate conflict
-            conf_smart = -20
-        else:
-            # Mild conflict
-            conf_smart = -10
+        conf_smart = 0
+        if holders_res:
+             score = getattr(holders_res, "smart_score", 0)
+             side = getattr(holders_res, "smart_score_side", "NEUTRAL")
+             
+             if side == rec_side:
+                 conf_smart = score * 0.4
+             elif score >= 80:
+                 conf_smart = -min(50, score * 0.5)
+             elif score >= 60:
+                 conf_smart = -min(30, score * 0.3)
+             elif score >= 40:
+                 conf_smart = -20
+             else:
+                 conf_smart = -10
         
-        # Calculate total confidence (clamped 0-100)
+        # Calculate total confidence (clamped 5-95)
         conf_score = int(conf_base + conf_smart + liq_bonus + time_bonus + cert_bonus)
         conf_score = max(5, min(95, conf_score))
         
         # Determine if setup is positive
-        is_positive_setup = conf_score >= 50  # RAISED from 40
+        is_positive_setup = conf_score >= 50
         
         # Check for strong smart money conflict (override)
-        if holders_res.smart_score >= 80 and holders_res.smart_score_side not in ("NEUTRAL", market.rec_side):
-            is_positive_setup = False  # Force neutral/lean despite edge
+        if holders_res:
+            score = getattr(holders_res, "smart_score", 0)
+            side = getattr(holders_res, "smart_score_side", "NEUTRAL")
+            if score >= 80 and side not in ("NEUTRAL", rec_side):
+                is_positive_setup = False
         
         # Dynamic sizing based on confidence
-        k_safe = min(self.base_kelly, market.kelly_pct)
+        k_safe = min(self.base_kelly, market.kelly_pct if hasattr(market, 'kelly_pct') else 2.0)
         
         if conf_score < 30:
             k_safe *= 0.3
         elif conf_score < 50:
             k_safe *= 0.6
-        
         k_safe = round(k_safe, 1)
         
-        # CRITICAL: Block BUY if size becomes too small after downscaling
+        # CRITICAL: Block BUY if size becomes too small
         if k_safe < 1.0:
             is_positive_setup = False
-        
-        # Collect conflicts for display
+            
+        # Conflicts
         conflicts = []
-        if holders_res.smart_score >= 60 and holders_res.smart_score_side not in ("NEUTRAL", market.rec_side):
-            conflicts.append({
-                "type": "SMART_MONEY",
-                "side": holders_res.smart_score_side,
-                "score": holders_res.smart_score,
-                "severity": "high" if holders_res.smart_score >= 80 else "medium"
-            })
+        if holders_res:
+            score = getattr(holders_res, "smart_score", 0)
+            side = getattr(holders_res, "smart_score_side", "NEUTRAL")
+            if score >= 60 and side not in ("NEUTRAL", rec_side):
+                conflicts.append({
+                    "type": "SMART_MONEY",
+                    "side": side,
+                    "score": score,
+                    "severity": "high" if score >= 80 else "medium"
+                })
+        
+        return conf_score, k_safe, is_positive_setup, conflicts
+    
+    async def analyze_market(self, market: MarketStats) -> DeepAnalysisResult:
+        """
+        Deep analysis with corrected confidence calculation.
+        Includes proportional smart conflict penalty.
+        """
+        # Note: Holders data is already on the market object in this model
+        holders_res = getattr(market, "holders", None)
+        
+        # If missing, try to fetch (needed for Signal markets)
+        if not holders_res:
+            try:
+                async with PolymarketApiClient() as client:
+                    holders_data = await client.get_market_holders(market.condition_id)
+                    if holders_data:
+                        from analytics.holders_analysis import calculate_side_stats
+                        yes_stats = calculate_side_stats(holders_data, "YES")
+                        no_stats = calculate_side_stats(holders_data, "NO")
+                        
+                        # Simplified Smart Score calculation for quick analysis
+                        yes_smart = yes_stats.smart_count_5k
+                        no_smart = no_stats.smart_count_5k
+                        
+                        smart_side = "NEUTRAL"
+                        smart_score = 50
+                        if yes_smart > no_smart:
+                            smart_side = "YES"
+                            smart_score = min(100, 50 + (yes_smart - no_smart) * 10)
+                        elif no_smart > yes_smart:
+                            smart_side = "NO"
+                            smart_score = min(100, 50 + (no_smart - yes_smart) * 10)
+                        
+                        holders_res = HoldersAnalysis(smart_score=smart_score, smart_score_side=smart_side)
+                        market.holders = holders_res
+            except Exception as e:
+                logger.warning(f"Quick holders fetch failed: {e}")
+                holders_res = HoldersAnalysis(smart_score=0, smart_score_side="NEUTRAL")
+
+        # Use unified logic
+        conf_score, k_safe, is_positive_setup, conflicts = self._calculate_confidence_and_sizing(
+            market, market.rec_side, getattr(market, "effective_edge", 0.0), getattr(market, "model_prob", market.yes_price), holders_res
+        )
         
         return DeepAnalysisResult(
             market=market,
@@ -533,43 +581,19 @@ async def run_deep_analysis(
         logger.debug(traceback.format_exc())
 
 
-    # Phase 6: Confidence (Synchronized with Orchestrator logic)
-    if rec_side == "NEUTRAL":
-        confidence = 75 if model_confirms_market else 65
-    else:
-        # BUY/NO scenario
-        # 1. Base confidence from edge (up to 40 pts)
-        edge_abs = abs(edge)
-        conf_base = min(40, int(edge_abs * 500))  # 8% edge = 40 pts
-        
-        # 2. Liquidity bonus (up to 10 pts)
-        liq_bonus = min(10, int(market.liquidity / 10000))
-        
-        # 3. Time urgency bonus (up to 10 pts)
-        time_bonus = 10 if market.days_to_close == 0 else (5 if market.days_to_close <= 2 else 0)
+    # Phase 6: Confidence (Unified Logic)
+    orch = Orchestrator()
+    confidence, k_safe, is_positive_setup_final, conflicts_list = orch._calculate_confidence_and_sizing(
+        market, rec_side, edge, model_prob, holders_res
+    )
 
-        # 4. Model Certainty (up to 10 pts)
-        cert_bonus = 10 if (model_prob >= 0.80 or model_prob <= 0.20) else 0
-        
-        # 5. SMART CONFLICT HANDLING (Proportional penalty)
-        conf_smart = 0
-        if holders_res:
-            score = getattr(holders_res, "smart_score", 0)
-            side = getattr(holders_res, "smart_score_side", "NEUTRAL")
-            
-            if side == rec_side:
-                conf_smart = score * 0.4  # Alignment: up to +40 pts
-            elif score >= 80:
-                conf_smart = -min(50, score * 0.5)  # Strong conflict: -40 to -50
-            elif score >= 60:
-                conf_smart = -min(30, score * 0.3)  # Moderate conflict
-            elif score >= 40:
-                conf_smart = -20
-            else:
-                conf_smart = -10
-        
-        confidence = int(conf_base + conf_smart + liq_bonus + time_bonus + cert_bonus)
-        confidence = max(5, min(95, confidence))
+    # Log confidence components for debugging as requested
+    logger.info(
+        f"Confidence calc for {market.slug}: final={confidence}, "
+        f"rec_side={rec_side}, "
+        f"holders_side={getattr(holders_res, 'smart_score_side', 'None')}, "
+        f"smart_score={getattr(holders_res, 'smart_score', 0)}"
+    )
 
     return DeepAnalysis(
         market=market,
