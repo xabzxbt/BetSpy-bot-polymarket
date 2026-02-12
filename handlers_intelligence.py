@@ -13,6 +13,7 @@ from aiogram.types import CallbackQuery
 from aiogram.enums import ParseMode
 from loguru import logger
 import math
+import html
 
 from i18n import get_text
 from services.user_service import resolve_user
@@ -22,7 +23,7 @@ from services.format_service import (
     format_market_links_footer,
     format_unified_analysis,
 )
-from analytics.orchestrator import run_deep_analysis
+from analytics.orchestrator import run_deep_analysis, DeepAnalysis
 from market_intelligence import (
     market_intelligence,
     Category,
@@ -209,7 +210,14 @@ async def callback_market_detail(callback: CallbackQuery) -> None:
             deep_result = await run_deep_analysis(market)
         except Exception as e:
             logger.error(f"Deep analysis error: {e}")
-            deep_result = None
+            # Create dummy result to force V2 format with error
+            deep_result = DeepAnalysis(
+                market=market,
+                market_price=market.yes_price,
+                model_probability=0.5,
+                signal_probability=0.5,
+                errors={"CRASH": str(e)}
+            )
             error_info = str(e)
 
         text = format_unified_analysis(market, deep_result, lang)
