@@ -104,9 +104,9 @@ def format_holders_block(holders: Any, lang: str) -> str:
     if not holders:
         return ""
         
-    # NEW: Hide entire block if no holders data
-    if holders.yes_stats.count == 0 and holders.no_stats.count == 0:
-        return ""
+    # NEW: Hide entire block if no holders data - DISABLED per user request
+    # if holders.yes_stats.count == 0 and holders.no_stats.count == 0:
+    #     return ""
     
     # Format Yes line
     yes = holders.yes_stats
