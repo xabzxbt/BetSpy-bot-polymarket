@@ -29,6 +29,8 @@ class SideStats:
     top_holder_address: str
     top_holder_wins: int = 0
     top_holder_losses: int = 0
+    smart_count_5k: int = 0
+    smart_count_10k: int = 0
 
     @property
     def above_5k_pct(self) -> float:
@@ -52,14 +54,12 @@ class HoldersAnalysisResult:
 def calculate_side_stats(positions: List[Position], side: str) -> SideStats:
     """
     Calculate stats for a specific side (YES/NO).
-    Metrics: Count, Median PnL, Whale counts (>5k, >10k, >50k), Top Holder.
+    Metrics: Count, Median Lifetime PnL, Whale counts (Size > 5k), Smart counts (Profit > 5k).
     """
     # Filter positions by side (outcome)
-    # The API returns 'outcome' as 'YES' or 'NO' usually.
-    # Debug logging
-    logger.info(f"Side {side}: processing {len(positions)} raw positions")
+    # logger.info(f"Side {side}: processing {len(positions)} raw positions")
     side_positions = [p for p in positions if p.outcome == side and p.size > 0]
-    logger.info(f"Side {side}: filtered to {len(side_positions)} valid positions (>0)")
+    # logger.info(f"Side {side}: filtered to {len(side_positions)} valid positions (>0)")
     
     count = len(side_positions)
     if count == 0:
@@ -68,48 +68,33 @@ def calculate_side_stats(positions: List[Position], side: str) -> SideStats:
             profitable_count=0, profitable_pct=0.0,
             above_5k_count=0, above_10k_count=0, above_50k_count=0,
             top_holder_profit=0.0, top_holder_address="",
-            top_holder_wins=0, top_holder_losses=0
+            top_holder_wins=0, top_holder_losses=0,
+            smart_count_5k=0, smart_count_10k=0
         )
 
-    # Median PnL (using cash_pnl + realized_pnl usually, but API gives cashPnl which is unrealized)
-    # Prompt says: "Lifetime PnL цього холдера (з усіх маркетів) ... Поточний unrealized PnL на цьому маркеті"
-    # Actually, getting lifetime PnL for *every* holder is expensive (requires N API calls).
-    # The prompt implies: "2. Для кожного холдера: ... Lifetime PnL ... Поточний unrealized PnL".
-    # However, fetching lifetime PnL for 500 holders would verify API limits.
-    # Let's assume we use the reliable data we have in Position object first:
-    # Position object has: cash_pnl (unrealized), realized_pnl.
-    # The prompt might overestimate what we can get in one call.
-    # If we can't get lifetime PnL easily, we'll use the market PnL (cash_pnl + realized_pnl).
-    # IF the prompt INSISTS on lifetime, we'd need to fetch user profile or PnL summaries, which is too slow.
-    # Re-reading prompt: "Lifetime PnL цього холдера (з усіх маркетів)" -> this is likely impossible efficiently.
-    # I will stick to "Market PnL" (current position profitability) which is available in `p.percent_pnl` or `p.cash_pnl`.
-    # Let's use `unrealized_pnl` (cash_pnl) for "current profitability".
+    # Median PnL -> NOW USING LIFETIME PNL (holder_lifetime_pnl)
+    # As requested: "median profit of holders... understand where smarts are"
+    lifetime_pnls = [p.holder_lifetime_pnl for p in side_positions]
+    median_pnl = statistics.median(lifetime_pnls) if lifetime_pnls else 0.0
     
-    pnls = [p.cash_pnl for p in side_positions]
-    median_pnl = statistics.median(pnls) if pnls else 0.0
-    
-    profitable = [p for p in pnls if p > 0]
+    profitable = [p for p in lifetime_pnls if p > 0]
     profitable_count = len(profitable)
     profitable_pct = (profitable_count / count * 100)
     
-    # Whale counts (based on current value or PnL? "Lifetime PnL > 5k" logic is hard without extra calls)
-    # Let's use Position Value > X as a proxy for "big holder" OR PnL > X.
-    # Prompt says: "Кількість холдерів з lifetime PnL > $5K".
-    # I will substitute with "Current Position Value > $5K" or "Unrealized PnL > $1K" 
-    # OR better: Assume "profit" in prompt refers to the available PnL data.
-    # Let's use Position Value for "Whale Tier" classification (>$5k invested/value).
-    
+    # Position Value Whales (Size)
     above_5k = [p for p in side_positions if p.current_value > 5000]
     above_10k = [p for p in side_positions if p.current_value > 10000]
     above_50k = [p for p in side_positions if p.current_value > 50000]
     
-    # Top holder by profit (cash_pnl)
-    # sorted_by_pnl = sorted(side_positions, key=lambda p: p.cash_pnl, reverse=True)
-    # top_holder = sorted_by_pnl[0]
-    
-    # Or by size? Prompt says "Top holder (найбільший profit)".
-    top_holder = max(side_positions, key=lambda p: p.cash_pnl) if side_positions else None
-    top_profit = top_holder.cash_pnl if top_holder else 0.0
+    # Smart Money (Lifetime Profit)
+    smart_5k = [p for p in lifetime_pnls if p > 5000]
+    smart_10k = [p for p in lifetime_pnls if p > 10000]
+
+    # Top holder by PROFIT (Lifetime or Market?)
+    # "Top holder (najbìl'šij profit)" -> usually implies most successful trader on the side
+    # Let's use Lifetime PnL for ranking "Smartest Holder"
+    top_holder = max(side_positions, key=lambda p: p.holder_lifetime_pnl) if side_positions else None
+    top_profit = top_holder.holder_lifetime_pnl if top_holder else 0.0
     top_addr = top_holder.proxy_wallet if top_holder else ""
 
     return SideStats(
@@ -124,7 +109,9 @@ def calculate_side_stats(positions: List[Position], side: str) -> SideStats:
         top_holder_profit=top_profit,
         top_holder_address=top_addr,
         top_holder_wins=0,
-        top_holder_losses=0
+        top_holder_losses=0,
+        smart_count_5k=len(smart_5k),
+        smart_count_10k=len(smart_10k)
     )
 
 

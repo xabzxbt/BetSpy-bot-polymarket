@@ -110,29 +110,26 @@ def format_holders_block(holders: Any, lang: str) -> str:
     
     # Format Yes line
     yes = holders.yes_stats
+    smart_pct_yes = (yes.smart_count_5k / yes.count * 100) if yes.count > 0 else 0.0
+    
     line_yes = get_text("holders.line", lang, side="YES", 
         count=yes.count, 
         median=f"{yes.median_pnl:+.0f}",
-        count_5k=yes.above_5k_count,
-        pct=f"{yes.above_5k_pct:.1f}"
+        count_5k=yes.smart_count_5k, # Using Smart (Lifetime PnL > 5k)
+        pct=f"{smart_pct_yes:.1f}"
     )
     
     # Format No line
     no = holders.no_stats
+    smart_pct_no = (no.smart_count_5k / no.count * 100) if no.count > 0 else 0.0
+    
     line_no = get_text("holders.line", lang, side="NO", 
         count=no.count, 
         median=f"{no.median_pnl:+.0f}",
-        count_10k=no.above_10k_count,  # Note: logic might use 10k for NO if requested, but key uses count_5k usually. Let's assume standard key.
-        # Wait, the key `holders.line` uses `count_5k`. The prompt showed NO >10k.
-        # I'll stick to >5k for consistency in the line unless I make two keys.
-        count_5k=no.above_5k_count,
-        pct=f"{no.above_5k_pct:.1f}"
+        count_10k=no.smart_count_5k, # Using Smart > 5k for consistency
+        count_5k=no.smart_count_5k,  # Param definition might vary in locale keys
+        pct=f"{smart_pct_no:.1f}"
     )
-    
-    # But wait, prompt example: "NO: 289 holders | Med: +$187 | >$10K: 12 (4.1%)"
-    # To match prompt exactly, I should check logic.
-    # The key uses {count_5k}. I'll pass count 10k? No, that's confusing.
-    # I'll use count_5k field for >5k.
     
     # Smart Score
     smart = get_text("holders.smart_score", lang, 
@@ -163,7 +160,10 @@ def format_holders_block(holders: Any, lang: str) -> str:
     
     # Only show top holder if we actually have one (or profit != 0)
     top_line = ""
-    if max_prof != 0 or (holders.yes_stats.count > 0 or holders.no_stats.count > 0):
+    # Check if we have valid top holder address
+    holder_addr = holders.yes_stats.top_holder_address if top_side == "YES" else holders.no_stats.top_holder_address
+    
+    if max_prof != 0 and holder_addr:
         # Get stats for the winning top holder
         stats = holders.yes_stats if top_side == "YES" else holders.no_stats
         addr = stats.top_holder_address
@@ -212,7 +212,7 @@ def format_comparison(yes_stats: Any, no_stats: Any, lang: str) -> str:
             if y > n: return "✅ (YES)"
             return ""
 
-        # Median PnL
+        # Median Lifetime PnL
         yes_med = yes_stats.median_pnl
         no_med = no_stats.median_pnl
         
@@ -222,16 +222,16 @@ def format_comparison(yes_stats: Any, no_stats: Any, lang: str) -> str:
             check=get_check(yes_med, no_med)
         )
         
-        # >$10K count
-        yes_10k = yes_stats.above_10k_count
-        no_10k = no_stats.above_10k_count
+        # Smart Count >$5K (Lifetime Profit)
+        yes_smart = yes_stats.smart_count_5k
+        no_smart = no_stats.smart_count_5k
         count_line = get_text("holders.comparison_count", lang,
-            yes_count=str(yes_10k),
-            no_count=str(no_10k),
-            check=get_check(yes_10k, no_10k)
+            yes_count=str(yes_smart),
+            no_count=str(no_smart),
+            check=get_check(yes_smart, no_smart)
         )
         
-        # Profitable %
+        # Profitable % (Lifetime)
         yes_pct = yes_stats.profitable_pct
         no_pct = no_stats.profitable_pct
         prof_line = get_text("holders.comparison_prof", lang,
@@ -244,6 +244,7 @@ def format_comparison(yes_stats: Any, no_stats: Any, lang: str) -> str:
         return f"\n{title}\n{med_line}\n{count_line}\n{prof_line}"
         
     except Exception as e:
+        logger.error(f"Format Comparison Error: {e}")
         return ""
 
 

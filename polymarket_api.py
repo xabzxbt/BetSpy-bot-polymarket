@@ -101,6 +101,9 @@ class Position:
     outcome: str
     outcome_index: int
     redeemable: bool = False
+    # Enrichment fields (not from /positions API directly)
+    holder_lifetime_pnl: float = 0.0
+    holder_volume: float = 0.0
 
     @classmethod
     def from_api_response(cls, data: Dict[str, Any]) -> "Position":
@@ -123,6 +126,8 @@ class Position:
             outcome=data.get("outcome", ""),
             outcome_index=int(data.get("outcomeIndex", 0)),
             redeemable=data.get("redeemable", False),
+            holder_lifetime_pnl=0.0, # Default, will be enriched later
+            holder_volume=0.0, # Default, will be enriched later
         )
 
     @property
@@ -140,10 +145,18 @@ class Profile:
     bio: Optional[str] = None
     profile_image: Optional[str] = None
     display_username_public: bool = False
+    pnl: float = 0.0
+    volume: float = 0.0
 
     @classmethod
     def from_api_response(cls, data: Dict[str, Any]) -> "Profile":
         """Create Profile from API response dict."""
+        stats = data.get("stats", {})
+        # Try various fields for PnL/Profit
+        pnl = float(data.get("pnl", data.get("profit", stats.get("pnl", stats.get("profit", 0.0)))))
+        # Try various fields for Volume
+        volume = float(data.get("volume", data.get("volumeTraded", stats.get("volume", 0.0))))
+        
         return cls(
             proxy_wallet=data.get("proxyWallet", ""),
             name=data.get("name"),
@@ -151,6 +164,8 @@ class Profile:
             bio=data.get("bio"),
             profile_image=data.get("profileImage"),
             display_username_public=data.get("displayUsernamePublic", False),
+            pnl=pnl,
+            volume=volume
         )
 
     @property
@@ -452,15 +467,17 @@ class PolymarketApiClient:
                 wallet = h_data.get("proxyWallet")
                 holder_asset_id = h_data.get("asset") # Asset ID from /holders (e.g. token ID)
 
-                logger.debug(f"_fetch_pos called: wallet={wallet}, asset={holder_asset_id}")
+                # logger.debug(f"_fetch_pos called: wallet={wallet}, asset={holder_asset_id}")
 
                 if not wallet:
                     logger.warning(f"No proxyWallet in holder data: {h_data}")
                     return None
                     
+                pos = None
+                
                 # Get specific position for this market
                 try:
-                    logger.debug(f"Fetching /positions for wallet={wallet}")
+                    # logger.debug(f"Fetching /positions for wallet={wallet}")
                     p_url = f"{self.data_api_url}/positions"
                     p_params = {
                         "user": wallet, 
@@ -471,59 +488,72 @@ class PolymarketApiClient:
                     
                     pos_data = await self._request("GET", p_url, p_params)
                     
-                    count = len(pos_data) if isinstance(pos_data, list) else 0
-                    logger.debug(f"Got {count} positions from API for {wallet}")
-
+                    # Determine count safely
+                    p_list = pos_data if isinstance(pos_data, list) else []
+                    
                     # Result is list of positions. Find the one matching our market.
-                    if isinstance(pos_data, list):
-                        for item in pos_data:
-                            # 1. Check Condition ID match (if item has it)
-                            if condition_id and item.get("conditionId") == condition_id:
-                                return Position.from_api_response(item)
-                            
-                            # 2. Check Asset ID match (if we know it from holder data)
-                            if holder_asset_id and item.get("asset") == holder_asset_id:
-                                # logger.debug(f"Asset match found: {holder_asset_id}")
-                                return Position.from_api_response(item)
+                    for item in p_list:
+                        # 1. Check Condition ID match
+                        if condition_id and item.get("conditionId") == condition_id:
+                            pos = Position.from_api_response(item)
+                            break
+                        
+                        # 2. Check Asset ID match
+                        if holder_asset_id and item.get("asset") == holder_asset_id:
+                            pos = Position.from_api_response(item)
+                            break
                     
                     # If not found in detailed positions, use raw data as fallback
-                    logger.debug(f"No matching position found in /positions, creating fallback for {wallet}")
-                    
-                    # Raw data: amount (shares). We can calc value approx.
-                    outcome_idx = h_data.get("outcomeIndex")
-                    outcome = "YES" if outcome_idx == 0 else "NO"
-                    
-                    # Estimate price and value
-                    est_price = yes_price if outcome == "YES" else no_price
-                    size = float(h_data.get("amount", 0))
-
-                    logger.debug(f"Fallback data: outcome={outcome}, outcomeIdx={outcome_idx}, size={size}")
-                    
-                    if size <= 0:
-                        logger.warning(f"Skipping holder {wallet}: size={size} <= 0")
-                        return None
+                    if not pos:
+                        logger.debug(f"No matching position found in /positions, creating fallback for {wallet}")
                         
-                    est_value = size * est_price
-                    
-                    pos = Position(
-                        condition_id=condition_id,
-                        asset=holder_asset_id or "",
-                        outcome=outcome,
-                        outcome_index=outcome_idx,
-                        size=size,
-                        avg_price=est_price,
-                        cur_price=est_price,
-                        current_value=est_value,
-                        initial_value=est_value, # Approx
-                        cash_pnl=0.0,
-                        percent_pnl=0.0,
-                        realized_pnl=0.0,
-                        proxy_wallet=wallet,
-                        title="Unknown",
-                        slug="unknown",
-                        event_slug="unknown",
-                    )
-                    logger.info(f"✓ Created fallback position: {wallet} {outcome} size={size} value=${est_value}")
+                        # Raw data: amount (shares). We can calc value approx.
+                        outcome_idx = h_data.get("outcomeIndex")
+                        outcome = "YES" if outcome_idx == 0 else "NO"
+                        
+                        # Estimate price and value
+                        est_price = yes_price if outcome == "YES" else no_price
+                        size = float(h_data.get("amount", 0))
+
+                        # logger.debug(f"Fallback data: outcome={outcome}, outcomeIdx={outcome_idx}, size={size}")
+                        
+                        if size > 0:
+                            est_value = size * est_price
+                            pos = Position(
+                                condition_id=condition_id,
+                                asset=holder_asset_id or "",
+                                outcome=outcome,
+                                outcome_index=outcome_idx,
+                                size=size,
+                                avg_price=est_price,
+                                cur_price=est_price,
+                                current_value=est_value,
+                                initial_value=est_value, # Approx
+                                cash_pnl=0.0,
+                                percent_pnl=0.0,
+                                realized_pnl=0.0,
+                                proxy_wallet=wallet,
+                                title="Unknown",
+                                slug="unknown",
+                                event_slug="unknown",
+                                holder_lifetime_pnl=0.0,
+                                holder_volume=0.0
+                            )
+                            logger.info(f"✓ Created fallback position: {wallet} {outcome} size={size:.2f} val=${est_value:.2f}")
+
+                    # ENRICH WITH PROFILE DATA (PnL)
+                    if pos:
+                        try:
+                            profile = await self.get_profile(wallet)
+                            if profile:
+                                pos.holder_lifetime_pnl = profile.pnl
+                                pos.holder_volume = profile.volume
+                                # Use profile name for better display if title is missing
+                                if pos.title == "Unknown" and profile.display_name:
+                                    pos.title = profile.display_name
+                        except Exception as e:
+                            logger.warning(f"Failed to enrich profile for {wallet}: {e}")
+
                     return pos
 
                 except Exception as e:
