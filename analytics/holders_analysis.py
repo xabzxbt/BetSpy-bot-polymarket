@@ -8,6 +8,7 @@ for a specific market to determine smart money conviction.
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple
 import statistics
+import time
 from loguru import logger
 
 from polymarket_api import Position
@@ -31,6 +32,8 @@ class SideStats:
     top_holder_losses: int = 0
     smart_count_5k: int = 0
     smart_count_10k: int = 0
+    veteran_count: int = 0
+    novoreg_count: int = 0
 
     @property
     def above_5k_pct(self) -> float:
@@ -73,27 +76,40 @@ def calculate_side_stats(positions: List[Position], side: str) -> SideStats:
         )
 
     # Median PnL -> NOW USING LIFETIME PNL (holder_lifetime_pnl)
-    # As requested: "median profit of holders... understand where smarts are"
-    lifetime_pnls = [p.holder_lifetime_pnl for p in side_positions]
+    # Filter: Only analyze positions where we fetched profile data (timestamp > 0)
+    analyzed_positions = [p for p in side_positions if getattr(p, "holder_first_trade_timestamp", 0) > 0]
+    
+    lifetime_pnls = [p.holder_lifetime_pnl for p in analyzed_positions]
     median_pnl = statistics.median(lifetime_pnls) if lifetime_pnls else 0.0
     
     profitable = [p for p in lifetime_pnls if p > 0]
     profitable_count = len(profitable)
-    profitable_pct = (profitable_count / count * 100)
+    profitable_pct = (profitable_count / len(analyzed_positions) * 100) if analyzed_positions else 0.0
     
-    # Position Value Whales (Size)
+    # Position Value Whales (Size) - Use all positions as we have size for everyone
     above_5k = [p for p in side_positions if p.current_value > 5000]
     above_10k = [p for p in side_positions if p.current_value > 10000]
     above_50k = [p for p in side_positions if p.current_value > 50000]
     
-    # Smart Money (Lifetime Profit)
+    # Smart Money (Lifetime Profit) - Based on analyzed
     smart_5k = [p for p in lifetime_pnls if p > 5000]
     smart_10k = [p for p in lifetime_pnls if p > 10000]
 
-    # Top holder by PROFIT (Lifetime or Market?)
-    # "Top holder (najbìl'šij profit)" -> usually implies most successful trader on the side
-    # Let's use Lifetime PnL for ranking "Smartest Holder"
-    top_holder = max(side_positions, key=lambda p: p.holder_lifetime_pnl) if side_positions else None
+    # Analysis of Age (Novoregs vs Veterans)
+    now_ts = int(time.time())
+    thirty_days = 30 * 24 * 60 * 60
+    novoreg_count = 0
+    veteran_count = 0
+    
+    for p in analyzed_positions:
+        age = now_ts - p.holder_first_trade_timestamp
+        if age < thirty_days:
+            novoreg_count += 1
+        else:
+            veteran_count += 1
+
+    # Top holder by PROFIT (Lifetime)
+    top_holder = max(analyzed_positions, key=lambda p: p.holder_lifetime_pnl) if analyzed_positions else None
     top_profit = top_holder.holder_lifetime_pnl if top_holder else 0.0
     top_addr = top_holder.proxy_wallet if top_holder else ""
 
@@ -111,7 +127,9 @@ def calculate_side_stats(positions: List[Position], side: str) -> SideStats:
         top_holder_wins=0,
         top_holder_losses=0,
         smart_count_5k=len(smart_5k),
-        smart_count_10k=len(smart_10k)
+        smart_count_10k=len(smart_10k),
+        veteran_count=veteran_count,
+        novoreg_count=novoreg_count
     )
 
 

@@ -483,12 +483,16 @@ class PolymarketApiClient:
                             pos = Position.from_api_response(item)
                             
                             # Enrich with profile PnL
+                            # OPTIMIZATION: "Dust Filter"
+                            # Skip heavy PnL analysis for positions < $10
                             try:
-                                profile = await self.get_profile(wallet)
-                                if profile:
-                                    pos.holder_lifetime_pnl = profile.pnl
-                                    pos.holder_volume = profile.volume
-                                    pos.holder_first_trade_timestamp = profile.first_trade_timestamp
+                                is_dust = pos.current_value < 10.0
+                                if not is_dust:
+                                    profile = await self.get_profile(wallet)
+                                    if profile:
+                                        pos.holder_lifetime_pnl = profile.pnl
+                                        pos.holder_volume = profile.volume
+                                        pos.holder_first_trade_timestamp = profile.first_trade_timestamp
                             except Exception as e:
                                 logger.debug(f"Profile fetch failed for {wallet}: {e}")
                             
@@ -503,7 +507,7 @@ class PolymarketApiClient:
             
             # Fetch in chunks to avoid overwhelming the event loop and connection pool
             results = []
-            chunk_size = 20
+            chunk_size = 50
             total_holders = len(top_holders)
             
             for i in range(0, total_holders, chunk_size):
