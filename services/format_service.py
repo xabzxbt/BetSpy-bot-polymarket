@@ -992,8 +992,9 @@ def _format_quant_analysis_v3(market: MarketStats, deep: Any, lang: str) -> str:
         
         # Confidence line
         conf_lbl = "Confidence"
-        if "l1.confidence" in get_text("l1.confidence", lang):
-             conf_lbl = get_text("l1.confidence", lang)
+        c_text = get_text("l1.confidence", lang)
+        if "l1.confidence" not in c_text:
+             conf_lbl = c_text
         
         text += f"{conf_lbl}: {conf_score}/100 · Edge: {edge_disp}\n\n"
 
@@ -1001,8 +1002,9 @@ def _format_quant_analysis_v3(market: MarketStats, deep: Any, lang: str) -> str:
         # 3. WHY (Bulleted)
         # ---------------------------
         why_lbl = "WHY"
-        if "l2.why" in get_text("l2.why_label", lang):
-             why_lbl = get_text("l2.why_label", lang)
+        w_text = get_text("l2.why_label", lang)
+        if "l2.why" not in w_text:
+             why_lbl = w_text
              
         text += f"💬 {why_lbl}:\n"
         
@@ -1025,7 +1027,10 @@ def _format_quant_analysis_v3(market: MarketStats, deep: Any, lang: str) -> str:
         if holders:
             sm_score = holders.smart_score
             sm_side = holders.smart_score_side
-            mix_reasons.append(f"Smart Money ({sm_side} {sm_score}/100)")
+            if sm_side != "NEUTRAL":
+                mix_reasons.append(f"Smart Money ({sm_side} {sm_score}/100)")
+            else:
+                 mix_reasons.append(f"Smart Score {sm_score}/100")
             
         if mix_reasons:
             text += f"• {' & '.join(mix_reasons)}\n"
@@ -1047,8 +1052,9 @@ def _format_quant_analysis_v3(market: MarketStats, deep: Any, lang: str) -> str:
             act_text = get_text("l2.act_wait_short", lang, kelly=f"{k_safe:.1f}%")
             
         act_lbl = "ACTION"
-        if "l2.action" in get_text("l2.action_label_short", lang):
-             act_lbl = get_text("l2.action_label_short", lang)
+        a_text = get_text("l2.action_label_short", lang)
+        if "l2.action" not in a_text:
+             act_lbl = a_text
         
         text += f"⚡️ {act_lbl}: {act_text}\n"
         text += "────────────────────────────\n"
@@ -1057,8 +1063,9 @@ def _format_quant_analysis_v3(market: MarketStats, deep: Any, lang: str) -> str:
         # 5. DETAILED
         # ---------------------------
         det_lbl = "DETAILED"
-        if "l3.header" in get_text("l3.header_short", lang):
-             det_lbl = get_text("l3.header_short", lang)
+        d_text = get_text("l3.header_short", lang)
+        if "l3.header" not in d_text:
+             det_lbl = d_text
              
         text += f"📊 {det_lbl}\n\n"
         
@@ -1082,15 +1089,21 @@ def _format_quant_analysis_v3(market: MarketStats, deep: Any, lang: str) -> str:
         k_full = deep.kelly.kelly_full * 100 if deep.kelly else 0.0
         if k_full <= 0:
              k_reason = "no edge"
-             if "l3.kelly_no_edge" in get_text("l3.kelly_no_edge", lang):
-                  k_reason = get_text("l3.kelly_no_edge", lang)
+             k_text = get_text("l3.kelly_no_edge", lang)
+             if "l3.kelly" not in k_text:
+                  k_reason = k_text
              text += f"💰 Kelly: 0% ({k_reason})\n\n"
         else:
              text += f"💰 Kelly: {k_safe:.1f}% (Full {k_full:.1f}%)\n\n"
         
         # Whale Flow Breakdown
         if wa:
-            text += f"🐋 Whale Flow (24h):\n"
+            wf_lbl = "Whale Flow (24h)"
+            w_text = get_text("l3.whale_label", lang)
+            if "l3.whale" not in w_text:
+                wf_lbl = w_text
+                
+            text += f"🐋 {wf_lbl}:\n"
             total_v = wa.yes_volume + wa.no_volume
             y_share = (wa.yes_volume / total_v * 100) if total_v else 0
             n_share = 100 - y_share
@@ -1106,7 +1119,11 @@ def _format_quant_analysis_v3(market: MarketStats, deep: Any, lang: str) -> str:
 
         # Smart Money Breakdown
         if holders:
-            text += f"👥 Smart Money:\n"
+            sm_lbl = "Smart Money"
+            s_text = get_text("detail.smart_money", lang)
+            if "detail.smart" not in s_text:
+                sm_lbl = s_text
+            text += f"👥 {sm_lbl}:\n"
             
             def fmt_h_line(stats):
                 if stats.count == 0: return "N/A"
@@ -1127,7 +1144,7 @@ def _format_quant_analysis_v3(market: MarketStats, deep: Any, lang: str) -> str:
         liq_lbl = "MED"
         if market.liquidity > 100000: liq_lbl = "HIGH"
         elif market.liquidity < 5000: liq_lbl = "LOW"
-        c_time = f"{market.days_to_close}d" if market.days_to_close > 0 else "<1d"
+        c_time = f"{market.days_to_close}d" if market.days_to_close > 0 else "&lt;1d"
         
         text += f"💧 Liq: {format_volume(market.liquidity)} ({liq_lbl}) | ⏱️ Closes: {c_time}"
 
