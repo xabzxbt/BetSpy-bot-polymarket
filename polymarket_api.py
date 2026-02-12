@@ -236,6 +236,7 @@ class PolymarketApiClient:
         self._headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         }
 
     async def __aenter__(self) -> "PolymarketApiClient":
@@ -602,10 +603,10 @@ class PolymarketApiClient:
             return profile
             
         except ApiError as e:
-            # 404 = Not Found, 405 = Method Not Allowed (wrong endpoint)
-            # Suppress these to avoid log spam
-            if "404" in str(e) or "405" in str(e):
-                # logger.debug(f"No profile found for {wallet_address}: {e}")
+            msg = str(e)
+            # 404/405/401/403 -> Suppress to avoid spam
+            if "404" in msg or "405" in msg or "401" in msg or "403" in msg:
+                # logger.debug(f"Fetch failed/denied for {wallet_address}: {msg}")
                 return None
             logger.warning(f"API error fetching profile: {e}")
             return None
