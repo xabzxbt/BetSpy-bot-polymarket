@@ -69,17 +69,22 @@ class Orchestrator:
         # Note: Holders data is already on the market object in this model
         holders_res = getattr(market, "holders", None) or HoldersAnalysis(smart_score=0, smart_score_side="NEUTRAL")
         
-        # Calculate base confidence from edge
+        # 1. Base confidence from edge (up to 40 pts)
         edge_abs = abs(getattr(market, "effective_edge", 0))
         conf_base = min(40, int(edge_abs * 500))  # 8% edge = 40 pts max
         
-        # Liquidity bonus (up to 10 pts)
+        # 2. Liquidity bonus (up to 10 pts)
         liq_bonus = min(10, int(market.liquidity / 10000))
         
-        # Time urgency bonus (up to 10 pts)
+        # 3. Time urgency bonus (up to 10 pts)
         time_bonus = 10 if market.days_to_close == 0 else (5 if market.days_to_close <= 2 else 0)
         
-        # SMART CONFLICT HANDLING - Proportional penalty
+        # 4. Model Certainty (up to 10 pts)
+        # Extreme probabilities provide more confidence in the direction
+        prob = market.yes_price if market.rec_side == "YES" else market.no_price
+        cert_bonus = 10 if (prob >= 0.80 or prob <= 0.20) else 0
+        
+        # 5. SMART CONFLICT HANDLING - Proportional penalty
         if holders_res.smart_score_side == market.rec_side:
             # Alignment with smart money - positive
             conf_smart = holders_res.smart_score * 0.4
@@ -97,8 +102,8 @@ class Orchestrator:
             conf_smart = -10
         
         # Calculate total confidence (clamped 0-100)
-        conf_score = int(conf_base + conf_smart + liq_bonus + time_bonus)
-        conf_score = max(0, min(100, conf_score))
+        conf_score = int(conf_base + conf_smart + liq_bonus + time_bonus + cert_bonus)
+        conf_score = max(5, min(95, conf_score))
         
         # Determine if setup is positive
         is_positive_setup = conf_score >= 50  # RAISED from 40
@@ -528,41 +533,43 @@ async def run_deep_analysis(
         logger.debug(traceback.format_exc())
 
 
-    # --- Phase 6: Confidence ---
-    # Update confidence logic to include Smart Score
-    
+    # Phase 6: Confidence (Synchronized with Orchestrator logic)
     if rec_side == "NEUTRAL":
-        # Model confirms market (SKIP)
-        confidence = 65
-        if model_confirms_market:
-            confidence = 75
-        if holders_res and holders_res.smart_score > 70:
-             # If holders analysis sees something strongly but model is neutral
-             pass
+        confidence = 75 if model_confirms_market else 65
     else:
-        # BUY scenario
-        # Base confidence from Edge
-        conf_base = min(50, abs(edge) * 100 * 5)  # |edge|*5, e.g. 5% edge -> 25pts
+        # BUY/NO scenario
+        # 1. Base confidence from edge (up to 40 pts)
+        edge_abs = abs(edge)
+        conf_base = min(40, int(edge_abs * 500))  # 8% edge = 40 pts
         
-        # Smart Score influence (0-100)
-        # If score aligns with side
+        # 2. Liquidity bonus (up to 10 pts)
+        liq_bonus = min(10, int(market.liquidity / 10000))
+        
+        # 3. Time urgency bonus (up to 10 pts)
+        time_bonus = 10 if market.days_to_close == 0 else (5 if market.days_to_close <= 2 else 0)
+
+        # 4. Model Certainty (up to 10 pts)
+        cert_bonus = 10 if (model_prob >= 0.80 or model_prob <= 0.20) else 0
+        
+        # 5. SMART CONFLICT HANDLING (Proportional penalty)
         conf_smart = 0
         if holders_res:
-             if holders_res.smart_score_side == rec_side:
-                 conf_smart = holders_res.smart_score * 0.4 # up to 40pts
-             else:
-                 conf_smart = -10 # Penalty if smart score disagrees
+            score = getattr(holders_res, "smart_score", 0)
+            side = getattr(holders_res, "smart_score_side", "NEUTRAL")
+            
+            if side == rec_side:
+                conf_smart = score * 0.4  # Alignment: up to +40 pts
+            elif score >= 80:
+                conf_smart = -min(50, score * 0.5)  # Strong conflict: -40 to -50
+            elif score >= 60:
+                conf_smart = -min(30, score * 0.3)  # Moderate conflict
+            elif score >= 40:
+                conf_smart = -20
+            else:
+                conf_smart = -10
         
-        # Liquidity factor
-        conf_liq = 0
-        if market.liquidity >= 50000: conf_liq = 10
-        elif market.liquidity >= 10000: conf_liq = 5
-        
-        # Model certainty
-        conf_cert = 10 if (model_prob >= 0.60 or model_prob <= 0.40) else 0
-
-        confidence = int(min(95, conf_base + conf_smart + conf_liq + conf_cert))
-        if confidence < 10: confidence = 10
+        confidence = int(conf_base + conf_smart + liq_bonus + time_bonus + cert_bonus)
+        confidence = max(5, min(95, confidence))
 
     return DeepAnalysis(
         market=market,
