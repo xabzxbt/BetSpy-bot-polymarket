@@ -20,6 +20,18 @@ logs/
 .DS_Store
 Thumbs.db
 
+
 # Dev scripts
 git_push_script.bat
+
+# Test & Debug
+debug_dashboard.py
+run_dashboard.bat
+find_market.py
+test_*.py
+*_test.py
+dashboard.py
+.pytest_cache/
+htmlcov/
+.coverage
 

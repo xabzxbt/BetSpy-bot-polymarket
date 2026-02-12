@@ -444,14 +444,17 @@ class PolymarketApiClient:
             
             async def _fetch_pos(h_data):
                 wallet = h_data.get("proxyWallet")
+                holder_asset_id = h_data.get("asset") # Asset ID from /holders (e.g. token ID)
+
+                logger.debug(f"_fetch_pos called: wallet={wallet}, asset={holder_asset_id}")
+
                 if not wallet:
-                    logger.debug("Skipping holder with no wallet address")
+                    logger.warning(f"No proxyWallet in holder data: {h_data}")
                     return None
                     
                 # Get specific position for this market
-                # /positions?user=...&limit=100&sortBy=CURRENT&sortDirection=DESC
-                # "market" param is NOT supported by /positions endpoint
                 try:
+                    logger.debug(f"Fetching /positions for wallet={wallet}")
                     p_url = f"{self.data_api_url}/positions"
                     p_params = {
                         "user": wallet, 
@@ -462,16 +465,23 @@ class PolymarketApiClient:
                     
                     pos_data = await self._request("GET", p_url, p_params)
                     
+                    count = len(pos_data) if isinstance(pos_data, list) else 0
+                    logger.debug(f"Got {count} positions from API for {wallet}")
+
                     # Result is list of positions. Find the one matching our market.
                     if isinstance(pos_data, list):
                         for item in pos_data:
-                            # Check match. Item usually has 'conditionId' or 'asset'
-                            if item.get("conditionId") == condition_id or item.get("asset") == condition_id:
-                                # logger.debug(f"Matches found for {wallet}")
+                            # 1. Check Condition ID match (if item has it)
+                            if condition_id and item.get("conditionId") == condition_id:
+                                return Position.from_api_response(item)
+                            
+                            # 2. Check Asset ID match (if we know it from holder data)
+                            if holder_asset_id and item.get("asset") == holder_asset_id:
+                                # logger.debug(f"Asset match found: {holder_asset_id}")
                                 return Position.from_api_response(item)
                     
                     # If not found in detailed positions, use raw data as fallback
-                    logger.debug(f"No detailed position for {wallet}, using fallback")
+                    logger.debug(f"No matching position found in /positions, creating fallback for {wallet}")
                     
                     # Raw data: amount (shares). We can calc value approx.
                     outcome_idx = h_data.get("outcomeIndex")
@@ -480,18 +490,18 @@ class PolymarketApiClient:
                     # Estimate price and value
                     est_price = yes_price if outcome == "YES" else no_price
                     size = float(h_data.get("amount", 0))
+
+                    logger.debug(f"Fallback data: outcome={outcome}, outcomeIdx={outcome_idx}, size={size}")
                     
                     if size <= 0:
-                        logger.debug(f"Skipping holder {wallet}: size={size}")
+                        logger.warning(f"Skipping holder {wallet}: size={size} <= 0")
                         return None
                         
                     est_value = size * est_price
                     
-                    logger.debug(f"Created fallback: {wallet} {outcome} ${est_value:.2f}")
-                    
-                    return Position(
+                    pos = Position(
                         condition_id=condition_id,
-                        asset=h_data.get("asset", ""),
+                        asset=holder_asset_id or "",
                         outcome=outcome,
                         outcome_index=outcome_idx,
                         size=size,
@@ -507,8 +517,11 @@ class PolymarketApiClient:
                         slug="unknown",
                         event_slug="unknown",
                     )
+                    logger.info(f"✓ Created fallback position: {wallet} {outcome} size={size} value=${est_value}")
+                    return pos
+
                 except Exception as e:
-                    logger.error(f"Error in _fetch_pos for {wallet}: {e}")
+                    logger.error(f"✗ Exception in _fetch_pos for {wallet}: {type(e).__name__}: {e}", exc_info=True)
                     return None
 
             # Run parallel fetches
