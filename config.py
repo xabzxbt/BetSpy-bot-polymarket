@@ -39,25 +39,11 @@ class Settings(BaseSettings):
         description="Polymarket Data API base URL",
     )
 
-    polymarket_gamma_api_url: str = Field(
-        default="https://gamma-api.polymarket.com",
-        description="Polymarket Gamma API base URL",
-    )
-
-    # USER_PNL_URL из фронта (используется для /user-pnl)
-    polymarket_user_pnl_url: str = Field(
-        default="https://user-pnl-api.polymarket.com",
-        description="Polymarket User PnL base URL (USER_PNL_URL from frontend)",
-    )
-
     # Referral Code for Polymarket links
     polymarket_referral_code: str = Field(
         default="",
-        description="Polymarket referral code (e.g., xabzxbt-t1f3)",
+        description="Polymarket referral code (e.g., xabzxbt)",
     )
-
-    # NOTE: CLOB auth keys removed — whale analysis uses PUBLIC endpoints only.
-    # No private key needed.
 
     # Polling Configuration
     polling_interval_seconds: int = Field(
@@ -114,25 +100,18 @@ def get_referral_link(event_slug: str, market_slug: str = "") -> str:
     
     Args:
         event_slug: Event slug from API
-        market_slug: Market slug from API (kept for backwards compatibility, but not used in URL)
+        market_slug: Market slug (kept for backwards compatibility, not used)
         
     Returns:
         Full URL with referral code if configured
-        
-    URL Format:
-        Polymarket only supports: /event/{event_slug}
-        The market_slug parameter is NOT used in the URL as Polymarket
-        doesn't support the /event/{event_slug}/{market_slug} format.
     """
     settings = get_settings()
     
     # Polymarket only supports /event/{event_slug} format
-    # market_slug is NOT part of the valid URL structure
     base_url = f"https://polymarket.com/event/{event_slug}"
     
     # Add referral code if configured
     if settings.polymarket_referral_code:
-        # Clean the referral code (remove any trailing dashes or spaces)
         ref_code = settings.polymarket_referral_code.strip().rstrip('-')
         return f"{base_url}?via={ref_code}"
     
@@ -149,4 +128,3 @@ def get_profile_link(address: str) -> str:
         return f"{base_url}?via={ref_code}"
     
     return base_url
-

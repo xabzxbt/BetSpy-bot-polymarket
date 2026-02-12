@@ -29,7 +29,6 @@ class UserRepository:
         telegram_id: int,
         username: Optional[str] = None,
         first_name: Optional[str] = None,
-        language: str = "en",
     ) -> User:
         """Get existing user or create new one."""
         user = await self.get_by_telegram_id(telegram_id)
@@ -47,32 +46,12 @@ class UserRepository:
             telegram_id=telegram_id,
             username=username,
             first_name=first_name,
-            language=language,
         )
         self.session.add(user)
         await self.session.flush()
         
         logger.info(f"Created new user: telegram_id={telegram_id}")
         return user
-    
-    async def update_language(self, telegram_id: int, language: str) -> Optional[User]:
-        """Update user's language preference."""
-        user = await self.get_by_telegram_id(telegram_id)
-        if user:
-            user.language = language
-            await self.session.flush()
-            logger.info(f"Updated language for user {telegram_id} to {language}")
-        return user
-    
-    async def get_all_with_wallets(self) -> List[User]:
-        """Get all users who have tracked wallets."""
-        stmt = (
-            select(User)
-            .join(TrackedWallet)
-            .distinct()
-        )
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
 
 
 class WalletRepository:
@@ -127,7 +106,7 @@ class WalletRepository:
             user_id=user_id,
             wallet_address=wallet_address.lower(),
             nickname=nickname,
-            last_trade_timestamp=current_timestamp,  # Important!
+            last_trade_timestamp=current_timestamp,
         )
         self.session.add(wallet)
         await self.session.flush()
@@ -166,24 +145,3 @@ class WalletRepository:
         if wallet:
             wallet.last_trade_timestamp = timestamp
             await self.session.flush()
-    
-    async def get_all_unique_wallets(self) -> List[TrackedWallet]:
-        """Get all unique tracked wallets across all users."""
-        stmt = (
-            select(TrackedWallet)
-            .distinct(TrackedWallet.wallet_address)
-        )
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())
-    
-    async def get_subscribers_for_wallet(
-        self,
-        wallet_address: str,
-    ) -> List[TrackedWallet]:
-        """Get all tracked wallet entries for a given address."""
-        stmt = (
-            select(TrackedWallet)
-            .where(func.lower(TrackedWallet.wallet_address) == wallet_address.lower())
-        )
-        result = await self.session.execute(stmt)
-        return list(result.scalars().all())

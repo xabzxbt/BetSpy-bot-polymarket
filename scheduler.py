@@ -20,7 +20,6 @@ from loguru import logger
 from config import get_settings, get_profile_link
 from polymarket_api import api_client, Trade
 from models import User, TrackedWallet, OpenPosition
-from i18n import get_text, get_side_text
 
 
 @dataclass
@@ -31,7 +30,6 @@ class WalletSubscription:
     nickname: str
     user_id: int
     user_telegram_id: int
-    user_language: str
     last_trade_timestamp: Optional[int]
     min_trade_amount: float
     is_paused: bool
@@ -71,9 +69,9 @@ class TradeNotificationService:
             id="poll_trades",
             name="Poll trades and send notifications",
             replace_existing=True,
-            max_instances=2,  # Allow overlap to prevent "skipped" warnings
-            misfire_grace_time=30,  # Allow 30s late execution
-            coalesce=True,  # Combine missed runs into one
+            max_instances=2,
+            misfire_grace_time=30,
+            coalesce=True,
         )
         
         self.scheduler.start()
@@ -101,10 +99,9 @@ class TradeNotificationService:
                     TrackedWallet.is_paused,
                     User.id.label("user_id"),
                     User.telegram_id,
-                    User.language,
                 )
                 .join(User, TrackedWallet.user_id == User.id)
-                .where(User.is_blocked == False)  # Exclude blocked users
+                .where(User.is_blocked == False)
             )
             
             result = await session.execute(stmt)
@@ -121,7 +118,6 @@ class TradeNotificationService:
                     is_paused=row[5] or False,
                     user_id=row[6],
                     user_telegram_id=row[7],
-                    user_language=row[8],
                 ))
             
             return subscriptions
@@ -253,7 +249,6 @@ class TradeNotificationService:
         except Exception as e:
             logger.error(f"Failed to process SELL trade: {e}")
             return None
-
     
     async def _poll_and_notify(self) -> None:
         """Main polling job."""
@@ -296,7 +291,6 @@ class TradeNotificationService:
         """Process a single wallet."""
         try:
             # Find the latest timestamp among all subscriptions
-            # We only want trades AFTER this timestamp
             max_timestamp = None
             for sub in subscriptions:
                 if sub.last_trade_timestamp:
@@ -305,16 +299,14 @@ class TradeNotificationService:
             
             current_ts = int(time.time())
             
-            # If no timestamp set, this is a new wallet - don't fetch old trades
-            # Just set the current time as starting point
+            # If no timestamp set, this is a new wallet
             if max_timestamp is None:
                 logger.info(f"New wallet {wallet_address[:10]}... - setting initial timestamp")
                 for sub in subscriptions:
                     await self._update_last_trade_timestamp(sub.wallet_id, current_ts)
                 return
             
-            # SAFEGUARD: If timestamp is too old (>10 min), reset to now.
-            # Reduced from 60 min to 10 min to avoid spamming "old" trades after downtime.
+            # SAFEGUARD: If timestamp is too old (>10 min), reset to now
             max_age_seconds = 600
             if current_ts - max_timestamp > max_age_seconds:
                 logger.warning(
@@ -334,8 +326,7 @@ class TradeNotificationService:
             if not trades:
                 return
             
-            # Filter: trades strictly AFTER max_timestamp to avoid duplicates
-            # Duplicates are handled by _processed_trades cache, but that is empty on restart.
+            # Filter: trades strictly AFTER max_timestamp
             new_trades = [t for t in trades if t.timestamp > max_timestamp]
             
             if not new_trades:
@@ -343,7 +334,7 @@ class TradeNotificationService:
             
             logger.info(f"Found {len(new_trades)} NEW trades for {wallet_address[:10]}...")
             
-            # Group trades by subscription to batch notifications
+            # Group trades by subscription
             latest_timestamp = max_timestamp
             
             # Prepare notifications for each subscription
@@ -352,11 +343,11 @@ class TradeNotificationService:
                 if not self._running:
                     break
                     
-                # Skip if already processed (double-check)
+                # Skip if already processed
                 if trade.transaction_hash in self._processed_trades:
                     continue
                 
-                # Check each subscription to see if they should be notified
+                # Check each subscription
                 for sub in subscriptions:
                     if not self._running:
                         break
@@ -365,7 +356,7 @@ class TradeNotificationService:
                     if sub.is_paused:
                         continue
                     
-                    # Check per-wallet min amount, fallback to global setting
+                    # Check min amount
                     min_amount = sub.min_trade_amount
                     if min_amount <= 0:
                         min_amount = self.settings.min_trade_amount_usdc
@@ -391,20 +382,18 @@ class TradeNotificationService:
                 sub = notification_data['sub']
                 trades = notification_data['trades']
                 
-                # Sort trades by timestamp to show in chronological order
+                # Sort trades by timestamp
                 trades.sort(key=lambda x: x.timestamp)
                 
-                # If too many trades, send a batch summary to avoid Flood Control
+                # If too many trades, send batch summary
                 if len(trades) > 3:
                     logger.info(f"Batching {len(trades)} trades for user {user_id}")
                     await self._send_batch_notification(trades, sub)
-                    # Wait between users
                     await asyncio.sleep(1.0)
                 else:
-                    # Send individual notifications for small number of trades
+                    # Send individual notifications
                     for trade in trades:
                         await self._send_notification(trade, sub)
-                        # Respect rate limits: 1 message per second per chat
                         await asyncio.sleep(1.5)
             
             # Update timestamp for all subscriptions
@@ -432,15 +421,12 @@ class TradeNotificationService:
             
             # Track position based on trade type
             if trade.side.upper() == "BUY":
-                # Record the BUY to track open position
                 await self._record_buy_trade(trade)
                 message = self._format_trade_notification(
                     trade=trade,
                     wallet_name=subscription.nickname,
-                    lang=subscription.user_language,
                 )
             else:  # SELL
-                # Process SELL and calculate PnL
                 pnl_info = await self._process_sell_trade(trade)
                 
                 if pnl_info:
@@ -448,7 +434,6 @@ class TradeNotificationService:
                     message = self._format_close_notification(
                         trade=trade,
                         wallet_name=subscription.nickname,
-                        lang=subscription.user_language,
                         entry_price=pnl_info["entry_price"],
                         exit_price=pnl_info["exit_price"],
                         pnl=pnl_info["pnl"],
@@ -459,7 +444,6 @@ class TradeNotificationService:
                     message = self._format_sell_notification(
                         trade=trade,
                         wallet_name=subscription.nickname,
-                        lang=subscription.user_language,
                     )
             
             await self.bot.send_message(
@@ -474,11 +458,9 @@ class TradeNotificationService:
                 f"for wallet {subscription.nickname} ({trade.side})"
             )
             
-            # Small delay to avoid Telegram rate limits
             await asyncio.sleep(0.05)
             
         except TelegramForbiddenError:
-            # User blocked the bot
             logger.warning(
                 f"User {subscription.user_telegram_id} blocked the bot. "
                 f"Marking as blocked."
@@ -486,7 +468,6 @@ class TradeNotificationService:
             await self._mark_user_blocked(subscription.user_id)
             
         except TelegramBadRequest as e:
-            # Handle other Telegram errors
             if "chat not found" in str(e).lower():
                 logger.warning(
                     f"Chat not found for user {subscription.user_telegram_id}. "
@@ -503,7 +484,7 @@ class TradeNotificationService:
                 f"Failed to notify user {subscription.user_telegram_id} "
                 f"about trade {trade.transaction_hash[:10]}...: {e}"
             )
-
+    
     async def _send_batch_notification(
         self,
         trades: List[Trade],
@@ -517,7 +498,6 @@ class TradeNotificationService:
             message = self._format_batch_trade_notification(
                 trades=trades,
                 wallet_name=subscription.nickname,
-                lang=subscription.user_language,
             )
             
             await self.bot.send_message(
@@ -533,7 +513,6 @@ class TradeNotificationService:
             )
             
         except TelegramForbiddenError:
-            # User blocked the bot
             logger.warning(
                 f"User {subscription.user_telegram_id} blocked the bot. "
                 f"Marking as blocked."
@@ -541,7 +520,6 @@ class TradeNotificationService:
             await self._mark_user_blocked(subscription.user_id)
             
         except TelegramBadRequest as e:
-            # Handle other Telegram errors
             if "chat not found" in str(e).lower():
                 logger.warning(
                     f"Chat not found for user {subscription.user_telegram_id}. "
@@ -551,16 +529,14 @@ class TradeNotificationService:
             elif "Flood control" in str(e).lower() or "Too Many Requests" in str(e).lower():
                 retry_after = getattr(e, 'retry_after', 5)
                 
-                # If retry time is too long (e.g. > 60s), skip to avoid blocking the scheduler
                 if retry_after > 60:
                     logger.error(f"Flood control limit exceeded for user {subscription.user_telegram_id}. Retry after {retry_after}s. Skipping.")
                     return
-
+                
                 logger.warning(
                     f"Rate limited for user {subscription.user_telegram_id}: {e}. Waiting {retry_after}s..."
                 )
                 await asyncio.sleep(retry_after)
-                # Try to send the message again
                 try:
                     await self.bot.send_message(
                         chat_id=subscription.user_telegram_id,
@@ -585,44 +561,39 @@ class TradeNotificationService:
         self,
         trade: Trade,
         wallet_name: str,
-        lang: str,
     ) -> str:
         """Format trade notification message."""
-        side_text = get_side_text(trade.side, lang)
+        side = trade.side.upper()
         profile_link = get_profile_link(trade.proxy_wallet)
         
-        # Choose key based on size 
-        key = "new_trade"
-        # If trade < $1000, don't call it "WHALE", just "TRADE"
-        if trade.usdc_size < 1000:
-            key = "new_trade_small"
+        # Choose emoji based on trade size
+        if trade.usdc_size >= 1000:
+            emoji = "🐋"
+            title = "WHALE TRADE"
+        else:
+            emoji = "📊"
+            title = "NEW TRADE"
+        
+        return f"""{emoji} <b>{title} from {html.escape(wallet_name)}</b>
 
-        return get_text(
-            key,
-            lang,
-            wallet_name=html.escape(wallet_name),
-            market_title=trade.title,
-            side=side_text,
-            outcome=trade.outcome,
-            size=trade.size,
-            usdc_size=trade.usdc_size,
-            price=trade.price,
-            market_link=trade.market_link,
-            profile_link=profile_link,
-        )
+📊 Market: {trade.title}
+💰 Side: {side} {trade.outcome}
+💵 Amount: ${trade.usdc_size:,.2f} ({trade.size:,.0f} shares @ ${trade.price:.3f})
+
+🔗 <a href="{trade.market_link}">View Market</a>
+👤 <a href="{profile_link}">Trader Profile</a>"""
     
     def _format_close_notification(
         self,
         trade: Trade,
         wallet_name: str,
-        lang: str,
         entry_price: float,
         exit_price: float,
         pnl: float,
         pnl_percent: float,
     ) -> str:
         """Format position close notification with PnL."""
-        side_text = get_side_text(trade.side, lang)
+        side = trade.side.upper()
         profile_link = get_profile_link(trade.proxy_wallet)
         
         # Determine emoji based on PnL
@@ -631,113 +602,89 @@ class TradeNotificationService:
             pnl_sign = "+"
         elif pnl < 0:
             pnl_emoji = "🔴"
-            pnl_sign = "-"
+            pnl_sign = ""
         else:
             pnl_emoji = "⚪"
             pnl_sign = ""
         
-        return get_text(
-            "trade_closed",
-            lang,
-            wallet_name=html.escape(wallet_name),
-            market_title=trade.title,
-            side=side_text,
-            outcome=trade.outcome,
-            size=trade.size,
-            usdc_size=trade.usdc_size,
-            price=trade.price,
-            entry_price=entry_price,
-            exit_price=exit_price,
-            pnl_emoji=pnl_emoji,
-            pnl_sign=pnl_sign,
-            pnl_abs=abs(pnl),
-            pnl_percent=pnl_percent,
-            market_link=trade.market_link,
-            profile_link=profile_link,
-        )
+        return f"""🔔 <b>POSITION CLOSED by {html.escape(wallet_name)}</b>
+
+📊 Market: {trade.title}
+💰 Side: {side} {trade.outcome}
+💵 Amount: ${trade.usdc_size:,.2f} ({trade.size:,.0f} shares @ ${trade.price:.3f})
+
+📈 Entry: ${entry_price:.3f} → Exit: ${exit_price:.3f}
+{pnl_emoji} PnL: {pnl_sign}${abs(pnl):,.2f} ({pnl_sign}{pnl_percent:.1f}%)
+
+🔗 <a href="{trade.market_link}">View Market</a>
+👤 <a href="{profile_link}">Trader Profile</a>"""
     
     def _format_sell_notification(
         self,
         trade: Trade,
         wallet_name: str,
-        lang: str,
     ) -> str:
         """Format SELL notification when no entry price is known."""
-        side_text = get_side_text(trade.side, lang)
+        side = trade.side.upper()
         profile_link = get_profile_link(trade.proxy_wallet)
         
-        return get_text(
-            "trade_closed_no_entry",
-            lang,
-            wallet_name=html.escape(wallet_name),
-            market_title=trade.title,
-            side=side_text,
-            outcome=trade.outcome,
-            size=trade.size,
-            usdc_size=trade.usdc_size,
-            price=trade.price,
-            market_link=trade.market_link,
-            profile_link=profile_link,
-        )
+        return f"""📉 <b>SELL from {html.escape(wallet_name)}</b>
 
+📊 Market: {trade.title}
+💰 Side: {side} {trade.outcome}
+💵 Amount: ${trade.usdc_size:,.2f} ({trade.size:,.0f} shares @ ${trade.price:.3f})
+
+ℹ️ No entry price tracked
+
+🔗 <a href="{trade.market_link}">View Market</a>
+👤 <a href="{profile_link}">Trader Profile</a>"""
+    
     def _format_batch_trade_notification(
         self,
         trades: List[Trade],
         wallet_name: str,
-        lang: str,
     ) -> str:
         """Format batch trade notification message."""
         if not trades:
             return ""
         
-        # Get the first trade to use as the base for the message
-        first_trade = trades[0]
-        side_text = get_side_text(first_trade.side, lang)
-        
-        # Calculate total USDC amount and number of trades
+        # Calculate totals
         total_usdc = sum(trade.usdc_size for trade in trades)
         trade_count = len(trades)
         
-        # Get the most recent trade timestamp for the header
+        # Get timestamp for header
         latest_timestamp = max(trade.timestamp for trade in trades)
         import datetime
         latest_time = datetime.datetime.fromtimestamp(latest_timestamp).strftime('%H:%M')
         
+        first_trade = trades[0]
         profile_link = get_profile_link(first_trade.proxy_wallet)
         
-        # Create the header with summary
-        header = get_text(
-            "batch_trade.header", lang,
-            count=trade_count,
-            profile_link=profile_link,
-            wallet_name=html.escape(wallet_name),
-            time=latest_time,
-            total_usdc=total_usdc
-        )
+        # Create header
+        header = f"""🔥 <b>{trade_count} TRADES from <a href="{profile_link}">{html.escape(wallet_name)}</a></b>
+
+⏰ Time: {latest_time}
+💰 Total: ${total_usdc:,.2f}
+
+<b>Recent trades:</b>
+"""
         
-        # Add individual trades (limit to 5 to avoid too long messages)
-        body = get_text("batch_trade.details", lang) + "\n"
-        
-        for i, trade in enumerate(trades[:5]):  # Limit to first 5 trades in the message
-            side_text = get_side_text(trade.side, lang)
-            # Truncate title
+        # Add individual trades (limit to 5)
+        body = ""
+        for i, trade in enumerate(trades[:5]):
+            side = trade.side.upper()
             title = trade.title[:35] + ("..." if len(trade.title) > 35 else "")
             
-            item = get_text(
-                "batch_trade.item", lang,
-                market_title=title,
-                side=side_text,
-                outcome=trade.outcome,
-                price=trade.price,
-                usdc_size=trade.usdc_size
-            )
-            body += item + "\n\n"
+            body += f"""
+{i+1}. {title}
+   {side} {trade.outcome} @ ${trade.price:.3f} (${trade.usdc_size:,.0f})
+"""
         
-        # If there are more than 5 trades, add a note
+        # If more than 5 trades
         if len(trades) > 5:
-            body += get_text("batch_trade.more", lang, count=len(trades) - 5)
+            body += f"\n... and {len(trades) - 5} more trades"
         
-        footer = get_text("batch_trade.footer", lang)
+        footer = f"\n\n🔗 <a href=\"{profile_link}\">View Trader Profile</a>"
         
         return header + body + footer
     
