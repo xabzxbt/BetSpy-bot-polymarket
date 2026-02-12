@@ -211,9 +211,10 @@
   "l2.reason_whale_bad": "Big players opposing {side} ({pct}% vol, {amt})",
   "l2.reason_whale_none": "No significant whale activity",
   "l2.reason_model_view": "Model sees {model}% vs Market {market}%",
+  "l2.reason_model_confirms": "Model confirms market ({model}% ≈ {market}%, no edge)",
   "l2.risk_liq": "Low liquidity (slippage risk)",
   "l2.risk_time": "Long duration (locked capital risk)",
-  "l2.risk_low_edge": "Edge too small (<2%)",
+  "l2.risk_low_edge": "Edge too small (&lt;2%)",
   "l2.factor_good": "Risk/Reward favorable",
   "l2.action_label": "⚡ <b>ACTION:</b> {action}",
   "l2.act_buy": "Bet <b>{pct}%</b> of bankroll",
@@ -240,5 +241,11 @@
   "l3.days_short": "d",
   "l3.to_res": "to resolution",
   "theta_yours": "Time is on your side (+)",
-  "theta_market": "Time is against you (-)"
+  "theta_market": "Time is against you (-)",
+  "holders.title": "👥 <b>HOLDERS ANALYSIS:</b>",
+  "holders.line": "   {side}: {count} holders | Med: ${median} | >$5K: {count_5k} ({pct}%)",
+  "holders.smart_score": "   🎯 Smart Score: {side} {score}/100",
+  "holders.top_holder": "   🔥 Top holder {side}: ${profit} (@{addr}...)",
+  "l2.reason_holders_median": "Holders median {side}: +${val} vs {opp}: -${opp_val}",
+  "l2.reason_holders_whales": "{side} >$10K holders: {count} vs {opp}: {opp_count}"
 }

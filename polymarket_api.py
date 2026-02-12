@@ -390,6 +390,35 @@ class PolymarketApiClient:
             summary.realized_pnl += pos.realized_pnl
         return summary
 
+    async def get_market_holders(
+        self,
+        condition_id: str,
+        limit: int = 1000,
+    ) -> List[Position]:
+        """Get all position holders for a specific market."""
+        url = f"{self.data_api_url}/positions"
+        # API often accepts 'conditionId' or 'asset'
+        params = {
+            "conditionId": condition_id,
+            "limit": limit,
+            "sortBy": "size",  # Get largest holders first
+            "sortDirection": "DESC",
+        }
+
+        try:
+            data = await self._request("GET", url, params)
+            if not isinstance(data, list):
+                # Fallback: try filtering by asset param if conditionId fails?
+                # But usually conditionId is standard.
+                return []
+
+            positions = [Position.from_api_response(item) for item in data]
+            logger.info(f"Fetched {len(positions)} holders for market {condition_id[:10]}...")
+            return positions
+        except Exception as e:
+            logger.error(f"Failed to get holders for {condition_id}: {e}")
+            return []
+
     async def get_profile(self, wallet_address: str) -> Optional[Profile]:
         """Get public profile for a wallet address."""
         url = f"{self.gamma_api_url}/profiles/{wallet_address.lower()}"
