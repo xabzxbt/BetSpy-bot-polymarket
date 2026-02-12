@@ -36,7 +36,7 @@ RUN mkdir -p /app/logs
 
 # Copy application code (all .py files)
 COPY *.py .
-COPY migrations/ ./migrations/
+# ВИДАЛЕНО: COPY migrations/ ./migrations/
 
 # Create non-root user for security
 RUN useradd -m -u 1000 botuser && \
