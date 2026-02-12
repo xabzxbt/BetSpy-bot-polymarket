@@ -445,6 +445,7 @@ class PolymarketApiClient:
             async def _fetch_pos(h_data):
                 wallet = h_data.get("proxyWallet")
                 if not wallet:
+                    logger.debug("Skipping holder with no wallet address")
                     return None
                     
                 # Get specific position for this market
@@ -466,9 +467,12 @@ class PolymarketApiClient:
                         for item in pos_data:
                             # Check match. Item usually has 'conditionId' or 'asset'
                             if item.get("conditionId") == condition_id or item.get("asset") == condition_id:
+                                # logger.debug(f"Matches found for {wallet}")
                                 return Position.from_api_response(item)
                     
                     # If not found in detailed positions, use raw data as fallback
+                    logger.debug(f"No detailed position for {wallet}, using fallback")
+                    
                     # Raw data: amount (shares). We can calc value approx.
                     outcome_idx = h_data.get("outcomeIndex")
                     outcome = "YES" if outcome_idx == 0 else "NO"
@@ -476,7 +480,14 @@ class PolymarketApiClient:
                     # Estimate price and value
                     est_price = yes_price if outcome == "YES" else no_price
                     size = float(h_data.get("amount", 0))
+                    
+                    if size <= 0:
+                        logger.debug(f"Skipping holder {wallet}: size={size}")
+                        return None
+                        
                     est_value = size * est_price
+                    
+                    logger.debug(f"Created fallback: {wallet} {outcome} ${est_value:.2f}")
                     
                     return Position(
                         condition_id=condition_id,
@@ -484,28 +495,35 @@ class PolymarketApiClient:
                         outcome=outcome,
                         outcome_index=outcome_idx,
                         size=size,
-                        avg_price=est_price, # Unknown, assume current
-                        cur_price=est_price, 
-                        current_value=est_value, # Estimated
-                        cash_pnl=0.0, # No PnL available
+                        avg_price=est_price,
+                        cur_price=est_price,
+                        current_value=est_value,
+                        initial_value=est_value, # Approx
+                        cash_pnl=0.0,
+                        percent_pnl=0.0,
                         realized_pnl=0.0,
                         proxy_wallet=wallet,
-                        title="", # Missing metadata
-                        slug="",
-                        event_slug="",
+                        title="Unknown",
+                        slug="unknown",
+                        event_slug="unknown",
                     )
                 except Exception as e:
-                    # logger.warning(f"Failed to fetch position for {wallet}: {e}")
+                    logger.error(f"Error in _fetch_pos for {wallet}: {e}")
                     return None
 
             # Run parallel fetches
             results = await asyncio.gather(*[_fetch_pos(h) for h in top_holders], return_exceptions=True)
             
             valid_positions = []
-            for res in results:
+            for i, res in enumerate(results):
                 if isinstance(res, Position):
                     valid_positions.append(res)
+                    # logger.debug(f"✓ Position {i}: {res.outcome} ${res.current_value:.2f}")
+                else:
+                    if res is not None:
+                        logger.warning(f"✗ Position {i}: {type(res)}")
             
+            logger.info(f"Collected {len(valid_positions)} valid positions from {len(top_holders)} holders")
             return valid_positions
 
         except Exception as e:
