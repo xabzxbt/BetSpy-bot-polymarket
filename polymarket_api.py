@@ -581,19 +581,31 @@ class PolymarketApiClient:
 
     async def get_profile(self, wallet_address: str) -> Optional[Profile]:
         """Get public profile for a wallet address."""
-        url = f"{self.gamma_api_url}/profiles/{wallet_address.lower()}"
+        # Note: /profiles/{address} might return 405. Using /profiles?address=... for filtering.
+        url = f"{self.gamma_api_url}/profiles"
+        params = {"address": wallet_address.lower()}
+        
         try:
-            data = await self._request("GET", url)
+            data = await self._request("GET", url, params=params)
+            
+            # If filtering returns a list, take the first item
+            if isinstance(data, list):
+                if not data:
+                    return None
+                data = data[0]
+
             if not data:
                 return None
+                
             profile = Profile.from_api_response(data)
-            logger.info(
-                f"Fetched profile for {wallet_address[:10]}...: {profile.display_name}"
-            )
+            # logger.debug(f"Fetched profile for {wallet_address[:6]}: {profile.display_name} (PnL: {profile.pnl})")
             return profile
+            
         except ApiError as e:
+            # 404 = Not Found, 405 = Method Not Allowed (wrong endpoint)
+            # Suppress these to avoid log spam
             if "404" in str(e) or "405" in str(e):
-                logger.debug(f"No profile found for {wallet_address}")
+                # logger.debug(f"No profile found for {wallet_address}: {e}")
                 return None
             logger.warning(f"API error fetching profile: {e}")
             return None
