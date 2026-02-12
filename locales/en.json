@@ -214,7 +214,7 @@
   "l2.reason_model_confirms": "Model confirms market ({model}% ≈ {market}%, no edge)",
   "l2.risk_liq": "Low liquidity (slippage risk)",
   "l2.risk_time": "Long duration (locked capital risk)",
-  "l2.risk_low_edge": "Edge too small (<2%)",
+  "l2.risk_low_edge": "Edge too small (&lt;2%)",
   "l2.factor_good": "Risk/Reward favorable",
   "l2.action_label": "⚡ <b>ACTION:</b> {action}",
   "l2.act_buy": "Bet <b>{pct}%</b> of bankroll",

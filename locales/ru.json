@@ -214,7 +214,7 @@
   "l2.reason_model_confirms": "Модель подтверждает рынок ({model}% ≈ {market}%, нет edge)",
   "l2.risk_liq": "Низкая ликвидность (риск проскальзывания)",
   "l2.risk_time": "Долгий срок (заморозка капитала)",
-  "l2.risk_low_edge": "Edge слишком мал (<2%)",
+  "l2.risk_low_edge": "Edge слишком мал (&lt;2%)",
   "l2.factor_good": "Риск/Профит в вашу пользу",
   "l2.action_label": "⚡ <b>ДЕЙСТВИЕ:</b> {action}",
   "l2.act_buy": "Ставить <b>{pct}%</b> от банка",
