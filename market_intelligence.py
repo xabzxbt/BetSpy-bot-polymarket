@@ -689,7 +689,9 @@ class MarketIntelligenceEngine:
                 f_full = max(0, (b * p - q) / b)
                 
                 # Quarter-Kelly with confidence scaling
-                conf = 0.7 # Default
+                conf = getattr(market, "signal_score", 70) / 100.0
+                if conf <= 0:
+                    conf = 0.5
                 kelly_pct = min(f_full * 0.25 * conf * 100, self.MAX_KELLY_PCT)
         
         market.model_prob = model_prob
@@ -784,9 +786,9 @@ class MarketIntelligenceEngine:
             yes_price = float(outcome_prices[0]) if len(outcome_prices) >= 1 else 0.5
             no_price = float(outcome_prices[1]) if len(outcome_prices) >= 2 else 0.5
 
-            # Skip already-resolved markets (either side >= 97¢)
+            # Skip already-resolved markets (either side >= 95¢)
             if not skip_long_term_filter:
-                if yes_price >= 0.97 or no_price >= 0.97:
+                if yes_price >= 0.95 or no_price >= 0.95:
                     return None
 
             # Volume

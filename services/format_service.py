@@ -434,7 +434,15 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
             k_safe *= 0.6
         k_safe = round(k_safe, 1)
 
-        is_positive_setup = (rec_side in ("YES", "NO")) and (abs(edge_pp) >= 2.0) and (k_safe > 0.0)
+        if k_safe < 1.0:
+            is_positive_setup = False
+            k_safe = 0.0
+
+        holders = getattr(deep, "holders", None)
+        if holders and holders.smart_score >= 80 and holders.smart_score_side not in ("NEUTRAL", rec_side):
+            is_positive_setup = False
+
+        # is_positive_setup = (rec_side in ("YES", "NO")) and (abs(edge_pp) >= 2.0) and (k_safe > 0.0)
 
         # Cap recommended size for mass users (max 5-6%)
         if k_safe > 6.0:
@@ -461,7 +469,7 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         l1_text += "────────────────────────────\n"
         
         # Dynamic Action Title based on Confidence (User Request 3.1)
-        min_conf_for_buy = 40
+        min_conf_for_buy = 50
 
         if is_positive_setup:
             price_display = int(market.yes_price * 100) if rec_side == "YES" else int(market.no_price * 100)
