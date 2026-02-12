@@ -256,5 +256,16 @@
   "holders.comparison_count": "   Smart >$3K: {yes_count} vs {no_count} {check}",
   "holders.comparison_prof": "   Profitable: {yes_pct}% vs {no_pct}% {check}",
   "holders.line_empty": "   {side}: N/A (данные отсутствуют или &lt;3 холдера)",
-  "bayes_c_confirm": "Подтверждает рынок"
+  "bayes_c_confirm": "Подтверждает рынок",
+  "l1.confidence": "Уверенность",
+  "l2.why_label": "ПОЧЕМУ",
+  "l2.action_label_short": "ДЕЙСТВИЕ",
+  "l2.act_buy_short": "Покупать <b>{pct}</b> от банка",
+  "l2.act_wait_short": "Ждать цены (Kelly {kelly})",
+  "l3.header_short": "ДЕТАЛЬНО",
+  "holders.line_empty_short": "Нет данных",
+  "l2.bullet_model_confirms": "Модель подтверждает рынок ({val} ≈ {val}, нет edge)",
+  "l2.bullet_model_view": "Модель {val} (Edge {edge})",
+  "l2.bullet_value_good": "Value для входа присутствует",
+  "l2.bullet_value_bad": "Value отсутствует — ожидать"
 }

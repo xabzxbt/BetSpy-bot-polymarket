@@ -385,7 +385,7 @@ def format_unified_analysis(market: MarketStats, deep_result: Any, lang: str) ->
     - If not: returns "Simple Fact-Based" report.
     """
     if deep_result:
-        return _format_quant_analysis(market, deep_result, lang)
+        return _format_quant_analysis_v2(market, deep_result, lang)
     else:
         return _format_simple_analysis(market, lang)
 
@@ -677,6 +677,245 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
     except Exception as e:
         logger.error(f"Quant Format Error: {e}", exc_info=True)
         return f"⚠️ <b>Analysis Info Error</b>: {e}"
+
+
+
+def _format_quant_analysis_v2(market: MarketStats, deep: Any, lang: str) -> str:
+    """
+    Consumer-Friendly Deep Analysis (Refactored Layout).
+    Structure:
+    1. Header (Prices & Vol)
+    2. Signal (Stop/Go + Conf/Edge)
+    3. Why (Bullets)
+    4. Action
+    5. Details (Models, Whale, Smart Money)
+    6. Footer
+    """
+    try:
+        # --- 0. PRE-CALC METRICS ---
+        p_model = deep.model_probability
+        if p_model > 1.0: p_model /= 100.0
+        p_model = max(0.0, min(1.0, p_model))
+        p_market = market.yes_price
+
+        # Guardrail: if model ≈ market (< 2 p.p.) → force SKIP
+        model_confirms_market = abs(p_model - p_market) < 0.02
+        if model_confirms_market:
+            p_model = p_market 
+
+        # Kelly
+        k_safe = deep.kelly.kelly_final_pct if deep.kelly else 0.0
+        
+        # Edge
+        edge_pp = deep.edge * 100 if deep.edge else 0.0
+        rec_side = deep.recommended_side or "NEUTRAL"
+        
+        # Confidence
+        conf_score = deep.confidence if deep.confidence else 50
+        
+        # Sizing Logic
+        if conf_score < 30: k_safe *= 0.3
+        elif conf_score < 50: k_safe *= 0.6
+        k_safe = min(6.0, round(k_safe, 1))
+
+        is_positive_setup = (rec_side in ("YES", "NO")) and (abs(edge_pp) >= 2.0) and (k_safe > 0.0)
+        
+        # Formatting Helpers
+        edge_disp = f"{edge_pp:+.1f}%" if abs(edge_pp) >= 1.0 else "~0%"
+        
+        # ---------------------------
+        # 1. HEADER
+        # ---------------------------
+        text = ""
+        # 💰 YES 59¢ · NO 40¢ · Vol 24h: $113K
+        text += f"💰 YES {format_price(market.yes_price)} · NO {format_price(market.no_price)} · Vol 24h: {format_volume(market.volume_24h)}\n"
+        text += "────────────────────────────\n"
+
+        # ---------------------------
+        # 2. SIGNAL
+        # ---------------------------
+        if is_positive_setup:
+            price_disp = int(market.yes_price*100) if rec_side == "YES" else int(market.no_price*100)
+            # "✅ BUY YES @ 59¢"
+            sig_text = get_text("l1.signal_buy", lang, side=rec_side, price=price_disp)
+        else:
+            # "🛑 SKIP"
+            sig_text = get_text("l1.signal_skip", lang)
+            
+        text += f"{sig_text}\n"
+        
+        # Confidence line
+        # "Уверенность: 5/100 · Edge: ~0%"
+        conf_lbl = get_text("l1.confidence", lang) # Ensure this key exists or use fallback
+        if "l1.confidence" in conf_lbl: conf_lbl = "Confidence" # Fallback
+        
+        text += f"{conf_lbl}: {conf_score}/100 · Edge: {edge_disp}\n\n"
+
+        # ---------------------------
+        # 3. WHY (Bulleted)
+        # ---------------------------
+        # "💬 ПОЧЕМУ:"
+        why_lbl = get_text("l2.why_label", lang)
+        if "l2.why" in why_lbl: why_lbl = "WHY"
+        text += f"💬 {why_lbl}:\n"
+        
+        # Logic for bullets
+        bullets = []
+        
+        # Bullet 1: Model
+        if model_confirms_market:
+            m_pct = f"{p_model*100:.0f}%"
+            bullets.append(get_text("l2.bullet_model_confirms", lang, val=m_pct))
+        else:
+            m_pct = f"{p_model*100:.0f}%"
+            side = "YES" # Model always predicts YES prob
+            bullets.append(get_text("l2.bullet_model_view", lang, val=m_pct, edge=edge_disp))
+
+        # Bullet 2: Whales & Smart Money
+        wa = market.whale_analysis
+        holders = getattr(deep, "holders", None)
+        
+        mix_reasons = []
+        if wa and wa.is_significant:
+            mix_reasons.append(f"Whale Flow ({wa.dominance_side} {wa.dominance_pct:.0f}%)")
+        
+        if holders:
+            sm_score = holders.smart_score
+            sm_side = holders.smart_score_side
+            mix_reasons.append(f"Smart Money ({sm_side} {sm_score}/100)")
+            
+        if mix_reasons:
+            bullets.append(" & ".join(mix_reasons))
+            
+        # Bullet 3: Value/Action Rationale
+        if is_positive_setup:
+            bullets.append(get_text("l2.bullet_value_good", lang))
+        else:
+            bullets.append(get_text("l2.bullet_value_bad", lang))
+            
+        for b in bullets:
+            text += f"• {b}\n"
+        
+        text += "\n"
+
+        # ---------------------------
+        # 4. ACTION
+        # ---------------------------
+        # "⚡️ ДЕЙСТВИЕ: ..."
+        act_lbl = get_text("l2.action_label_short", lang)
+        if "l2.action" in act_lbl: act_lbl = "ACTION"
+            
+        act_val = ""
+        if is_positive_setup:
+             act_val = get_text("l2.act_buy_short", lang, pct=f"{k_safe:.1f}%")
+        else:
+             act_val = get_text("l2.act_wait_short", lang, kelly="0%")
+             
+        text += f"⚡️ {act_lbl}: {act_val}\n"
+        text += "────────────────────────────\n"
+        
+        # ---------------------------
+        # 5. DETAILS
+        # ---------------------------
+        # "📊 ДЕТАЛЬНО"
+        det_lbl = get_text("l3.header_short", lang)
+        if "l3.header" in det_lbl: det_lbl = "DETAILS"
+        text += f"📊 {det_lbl}\n\n"
+        
+        # Models Block
+        mc = deep.monte_carlo
+        if mc:
+            text += f"🎲 Monte Carlo: {mc.yes_probability*100:.1f}% YES ({10000} runs)\n"
+        
+        # Bayesian
+        bayes = deep.bayesian
+        if bayes:
+            text += f"🧠 Bayesian: {bayes.final_probability*100:.0f}% YES\n"
+            
+        # Kelly
+        text += f"💰 Kelly: {k_safe}% ({'edge' if is_positive_setup else 'no edge'})\n\n"
+        
+        # Whale Flow Block
+        wf_lbl = get_text("l3.whale_label", lang)
+        if "l3.whale" in wf_lbl: wf_lbl = "Whale Flow (24h)"
+            
+        text += f"🐋 {wf_lbl}:\n"
+        if wa:
+            y_vol = format_volume(wa.yes_volume)
+            n_vol = format_volume(wa.no_volume)
+            y_pct = (wa.yes_volume / wa.total_volume * 100) if wa.total_volume > 0 else 0
+            n_pct = 100 - y_pct
+            
+            text += f"   YES: {y_vol} ({y_pct:.0f}%)\n"
+            text += f"   NO:  {n_vol} ({n_pct:.0f}%)\n"
+            if wa.last_big_size > 1000:
+                # time is imported at module level
+                ago_mins = int((time.time()-wa.last_big_timestamp)/60)
+                ago_str = f"{ago_mins}m" if ago_mins < 60 else f"{ago_mins//60}h"
+                text += f"   max trade: {format_volume(wa.last_big_size)} ({ago_str} ago)\n"
+        else:
+            text += "   No significant data\n"
+        text += "\n"
+        
+        # Smart Money Block
+        sm_lbl = get_text("detail.smart_money", lang)
+        if "detail.smart" in sm_lbl: sm_lbl = "Smart Money"
+        text += f"👥 {sm_lbl}:\n"
+        
+        if holders:
+            # YES Line
+            stats = holders.yes_stats
+            smart = stats.smart_count_5k
+            med = f"{stats.median_pnl:+.0f}"
+            novo = f" (👶 {stats.novoreg_count})" if getattr(stats, "novoreg_count", 0) > 0 else ""
+            
+            if stats.count > 0:
+                text += f"   YES: {stats.count} holders ({smart} smart, med PnL {med}){novo}\n"
+            else:
+                text += f"   YES: {get_text('holders.line_empty_short', lang)}\n"
+                
+            # NO Line
+            stats = holders.no_stats
+            smart = stats.smart_count_5k
+            med = f"{stats.median_pnl:+.0f}"
+            novo = f" (👶 {stats.novoreg_count})" if getattr(stats, "novoreg_count", 0) > 0 else ""
+
+            if stats.count > 0:
+                text += f"   NO:  {stats.count} holders ({smart} smart, med PnL {med}){novo}\n"
+            else:
+                text += f"   NO:  {get_text('holders.line_empty_short', lang)}\n"
+
+            # Score & Top Holder
+            text += f"   🎯 Smart Score: {holders.smart_score_side} {holders.smart_score}/100\n"
+            
+            # Top Holder Logic
+            best_stats = holders.yes_stats
+            if holders.no_stats.top_holder_profit > best_stats.top_holder_profit:
+                best_stats = holders.no_stats
+            
+            if best_stats.top_holder_profit != 0:
+                 prof_fmt = f"${best_stats.top_holder_profit:,.0f}" # Simple manual format for PnL
+                 text += f"   🔥 Top holder: {prof_fmt} lifetime PnL ({best_stats.side})\n"
+
+        else:
+            text += "   No data available\n"
+        
+        text += "\n"
+
+        # ---------------------------
+        # 6. FOOTER
+        # ---------------------------
+        clos = market.days_to_close
+        liq = format_volume(market.liquidity)
+        liq_lbl = "HIGH" if market.liquidity > 50000 else "LOW"
+        
+        text += f"💧 Liq: {liq} ({liq_lbl}) | ⏱️ Closes: <{clos+1}d"
+        
+        return text
+
+    except Exception as e:
+        logger.error(f"Quant format error: {e}", exc_info=True)
+        return _format_simple_analysis(market, lang)
 
 
 def _format_simple_analysis(market: MarketStats, lang: str) -> str:

@@ -348,5 +348,16 @@
   "holders.comparison_count": "   Smart >$3K: {yes_count} vs {no_count} {check}",
   "holders.comparison_prof": "   Profitable: {yes_pct}% vs {no_pct}% {check}",
   "holders.line_empty": "   {side}: N/A (дані відсутні або &lt;3 холдери)",
-  "bayes_c_confirm": "Підтверджує ринок"
+  "bayes_c_confirm": "Підтверджує ринок",
+  "l1.confidence": "Упевненість",
+  "l2.why_label": "ЧОМУ",
+  "l2.action_label_short": "ДІЯ",
+  "l2.act_buy_short": "Купувати <b>{pct}</b> від банку",
+  "l2.act_wait_short": "Чекати кращої ціни (Kelly {kelly})",
+  "l3.header_short": "ДЕТАЛЬНО",
+  "holders.line_empty_short": "Немає даних",
+  "l2.bullet_model_confirms": "Модель підтверджує ринок ({val} ≈ {val}, немає edge)",
+  "l2.bullet_model_view": "Модель {val} (Edge {edge})",
+  "l2.bullet_value_good": "Value для входу присутній",
+  "l2.bullet_value_bad": "Value для входу відсутній — очікувати кращої можливості"
 }
