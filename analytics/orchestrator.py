@@ -152,7 +152,11 @@ async def run_deep_analysis(
         # Holders (New)
         async def _fetch_holders_task():
             async with PolymarketApiClient() as client:
-                return await client.get_market_holders(market.condition_id)
+                return await client.get_market_holders(
+                    market.condition_id,
+                    yes_price=market.yes_price,
+                    no_price=market.no_price,
+                )
         
         tasks["holders"] = _fetch_holders_task()
 

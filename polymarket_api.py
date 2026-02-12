@@ -393,6 +393,8 @@ class PolymarketApiClient:
     async def get_market_holders(
         self,
         condition_id: str,
+        yes_price: float = 0.5,
+        no_price: float = 0.5,
         limit: int = 100,  # Limit for initial holder list
     ) -> List[Position]:
         """
@@ -446,16 +448,16 @@ class PolymarketApiClient:
                     return None
                     
                 # Get specific position for this market
-                # /positions?user=...&market=...
-                # Note: data_api params might be 'conditionId' or 'market' depending on endpoint.
-                # /positions usually uses 'conditionId' or just filtering result?
-                # Let's try widely used param 'conditionId' or 'asset'.
-                # User prompt said params={"user": ..., "market": condition_id} for /positions.
+                # /positions?user=...&limit=100&sortBy=CURRENT&sortDirection=DESC
+                # "market" param is NOT supported by /positions endpoint
                 try:
                     p_url = f"{self.data_api_url}/positions"
-                    p_params = {"user": wallet, "market": condition_id} 
-                    # If market param is not supported, we might get all positions. 
-                    # But usually checking docs, /positions takes 'user' (required).
+                    p_params = {
+                        "user": wallet, 
+                        "limit": 100,
+                        "sortBy": "CURRENT",
+                        "sortDirection": "DESC"
+                    } 
                     
                     pos_data = await self._request("GET", p_url, p_params)
                     
@@ -470,18 +472,27 @@ class PolymarketApiClient:
                     # Raw data: amount (shares). We can calc value approx.
                     outcome_idx = h_data.get("outcomeIndex")
                     outcome = "YES" if outcome_idx == 0 else "NO"
+                    
+                    # Estimate price and value
+                    est_price = yes_price if outcome == "YES" else no_price
                     size = float(h_data.get("amount", 0))
+                    est_value = size * est_price
+                    
                     return Position(
                         condition_id=condition_id,
                         asset=h_data.get("asset", ""),
                         outcome=outcome,
+                        outcome_index=outcome_idx,
                         size=size,
-                        avg_price=0.5, # Unknown
-                        current_price=0.5, # Unknown
-                        current_value=0, # Will be inaccurate
-                        cash_pnl=0.0, # No PnL
+                        avg_price=est_price, # Unknown, assume current
+                        cur_price=est_price, 
+                        current_value=est_value, # Estimated
+                        cash_pnl=0.0, # No PnL available
                         realized_pnl=0.0,
-                        proxy_wallet=wallet
+                        proxy_wallet=wallet,
+                        title="", # Missing metadata
+                        slug="",
+                        event_slug="",
                     )
                 except Exception as e:
                     # logger.warning(f"Failed to fetch position for {wallet}: {e}")
