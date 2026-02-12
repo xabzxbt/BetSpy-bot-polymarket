@@ -441,6 +441,18 @@ async def run_deep_analysis(
     # Removed old Holders Analysis Block 
     # (It is now computed earlier in Phase 2)
 
+    # --- Phase 7: Greeks ---
+    greeks_result = None
+    try:
+        greeks_result = calculate_greeks(
+            yes_price=market.yes_price,
+            days_remaining=market.days_to_close,
+            price_history=price_history,
+        )
+    except Exception as e:
+        errors["greeks"] = str(e)
+        logger.warning(f"Greeks failed: {e}")
+
 
     # --- Phase 6: Confidence ---
     # Update confidence logic to include Smart Score
