@@ -8,7 +8,8 @@ Uses:
 
 import asyncio
 from dataclasses import dataclass
-from typing import Optional, List, Any, Dict
+from typing import Optional, List, Any, Dict, Tuple
+import time
 from datetime import datetime
 
 import aiohttp
@@ -232,6 +233,9 @@ class PolymarketApiClient:
             settings.api_rate_limit_period_seconds,
         )
 
+        self._profile_cache: Dict[str, Tuple[Profile, float]] = {}
+        self._cache_ttl = 1800  # 30 minutes user cache
+
         self._session: Optional[aiohttp.ClientSession] = None
         self._headers = {
             "Accept": "application/json",
@@ -298,7 +302,11 @@ class PolymarketApiClient:
 
                     if response.status >= 400:
                         text = await response.text()
-                        logger.error(f"API error {response.status}: {text}")
+                        # Suppress logging for auth/method errors (common with protected endpoints)
+                        if response.status in [401, 403, 405]:
+                            logger.debug(f"API access denied/method not allowed ({response.status}): {text}")
+                        else:
+                            logger.error(f"API error {response.status}: {text}")
                         raise ApiError(f"API error {response.status}: {text}")
 
                     data = await response.json()
@@ -580,39 +588,80 @@ class PolymarketApiClient:
             logger.error(f"Failed to get holders for {condition_id}: {e}")
             return []
 
-    async def get_profile(self, wallet_address: str) -> Optional[Profile]:
-        """Get public profile for a wallet address."""
-        # Note: /profiles/{address} might return 405. Using /profiles?address=... for filtering.
-        url = f"{self.gamma_api_url}/profiles"
-        params = {"address": wallet_address.lower()}
+    async def get_user_pnl_series(self, wallet_address: str, interval: str = "ALL") -> List[Dict[str, Any]]:
+        """Get user PnL history series (Frontend API)."""
+        # Construct URL similar to frontend: /profit/history
+        url = self.user_pnl_base_url
+        if "profit/history" not in url:
+            url = url.rstrip("/") + "/profit/history"
+            
+        params = {"user": wallet_address.lower(), "window": interval}
         
         try:
             data = await self._request("GET", url, params=params)
-            
-            # If filtering returns a list, take the first item
             if isinstance(data, list):
-                if not data:
-                    return None
-                data = data[0]
+                return data
+            return []
+        except Exception:
+            return []
 
-            if not data:
-                return None
+    async def get_profile(self, wallet_address: str) -> Optional[Profile]:
+        """
+        Get profile data using Data API instead of Gamma /profiles.
+        Uses PnL history or Positions fallback.
+        """
+        wallet = wallet_address.lower()
+        now = time.time()
+        
+        # Check cache
+        cached = self._profile_cache.get(wallet)
+        if cached:
+            profile, cached_at = cached
+            if now - cached_at < self._cache_ttl:
+                return profile
+
+        try:
+            # 1. Try PnL Series (Best precision for Lifetime PnL)
+            series = await self.get_user_pnl_series(wallet, interval="ALL")
+            
+            if series and len(series) >= 1:
+                current_pnl = series[-1].get("p", 0.0)
                 
-            profile = Profile.from_api_response(data)
-            # logger.debug(f"Fetched profile for {wallet_address[:6]}: {profile.display_name} (PnL: {profile.pnl})")
+                # Estimate volume from PnL changes
+                total_volume = sum(
+                    abs(series[i]["p"] - series[i-1]["p"]) 
+                    for i in range(1, len(series))
+                ) if len(series) > 1 else 0.0
+                
+                profile = Profile(
+                    proxy_wallet=wallet,
+                    name=None, pseudonym=None, # Gamma API skipped
+                    pnl=float(current_pnl),
+                    volume=float(total_volume)
+                )
+            else:
+                # 2. Fallback: Position-based calculation
+                positions = await self.get_wallet_positions(wallet)
+                total_pnl = sum(pos.realized_pnl for pos in positions)
+                total_volume = sum(pos.current_value for pos in positions)
+                
+                profile = Profile(
+                    proxy_wallet=wallet,
+                    name=None, pseudonym=None,
+                    pnl=total_pnl,
+                    volume=total_volume
+                )
+
+            # Cache result
+            self._profile_cache[wallet] = (profile, now)
             return profile
             
-        except ApiError as e:
-            msg = str(e)
-            # 404/405/401/403 -> Suppress to avoid spam
-            if "404" in msg or "405" in msg or "401" in msg or "403" in msg:
-                # logger.debug(f"Fetch failed/denied for {wallet_address}: {msg}")
-                return None
-            logger.warning(f"API error fetching profile: {e}")
-            return None
         except Exception as e:
-            logger.warning(f"Failed to get profile for {wallet_address}: {e}")
-            return None
+            logger.debug(f"Profile fetch failed for {wallet}: {e}")
+            # Return empty profile on failure
+            empty = Profile(proxy_wallet=wallet, pnl=0.0, volume=0.0)
+            self._profile_cache[wallet] = (empty, now)
+            return empty
 
     async def get_new_trades_for_wallet(
         self,
