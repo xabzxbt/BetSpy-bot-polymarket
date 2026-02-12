@@ -149,16 +149,6 @@ class WhaleAnalysis:
 
 
 @dataclass
-class HoldersAnalysis:
-    smart_score: int
-    smart_score_side: str
-
-    def __post_init__(self):
-        if self.smart_score_side is None:
-            self.smart_score_side = "NEUTRAL"
-
-
-@dataclass
 class MarketStats:
     """Statistics for a single market."""
     condition_id: str
@@ -204,17 +194,6 @@ class MarketStats:
     signal_strength: SignalStrength = SignalStrength.AVOID
     market_quality: MarketQuality = MarketQuality.AVOID
     recommended_side: str = "NONE"
-
-    holders: Optional[HoldersAnalysis] = None
-    
-    # Calculated fields
-    model_prob: float = 0.0
-    edge: float = 0.0
-    effective_edge: float = 0.0
-    rec_side: str = "NEUTRAL"
-    kelly_pct: float = 0.0
-    arbitrage_available: bool = False
-    hot_score: float = 0.0
 
     # Score breakdown for transparency
     score_breakdown: Dict[str, float] = field(default_factory=dict)
@@ -282,10 +261,6 @@ class MarketIntelligenceEngine:
       5. Activity Recency:   0–10 pts
     """
 
-    FEE_RATE = 0.005  # Polymarket 0.5% per trade
-    MIN_EDGE = 0.02
-    MAX_KELLY_PCT = 15.0
-    
     # --- Thresholds ---
     MEDIUM_THRESHOLD = 500    # $500+ = medium smart money
     WHALE_THRESHOLD = 2000    # $2000+ = large whale
@@ -623,172 +598,19 @@ class MarketIntelligenceEngine:
         markets.sort(key=lambda m: m.volume_24h, reverse=True)
         markets = markets[:limit]
 
-        # Enrich and filter out noise for "money-making" focus
+        # Enrich
         enriched = []
         for m in markets:
             try:
                 m = await self._enrich_market_data(m)
                 self._calculate_signal(m)
-                m = self.enrich_with_edge_kelly(m)
-                
-                # Filter noise
-                if m.yes_price > 0.95 or m.no_price > 0.95:
-                    continue
-                if m.days_to_close > 7:
-                    continue
-                if m.liquidity < 30000:
-                    continue
-                    
                 enriched.append(m)
             except Exception as e:
                 logger.error(f"Enrich failed for {m.slug}: {e}")
-                # Don't append if failed, we want quality
-        
-        # Sort by volume first, then by signal score
-        enriched.sort(key=lambda m: (m.volume_24h, m.signal_score), reverse=True)
-        return enriched[:limit]
+                enriched.append(m)
 
-    def enrich_with_edge_kelly(self, market: MarketStats) -> MarketStats:
-        """
-        Quick edge & Kelly calculation with safety caps and fee adjustment.
-        """
-        from analytics.probability import signal_to_probability, calculate_edge
-        
-        try:
-            model_prob = signal_to_probability(market)
-        except Exception:
-            model_prob = market.yes_price
-            
-        gross_edge = calculate_edge(model_prob, market.yes_price)
-        
-        # Fee-adjusted edge (buy + sell consideration)
-        effective_edge = abs(gross_edge) - 2 * self.FEE_RATE
-        
-        rec_side = "NEUTRAL"
-        kelly_pct = 0.0
-        
-        # Check for arbitrage opportunity
-        if market.yes_price + market.no_price < 0.98:
-            market.arbitrage_available = True
-        
-        # Determine recommendation side with safety checks
-        cost = market.yes_price
-        p = model_prob
-        
-        if gross_edge >= self.MIN_EDGE and market.yes_price >= 0.05:
-            rec_side = "YES"
-            p, cost = model_prob, market.yes_price
-        elif gross_edge <= -self.MIN_EDGE and market.no_price >= 0.05:
-            rec_side = "NO"
-            p, cost = 1.0 - model_prob, market.no_price
-        
-        # Kelly calculation with safety caps
-        if rec_side != "NEUTRAL" and effective_edge > 0:
-            b = (1.0 - cost) / cost if cost > 0 else 0
-            if b > 0:
-                q = 1.0 - p
-                f_full = max(0, (b * p - q) / b)
-                
-                # Quarter-Kelly with confidence scaling
-                conf = getattr(market, "signal_score", 70) / 100.0
-                if conf <= 0:
-                    conf = 0.5
-                kelly_pct = min(f_full * 0.25 * conf * 100, self.MAX_KELLY_PCT)
-        
-        market.model_prob = model_prob
-        market.edge = gross_edge
-        market.effective_edge = effective_edge
-        market.rec_side = rec_side
-        market.kelly_pct = round(kelly_pct, 1)
-        
-        return market
-
-    async def fetch_signal_markets(self, limit: int = 5) -> List[MarketStats]:
-        """
-        Fetch markets with strong signals (for quick trading opportunities).
-        Filters: score ≥ 75, effective edge ≥ 3%, liquidity ≥ 50k, time ≤ 3 days.
-        """
-        markets = await self.fetch_trending_markets(
-            category=Category.ALL,
-            timeframe=TimeFrame.DAYS_3,
-            limit=50
-        )
-        
-        signals = []
-        for m in markets:
-            # Re-enrich with latest edge/Kelly
-            m = self.enrich_with_edge_kelly(m)
-            
-            # Strong signal filters
-            if m.signal_score < 75:
-                continue
-            if abs(getattr(m, "effective_edge", 0.0)) < 0.03:
-                continue
-            if m.liquidity < 50000:
-                continue
-            if m.days_to_close > 3:
-                continue
-            
-            signals.append(m)
-        
-        # Sort by effective_edge * score (value-weighted signal strength)
-        signals.sort(
-            key=lambda m: abs(m.effective_edge) * m.signal_score, 
-            reverse=True
-        )
-        
-        return signals[:limit]
-
-    async def fetch_hot_opportunities(self, limit: int = 15) -> List[MarketStats]:
-        """
-        Global HOT: best money-making markets across ALL categories.
-        Сортує по edge × score × ліквідність, з урахуванням SM-конфліктів.
-        """
-        # Беремо ширший пул по ВСІХ категоріях
-        base = await self.fetch_trending_markets(
-            category=Category.ALL,
-            timeframe=TimeFrame.TODAY,
-            limit=120,  # беремо запас, потім відфільтруємо
-        )
-
-        hot = []
-        for m in base:
-            # Edge/Kelly вже є після fetch_trending_markets,
-            # але на всяк випадок перевіряємо атрибути
-            edge_abs = abs(getattr(m, "effective_edge", getattr(m, "edge", 0.0)))
-            score = getattr(m, "signal_score", 0)
-            kelly = getattr(m, "kelly_pct", 0.0)
-            liq = m.liquidity
-
-            # Сильний SM-конфлікт — штраф
-            sm_penalty = 0
-            h = getattr(m, "holders", None)
-            if h and h.smart_score_side not in ("NEUTRAL", m.rec_side) and h.smart_score >= 80:
-                sm_penalty = -40
-            elif h and h.smart_score_side not in ("NEUTRAL", m.rec_side) and h.smart_score >= 60:
-                sm_penalty = -20
-
-            # Формула hot-score
-            # 1. Edge (найважливіший)
-            # 2. Signal Score (модельна впевненість)
-            # 3. Liquidity (бонус за виконання без сліппеджу)
-            # 4. Kelly (рекомендований розмір)
-            # 5. Smart Money Penalty (конфлікт інтересів)
-            
-            hot_score = (
-                edge_abs * 100 * 2 +       # кожні 1% edge = 2 бали
-                score * 1.2 +              # сигнал
-                min(liq / 10000, 10) * 3 + # ліквідність (max 30 балів)
-                kelly * 1.5 +              # розмір ставки
-                sm_penalty                 # штраф
-            )
-
-            m.hot_score = hot_score
-            hot.append(m)
-
-        # Сортуємо за hot_score, потім за 24h volume
-        hot.sort(key=lambda m: (m.hot_score, m.volume_24h), reverse=True)
-        return hot[:limit]
+        enriched.sort(key=lambda m: m.signal_score, reverse=True)
+        return enriched
 
     # =================================================================
     # PARSING
@@ -838,9 +660,9 @@ class MarketIntelligenceEngine:
             yes_price = float(outcome_prices[0]) if len(outcome_prices) >= 1 else 0.5
             no_price = float(outcome_prices[1]) if len(outcome_prices) >= 2 else 0.5
 
-            # Skip already-resolved markets (either side >= 95¢)
+            # Skip already-resolved markets (either side >= 97¢)
             if not skip_long_term_filter:
-                if yes_price >= 0.95 or no_price >= 0.95:
+                if yes_price >= 0.97 or no_price >= 0.97:
                     return None
 
             # Volume

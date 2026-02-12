@@ -1,141 +1,86 @@
+"""
+Hot Today handler — shows top markets by 24h volume + whale activity.
+
+Feature: users tap 🔥 Hot Today and get a quick overview of what's
+happening right now on Polymarket. No category selection needed.
+"""
+
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from market_intelligence import market_intelligence as engine, Category, TimeFrame
-from services.format_service import format_hot_markets
-from services.user_service import resolve_user
-from i18n import get_text
+from aiogram.types import CallbackQuery
+from aiogram.enums import ParseMode
 from loguru import logger
 
-router = Router(name="hot")
+from database import db
+from services.user_service import resolve_user
+from services.format_service import format_market_card
+from i18n import get_text
+from market_intelligence import market_intelligence, Category, TimeFrame
+from keyboards_intelligence import get_trending_keyboard, get_category_keyboard
+
+router = Router(name="hot_today")
 
 
-@router.callback_query(F.data == "hot_all")
 @router.callback_query(F.data == "intel:hot")
-async def hot_all_handler(callback: CallbackQuery):
-    """
-    HOT: Global list of the best money-making markets across all categories.
-    """
-    _, lang = await resolve_user(callback.from_user)
-    
+async def callback_hot_today(callback: CallbackQuery) -> None:
+    """Show Hot Today — top 10 markets by volume, any category."""
+    user, lang = await resolve_user(callback.from_user)
+
     try:
-        await callback.answer(get_text("loading", lang))
-    except Exception:
-        pass
-    
-    # Use the new global opportunities ranker
-    markets = await engine.fetch_hot_opportunities(limit=15)
-    
-    title = get_text("hot.title_global", lang)
-    text = format_hot_markets(markets, title, lang)
-    
-    # Updated keyboard: Categories menu + Quick access to Signals
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text=get_text("btn.categories", lang), callback_data="hot_categories_menu"),
-            InlineKeyboardButton(text=get_text("btn.signals", lang), callback_data="signals_quick"),
-        ],
-        [
-            InlineKeyboardButton(text=get_text("btn.refresh", lang, default="🔃 Refresh"), callback_data="hot_all"),
-        ]
-    ])
-    
-    try:
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-    except Exception as e:
-        logger.debug(f"Hot refresh: {e}")
         await callback.answer()
-
-
-@router.callback_query(F.data == "hot_categories_menu")
-async def hot_categories_handler(callback: CallbackQuery):
-    """Menu with category filters"""
-    _, lang = await resolve_user(callback.from_user)
-    
-    text = get_text("hot.categories_title", lang)
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text=get_text("btn.sports", lang), callback_data="hot_sports"),
-            InlineKeyboardButton(text=get_text("btn.crypto", lang), callback_data="hot_crypto"),
-        ],
-        [
-            InlineKeyboardButton(text=get_text("btn.politics", lang), callback_data="hot_politics"),
-            InlineKeyboardButton(text=get_text("btn.back_hot", lang), callback_data="hot_all"),
-        ],
-    ])
-    
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-
-
-@router.callback_query(F.data == "hot_sports")
-async def hot_sports_handler(callback: CallbackQuery):
-    _, lang = await resolve_user(callback.from_user)
-    try:
-        await callback.answer(get_text("loading", lang))
     except Exception:
         pass
-    
-    markets = await engine.fetch_trending_markets(
-        category=Category.SPORTS,
-        timeframe=TimeFrame.TODAY,
-        limit=10
-    )
-    
-    text = format_hot_markets(markets, get_text("cat.sports", lang), lang)
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=get_text("btn.back_hot", lang), callback_data="hot_all")],
-    ])
-    
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
-
-@router.callback_query(F.data == "hot_crypto")
-async def hot_crypto_handler(callback: CallbackQuery):
-    _, lang = await resolve_user(callback.from_user)
     try:
-        await callback.answer(get_text("loading", lang))
+        await callback.message.edit_text(
+            get_text("loading", lang),
+            parse_mode=ParseMode.HTML,
+        )
     except Exception:
         pass
-    
-    markets = await engine.fetch_trending_markets(
-        category=Category.CRYPTO,
-        timeframe=TimeFrame.TODAY,
-        limit=10
-    )
-    
-    text = format_hot_markets(markets, get_text("cat.crypto", lang), lang)
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=get_text("btn.back_hot", lang), callback_data="hot_all")],
-    ])
-    
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
-
-@router.callback_query(F.data == "hot_politics")
-async def hot_politics_handler(callback: CallbackQuery):
-    _, lang = await resolve_user(callback.from_user)
     try:
-        await callback.answer(get_text("loading", lang))
-    except Exception:
-        pass
-    
-    markets = await engine.fetch_trending_markets(
-        category=Category.POLITICS,
-        timeframe=TimeFrame.TODAY,
-        limit=10
-    )
-    
-    text = format_hot_markets(markets, get_text("cat.politics", lang), lang)
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=get_text("btn.back_hot", lang), callback_data="hot_all")],
-    ])
-    
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        markets = await market_intelligence.fetch_trending_markets(
+            category=Category.ALL,
+            timeframe=TimeFrame.WEEK,
+            limit=10,
+        )
+
+        if not markets:
+            await callback.message.edit_text(
+                get_text("hot.title", lang) + "\n\n" + get_text("hot.empty", lang),
+                reply_markup=get_category_keyboard(lang),
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        text = get_text("hot.title", lang) + "\n\n"
+        for i, m in enumerate(markets, 1):
+            text += format_market_card(m, i, lang)
+            text += "\n"
+
+        text += f"\n💡 {get_text('intel.click_hint', lang)}"
+
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_trending_keyboard(
+                lang, markets, "all", "week", page=1, total_pages=1,
+            ),
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+
+    except Exception as e:
+        logger.error(f"Hot today error: {e}")
+        try:
+            await callback.message.edit_text(
+                get_text("error_generic", lang),
+                reply_markup=get_category_keyboard(lang),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            pass
 
 
 def setup_hot_handlers(dp) -> None:
     dp.include_router(router)
-    logger.info("Hot handlers registered")
+    logger.info("Hot Today handlers registered")

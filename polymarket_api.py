@@ -419,134 +419,101 @@ class PolymarketApiClient:
         condition_id: str,
         yes_price: float = 0.5,
         no_price: float = 0.5,
-        limit: int = 50,
-        yes_token_id: Optional[str] = None,
-        no_token_id: Optional[str] = None,
+        limit: int = 100,
     ) -> Tuple[List[Position], List[Position]]:
         """
         Get market holders split by YES/NO outcome.
-        Supports fetching by Condition ID (legacy) or directly by Asset/Token IDs (preferred).
+        Returns: (yes_positions, no_positions)
         """
         url = f"{self.data_api_url}/holders"
+        params = {
+            "market": condition_id,
+            "limit": limit,
+        }
         
-        async def _fetch_by_id(market_id: str):
-            if not market_id: return []
-            # Try both param keys just in case
-            for key in ["market", "conditionId"]:
-                params = {key: market_id, "limit": limit}
+        try:
+            response = await self._request("GET", url, params)
+            
+            raw_holders = []
+            if isinstance(response, dict) and "holders" in response:
+                raw_holders = response["holders"]
+            elif isinstance(response, list):
+                if response and isinstance(response[0], dict) and "holders" in response[0]:
+                    for item in response:
+                        raw_holders.extend(item.get("holders", []))
+                else:
+                    raw_holders = response
+            
+            if not raw_holders:
+                logger.warning(f"No holders found for condition {condition_id}")
+                return [], []
+            
+            logger.info(f"Found {len(raw_holders)} raw holders for {condition_id}")
+            
+            # Take top 30 for analysis
+            top_holders = raw_holders[:30]
+            
+            yes_positions = []
+            no_positions = []
+            
+            async def _fetch_and_classify(h_data):
+                wallet = h_data.get("proxyWallet")
+                if not wallet:
+                    return None
+                
                 try:
-                    resp = await self._request("GET", url, params)
-                    if isinstance(resp, list): return resp
-                    if isinstance(resp, dict): return resp.get("holders", resp.get("data", []))
-                except Exception:
-                    continue
-            return []
-
-        # Strategy: Use Token IDs if available (more precise), else Condition ID
-        if yes_token_id and no_token_id:
-            yes_raw, no_raw = await asyncio.gather(
-                _fetch_by_id(yes_token_id),
-                _fetch_by_id(no_token_id)
-            )
-        else:
-            # Fallback: fetch using condition_id (likely returns only YES/Primary or mixed)
-            # We fetch a larger batch to improve chances of seeing both sides
-            raw = await _fetch_by_id(condition_id)
-            yes_raw = raw # We'll filter later
-            no_raw = raw  # We'll filter later
-
-        logger.debug(f"Holders raw fetch: YES_ID={yes_token_id} -> {len(yes_raw)}, NO_ID={no_token_id} -> {len(no_raw)}")
-        
-        # Limit processing
-        top_yes = yes_raw[:30]
-        top_no = no_raw[:30]
-        
-        yes_positions = []
-        no_positions = []
-        
-        async def _enrich_holder(h_data, side_label, side_idx, price):
-            wallet = h_data.get("proxyWallet") or h_data.get("address") or h_data.get("wallet")
-            if not wallet: return
-            
-            # If we used distinct Token IDs, we know the side. 
-            # If we used Condition ID, we must verify the side via /positions.
-            is_distinct_fetch = (yes_token_id is not None)
-            
-            try:
-                # 1. Fetch positions for this wallet
-                p_url = f"{self.data_api_url}/positions"
-                p_params = {"user": wallet.lower(), "limit": 40}
-                pos_data = await self._request("GET", p_url, p_params)
-                p_list = pos_data if isinstance(pos_data, list) else []
-                
-                target_pos = None
-                for item in p_list:
-                    # Match condition ID
-                    if str(item.get("conditionId", "")).lower() == str(condition_id).lower():
-                        pos = Position.from_api_response(item)
-                        # If distinct fetch, we trust the source. 
-                        # If shared fetch, we naturally segregate by checking outcome_index.
-                        if is_distinct_fetch:
-                            # Even if fetched by ID, good to verify, but primary match is condition
-                            target_pos = pos
-                            break
-                        else:
-                            # Only accept if matches our expected side
-                            if pos.outcome_index == side_idx:
-                                target_pos = pos
-                                break
-                
-                if not target_pos:
-                    # Fallback if /positions fails but we know they are a holder
-                    # Only safe to assume side if we used Token IDs
-                    if is_distinct_fetch:
-                        target_pos = Position(
-                            proxy_wallet=wallet, asset="", condition_id=condition_id,
-                            size=float(h_data.get("size", 0)), avg_price=0.0,
-                            initial_value=0.0, current_value=float(h_data.get("size", 0)) * price,
-                            cash_pnl=0.0, percent_pnl=0.0, realized_pnl=0.0,
-                            cur_price=price,
-                            title="", slug="", event_slug="", outcome=side_label,
-                            outcome_index=side_idx
-                        )
-                    else:
-                        # If shared fetch and no position found, we can't determine side. Skip.
-                        return
-
-                # 2. Enrich with profile (PnL)
-                profile = await self.get_profile(wallet)
-                if profile:
-                    target_pos.holder_lifetime_pnl = profile.pnl
-                    target_pos.holder_volume = profile.volume
-                
-                if target_pos.outcome_index == 0:
-                    yes_positions.append(target_pos)
-                elif target_pos.outcome_index == 1:
-                    no_positions.append(target_pos)
+                    # Get detailed position for this wallet
+                    p_url = f"{self.data_api_url}/positions"
+                    p_params = {
+                        "user": wallet.lower(),
+                        "limit": 50,
+                    }
                     
-            except Exception as e:
-                logger.debug(f"Enrichment failed for {wallet}: {e}")
-
-        # Process both lists
-        # Note: if using ConditionID (fallback), yes_raw == no_raw, so we process same list twice? 
-        # Efficient way: if distinct, process separate. If shared, process once.
-        
-        tasks = []
-        if yes_token_id and no_token_id:
-             for h in top_yes: tasks.append(_enrich_holder(h, "YES", 0, yes_price))
-             for h in top_no: tasks.append(_enrich_holder(h, "NO", 1, no_price))
-        else:
-             # Shared list treatment
-             # We just iterate the single raw list and put them in correct buckets
-             # We use '0' and 'YES' as defaults but relies on checking real position
-             unique_holders = {h.get("address", h.get("proxyWallet")) : h for h in yes_raw if h.get("address") or h.get("proxyWallet")}
-             for h in list(unique_holders.values())[:40]:
-                 tasks.append(_enrich_holder(h, "ANY", -1, yes_price))
-
-        await asyncio.gather(*tasks, return_exceptions=True)
-        
-        logger.info(f"Holders final: YES={len(yes_positions)}, NO={len(no_positions)}")
-        return yes_positions, no_positions
+                    pos_data = await self._request("GET", p_url, p_params)
+                    p_list = pos_data if isinstance(pos_data, list) else []
+                    
+                    # Find position matching our market
+                    for item in p_list:
+                        if item.get("conditionId") == condition_id:
+                            pos = Position.from_api_response(item)
+                            
+                            # Enrich with profile PnL
+                            try:
+                                profile = await self.get_profile(wallet)
+                                if profile:
+                                    pos.holder_lifetime_pnl = profile.pnl
+                                    pos.holder_volume = profile.volume
+                            except Exception as e:
+                                logger.debug(f"Profile fetch failed for {wallet}: {e}")
+                            
+                            return pos
+                    
+                    # No matching position found
+                    return None
+                    
+                except Exception as e:
+                    logger.debug(f"Failed to fetch position for {wallet}: {e}")
+                    return None
+            
+            # Fetch all in parallel
+            results = await asyncio.gather(
+                *[_fetch_and_classify(h) for h in top_holders],
+                return_exceptions=True
+            )
+            
+            for res in results:
+                if isinstance(res, Position):
+                    if res.outcome_index == 0:  # YES
+                        yes_positions.append(res)
+                    else:  # NO
+                        no_positions.append(res)
+            
+            logger.info(f"Classified holders: {len(yes_positions)} YES, {len(no_positions)} NO")
+            return yes_positions, no_positions
+            
+        except Exception as e:
+            logger.error(f"Failed to get holders for {condition_id}: {e}")
+            return [], []
 
     async def test_holders_endpoint(self, condition_id: str):
         """Debug method to test /holders endpoint"""
