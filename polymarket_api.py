@@ -401,7 +401,7 @@ class PolymarketApiClient:
         params = {
             "conditionId": condition_id,
             "limit": limit,
-            "sortBy": "size",  # Get largest holders first
+            "sortBy": "CURRENT",  # Get largest holders first
             "sortDirection": "DESC",
         }
 

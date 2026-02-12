@@ -540,7 +540,7 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         
         time_msg = ""
         if market.days_to_close == 0:
-            time_msg = "<1d (expires today) ⚠️"
+            time_msg = "&lt;1d (expires today) ⚠️"
         else:
             time_msg = f"{market.days_to_close}d"
             
