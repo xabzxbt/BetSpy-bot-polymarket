@@ -336,13 +336,32 @@ async def run_deep_analysis(
                     top_holder_address="",
                     top_holder_wins=0,
                     top_holder_losses=0,
-                    # Added for compatibility with existing SideStats if needed
+                    # Added for compatibility
                     profitable_count=0,
                     above_5k_count=0,
                     above_10k_count=0,
                     above_50k_count=0,
-                    smart_count_10k=0
+                    smart_count_10k=0,
+                    veteran_count=0,
+                    novoreg_count=0
                 )
+            
+            # Novoreg Analysis (copy of logic from holders_analysis.py)
+            import time
+            now_ts = int(time.time())
+            thirty_days = 30 * 24 * 60 * 60
+            
+            veterans = 0
+            novoregs = 0
+            
+            for p in positions:
+                ts = getattr(p, "holder_first_trade_timestamp", 0)
+                if ts > 0:
+                    age = now_ts - ts
+                    if age >= thirty_days:
+                        veterans += 1
+                    else:
+                        novoregs += 1
 
             # Calculate stats from enriched positions
             # holder_lifetime_pnl is populated in get_market_holders
@@ -382,7 +401,9 @@ async def run_deep_analysis(
                 top_holder_losses=0,
                 # Extra fields for formatter compatibility
                 above_10k_count=above_10k,
-                above_5k_pct=(smart_3k/len(positions)*100) if positions else 0.0 # metric for smart money
+                above_5k_pct=(smart_3k/len(positions)*100) if positions else 0.0, # metric for smart money
+                veteran_count=veterans,
+                novoreg_count=novoregs
             )
 
         yes_stats_obj = _calc_holder_stats(yes_holders, "YES")

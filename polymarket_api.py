@@ -105,6 +105,7 @@ class Position:
     # Enrichment fields (not from /positions API directly)
     holder_lifetime_pnl: float = 0.0
     holder_volume: float = 0.0
+    holder_first_trade_timestamp: int = 0
 
     @classmethod
     def from_api_response(cls, data: Dict[str, Any]) -> "Position":
@@ -127,8 +128,10 @@ class Position:
             outcome=data.get("outcome", ""),
             outcome_index=int(data.get("outcomeIndex", 0)),
             redeemable=data.get("redeemable", False),
+            redeemable=data.get("redeemable", False),
             holder_lifetime_pnl=0.0, # Default, will be enriched later
             holder_volume=0.0, # Default, will be enriched later
+            holder_first_trade_timestamp=0, # Default, will be enriched later
         )
 
     @property
@@ -148,6 +151,7 @@ class Profile:
     display_username_public: bool = False
     pnl: float = 0.0
     volume: float = 0.0
+    first_trade_timestamp: int = 0
 
     @classmethod
     def from_api_response(cls, data: Dict[str, Any]) -> "Profile":
@@ -166,7 +170,8 @@ class Profile:
             profile_image=data.get("profileImage"),
             display_username_public=data.get("displayUsernamePublic", False),
             pnl=pnl,
-            volume=volume
+            volume=volume,
+            first_trade_timestamp=0 # Not available in standard gamma response profile usually
         )
 
     @property
@@ -483,6 +488,7 @@ class PolymarketApiClient:
                                 if profile:
                                     pos.holder_lifetime_pnl = profile.pnl
                                     pos.holder_volume = profile.volume
+                                    pos.holder_first_trade_timestamp = profile.first_trade_timestamp
                             except Exception as e:
                                 logger.debug(f"Profile fetch failed for {wallet}: {e}")
                             
@@ -495,11 +501,22 @@ class PolymarketApiClient:
                     logger.debug(f"Failed to fetch position for {wallet}: {e}")
                     return None
             
-            # Fetch all in parallel
-            results = await asyncio.gather(
-                *[_fetch_and_classify(h) for h in top_holders],
-                return_exceptions=True
-            )
+            # Fetch in chunks to avoid overwhelming the event loop and connection pool
+            results = []
+            chunk_size = 20
+            total_holders = len(top_holders)
+            
+            for i in range(0, total_holders, chunk_size):
+                chunk = top_holders[i : i + chunk_size]
+                logger.info(f"Processing holders batch {i+1}-{min(i+chunk_size, total_holders)} of {total_holders}...")
+                
+                chunk_results = await asyncio.gather(
+                    *[_fetch_and_classify(h) for h in chunk],
+                    return_exceptions=True
+                )
+                results.extend(chunk_results)
+                # Small yield to let other tasks breathe
+                await asyncio.sleep(0.05)
             
             for res in results:
                 if isinstance(res, Position):
@@ -573,11 +590,15 @@ class PolymarketApiClient:
                     for i in range(1, len(series))
                 ) if len(series) > 1 else 0.0
                 
+                # First trade timestamp from the start of the series
+                first_ts = int(series[0].get("t", 0))
+
                 profile = Profile(
                     proxy_wallet=wallet,
                     name=None, pseudonym=None, # Gamma API skipped
                     pnl=float(current_pnl),
-                    volume=float(total_volume)
+                    volume=float(total_volume),
+                    first_trade_timestamp=first_ts
                 )
             else:
                 # 2. Fallback: Position-based calculation
@@ -589,7 +610,8 @@ class PolymarketApiClient:
                     proxy_wallet=wallet,
                     name=None, pseudonym=None,
                     pnl=total_pnl,
-                    volume=total_volume
+                    volume=total_volume,
+                    first_trade_timestamp=0 # Unknown
                 )
 
             # Cache result
@@ -599,7 +621,7 @@ class PolymarketApiClient:
         except Exception as e:
             logger.debug(f"Profile fetch failed for {wallet}: {e}")
             # Return empty profile on failure
-            empty = Profile(proxy_wallet=wallet, pnl=0.0, volume=0.0)
+            empty = Profile(proxy_wallet=wallet, pnl=0.0, volume=0.0, first_trade_timestamp=0)
             self._profile_cache[wallet] = (empty, now)
             return empty
 

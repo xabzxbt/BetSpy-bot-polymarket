@@ -120,6 +120,9 @@ def format_holders_block(holders: Any, lang: str) -> str:
             count_5k=yes.smart_count_5k, # Using Smart (Lifetime PnL > 3k)
             pct=f"{smart_pct_yes:.1f}"
         )
+        # Show Novoregs if any
+        if getattr(yes, "novoreg_count", 0) > 0:
+            line_yes += f" (👶 {yes.novoreg_count})"
     
     # Format No line
     no = holders.no_stats
@@ -134,6 +137,9 @@ def format_holders_block(holders: Any, lang: str) -> str:
             count_5k=no.smart_count_5k,  # Param definition might vary in locale keys
             pct=f"{smart_pct_no:.1f}"
         )
+        # Show Novoregs if any
+        if getattr(no, "novoreg_count", 0) > 0:
+            line_no += f" (👶 {no.novoreg_count})"
     
     # Smart Score
     smart = get_text("holders.smart_score", lang, 
