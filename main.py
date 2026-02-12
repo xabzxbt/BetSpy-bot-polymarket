@@ -1,5 +1,5 @@
 """
-BetSpy Polymarket Bot — Main Entry Point
+BetSpy Polymarket Bot — Main Entry Point (v3)
 """
 
 import asyncio
@@ -13,10 +13,16 @@ from loguru import logger
 
 from config import get_settings
 from database import db
+from i18n import i18n
 from polymarket_api import api_client
 from handlers import setup_handlers
+from handlers_intelligence import setup_intelligence_handlers
 from handlers_reply import setup_reply_handlers
+from handlers_watchlist import setup_watchlist_handlers
+from handlers_hot import setup_hot_handlers
+from handlers_analytics import setup_analytics_handlers
 from scheduler import init_notification_service
+from market_intelligence import market_intelligence
 
 
 def setup_logging() -> None:
@@ -34,35 +40,43 @@ async def main() -> None:
     setup_logging()
     settings = get_settings()
 
-    # 1. Database
+    # 1. i18n
+    i18n.load()
+
+    # 2. Database
     logger.info("Initializing database...")
     await db.init()
     logger.info("Database initialized")
 
-    # 2. Create database tables
+    # 3. Create WatchlistItem table if not exists
     try:
-        from models import Base, OpenPosition  # Ensure OpenPosition table is created
+        from services.watchlist_service import WatchlistItem  # noqa
+        from models import Base, OpenPosition  # noqa - ensure OpenPosition table is created
         async with db._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("DB tables synced")
+        logger.info("DB tables synced (including watchlist)")
     except Exception as e:
         logger.warning(f"Table sync warning (non-fatal): {e}")
 
-    # 3. Bot + Dispatcher
+    # 4. Bot + Dispatcher
     bot = Bot(
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher(storage=MemoryStorage())
 
-    # 4. Register handlers
+    # 5. Register handlers
     # ORDER MATTERS: specific handlers first, catch-all last
     setup_reply_handlers(dp)
     setup_handlers(dp)
+    setup_hot_handlers(dp)          # BEFORE intelligence (has intel: catch-all)
+    setup_analytics_handlers(dp)    # Deep Analysis — BEFORE intelligence
+    setup_watchlist_handlers(dp)
+    setup_intelligence_handlers(dp) # LAST (has catch-all for intel:*)
 
-    # 5. Scheduler (notifications)
+    # 6. Scheduler (notifications) — pass both bot and session_factory
     notification_service = init_notification_service(bot, db._session_factory)
-    await notification_service.start()
+    await notification_service.start()  # IMPORTANT: Actually start the scheduler!
 
     logger.info("Starting bot polling...")
     try:
@@ -72,6 +86,12 @@ async def main() -> None:
         if notification_service:
             await notification_service.stop()
         await api_client.close()
+        # Close analytics data fetcher
+        try:
+            from analytics.data_fetcher import data_fetcher as analytics_fetcher
+            await analytics_fetcher.close()
+        except Exception:
+            pass
         await db.close()
         await bot.session.close()
         logger.info("Shutdown complete")

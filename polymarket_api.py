@@ -1,11 +1,15 @@
 """
-Polymarket API client for trade notifications.
+Polymarket API client with exponential backoff and rate limiting.
+
+Uses:
+- Data API (positions, activity, trades, user-pnl)
+- Gamma API (profiles)
 """
 
 import asyncio
-import time
 from dataclasses import dataclass
 from typing import Optional, List, Any, Dict, Tuple
+import time
 from datetime import datetime
 
 import aiohttp
@@ -79,22 +83,117 @@ class Trade:
 
 
 @dataclass
+class Position:
+    """Represents a position on Polymarket."""
+    proxy_wallet: str
+    asset: str
+    condition_id: str
+    size: float
+    avg_price: float
+    initial_value: float
+    current_value: float
+    cash_pnl: float
+    percent_pnl: float
+    realized_pnl: float
+    cur_price: float
+    title: str
+    slug: str
+    event_slug: str
+    outcome: str
+    outcome_index: int
+    redeemable: bool = False
+    # Enrichment fields (not from /positions API directly)
+    holder_lifetime_pnl: float = 0.0
+    holder_volume: float = 0.0
+    holder_first_trade_timestamp: int = 0
+
+    @classmethod
+    def from_api_response(cls, data: Dict[str, Any]) -> "Position":
+        """Create Position from API response dict."""
+        return cls(
+            proxy_wallet=data.get("proxyWallet", ""),
+            asset=data.get("asset", ""),
+            condition_id=data.get("conditionId", ""),
+            size=float(data.get("size", 0)),
+            avg_price=float(data.get("avgPrice", 0)),
+            initial_value=float(data.get("initialValue", 0)),
+            current_value=float(data.get("currentValue", 0)),
+            cash_pnl=float(data.get("cashPnl", 0)),
+            percent_pnl=float(data.get("percentPnl", 0)),
+            realized_pnl=float(data.get("realizedPnl", 0)),
+            cur_price=float(data.get("curPrice", 0)),
+            title=data.get("title", ""),
+            slug=data.get("slug", ""),
+            event_slug=data.get("eventSlug", ""),
+            outcome=data.get("outcome", ""),
+            outcome_index=int(data.get("outcomeIndex", 0)),
+            redeemable=data.get("redeemable", False),
+
+            holder_lifetime_pnl=0.0, # Default, will be enriched later
+            holder_volume=0.0, # Default, will be enriched later
+            holder_first_trade_timestamp=0, # Default, will be enriched later
+        )
+
+    @property
+    def market_link(self) -> str:
+        """Get link to the market on Polymarket with referral code."""
+        return get_referral_link(self.event_slug, self.slug)
+
+
+@dataclass
 class Profile:
     """Represents a Polymarket user profile."""
     proxy_wallet: str
     name: Optional[str] = None
     pseudonym: Optional[str] = None
+    bio: Optional[str] = None
+    profile_image: Optional[str] = None
+    display_username_public: bool = False
     pnl: float = 0.0
     volume: float = 0.0
+    first_trade_timestamp: int = 0
+
+    @classmethod
+    def from_api_response(cls, data: Dict[str, Any]) -> "Profile":
+        """Create Profile from API response dict."""
+        stats = data.get("stats", {})
+        # Try various fields for PnL/Profit
+        pnl = float(data.get("pnl", data.get("profit", stats.get("pnl", stats.get("profit", 0.0)))))
+        # Try various fields for Volume
+        volume = float(data.get("volume", data.get("volumeTraded", stats.get("volume", 0.0))))
+        
+        return cls(
+            proxy_wallet=data.get("proxyWallet", ""),
+            name=data.get("name"),
+            pseudonym=data.get("pseudonym"),
+            bio=data.get("bio"),
+            profile_image=data.get("profileImage"),
+            display_username_public=data.get("displayUsernamePublic", False),
+            pnl=pnl,
+            volume=volume,
+            first_trade_timestamp=0 # Not available in standard gamma response profile usually
+        )
 
     @property
     def display_name(self) -> Optional[str]:
         """Get the best display name for this profile."""
-        if self.name:
+        if self.display_username_public and self.name:
             return self.name
         if self.pseudonym:
             return self.pseudonym
         return None
+
+
+@dataclass
+class PnLSummary:
+    """PnL summary for a wallet."""
+    total_value: float = 0.0
+    unrealized_pnl: float = 0.0
+    realized_pnl: float = 0.0
+
+    @property
+    def total_pnl(self) -> float:
+        return self.unrealized_pnl + self.realized_pnl
 
 
 # =========================
@@ -118,7 +217,7 @@ class ApiError(Exception):
 class PolymarketApiClient:
     """
     Async client for Polymarket APIs.
-    
+
     Implements:
     - Exponential backoff for retries
     - Rate limiting to avoid 429 errors
@@ -128,21 +227,25 @@ class PolymarketApiClient:
     def __init__(self):
         settings = get_settings()
         self.data_api_url = settings.polymarket_data_api_url
-        
-        # Rate limiter
+        self.gamma_api_url = settings.polymarket_gamma_api_url
+        # окремо: base для user-pnl (USER_PNL_URL у фронті)
+        # якщо в конфігу той самий, можна використати data_api_url
+        self.user_pnl_base_url = getattr(settings, "polymarket_user_pnl_url", self.data_api_url)
+
+        # Rate limiter: X requests per Y seconds
         self._limiter = AsyncLimiter(
             settings.api_rate_limit_requests,
             settings.api_rate_limit_period_seconds,
         )
-        
+
         self._profile_cache: Dict[str, Tuple[Profile, float]] = {}
-        self._cache_ttl = 1800  # 30 minutes
-        
+        self._cache_ttl = 1800  # 30 minutes user cache
+
         self._session: Optional[aiohttp.ClientSession] = None
         self._headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         }
 
     async def __aenter__(self) -> "PolymarketApiClient":
@@ -171,6 +274,8 @@ class PolymarketApiClient:
             self._session = None
             logger.info("Polymarket API client closed")
 
+    # ---------- low-level request ----------
+
     @retry(
         stop=stop_after_attempt(5),
         wait=wait_exponential(multiplier=1, min=2, max=60),
@@ -189,7 +294,7 @@ class PolymarketApiClient:
             await self.init()
 
         async with self._limiter:
-            # Convert params to string
+            # Convert params to string to avoid aiohttp/yarl TypeError with bools
             safe_params = None
             if params:
                 safe_params = {}
@@ -212,8 +317,9 @@ class PolymarketApiClient:
 
                     if response.status >= 400:
                         text = await response.text()
+                        # Suppress logging for auth/method errors (common with protected endpoints)
                         if response.status in [401, 403, 405]:
-                            logger.debug(f"API access denied ({response.status}): {text}")
+                            logger.debug(f"API access denied/method not allowed ({response.status}): {text}")
                         else:
                             logger.error(f"API error {response.status}: {text}")
                         raise ApiError(f"API error {response.status}: {text}")
@@ -225,6 +331,10 @@ class PolymarketApiClient:
             except aiohttp.ClientError as e:
                 logger.error(f"HTTP client error: {e}")
                 raise
+
+    # =========================
+    # Public API methods
+    # =========================
 
     async def get_wallet_activity(
         self,
@@ -258,27 +368,235 @@ class PolymarketApiClient:
             logger.error(f"Failed to get activity for {wallet_address}: {e}")
             return []
 
-    async def get_new_trades_for_wallet(
+    async def get_wallet_trades(
         self,
         wallet_address: str,
-        since_timestamp: Optional[int] = None,
+        limit: int = 10,
     ) -> List[Trade]:
-        """Get new trades for a wallet since a given timestamp."""
-        trades = await self.get_wallet_activity(
-            wallet_address=wallet_address,
-            activity_type="TRADE",
-            limit=200,
-            start_timestamp=since_timestamp,
-        )
+        """Get recent trades for a wallet."""
+        url = f"{self.data_api_url}/trades"
+        params = {
+            "user": wallet_address.lower(),
+            "limit": limit,
+        }
 
-        if since_timestamp:
-            trades = [t for t in trades if t.timestamp >= since_timestamp]
+        try:
+            data = await self._request("GET", url, params)
+            if not isinstance(data, list):
+                return []
 
-        trades.sort(key=lambda t: t.timestamp)
-        return trades
+            trades = [Trade.from_api_response(item) for item in data]
+            logger.info(f"Fetched {len(trades)} trades for wallet {wallet_address[:10]}...")
+            return trades
+        except Exception as e:
+            logger.error(f"Failed to get trades for {wallet_address}: {e}")
+            return []
+
+    async def get_wallet_positions(
+        self,
+        wallet_address: str,
+        limit: int = 100,
+    ) -> List[Position]:
+        """Get current positions for a wallet."""
+        url = f"{self.data_api_url}/positions"
+        params = {
+            "user": wallet_address.lower(),
+            "limit": limit,
+            "sizeThreshold": 0.01,  # Show even small positions
+            "sortBy": "CURRENT",
+            "sortDirection": "DESC",
+        }
+
+        try:
+            data = await self._request("GET", url, params)
+            if not isinstance(data, list):
+                return []
+
+            positions = [Position.from_api_response(item) for item in data]
+            logger.info(f"Fetched {len(positions)} positions for wallet {wallet_address[:10]}...")
+            return positions
+        except Exception as e:
+            logger.error(f"Failed to get positions for {wallet_address}: {e}")
+            return []
+
+    async def get_wallet_pnl(self, wallet_address: str) -> PnLSummary:
+        """Get PnL summary for a wallet based on positions."""
+        positions = await self.get_wallet_positions(wallet_address)
+        summary = PnLSummary()
+        for pos in positions:
+            summary.total_value += pos.current_value
+            summary.unrealized_pnl += pos.cash_pnl
+            summary.realized_pnl += pos.realized_pnl
+        return summary
+
+    async def get_market_holders(
+        self,
+        condition_id: str,
+        yes_price: float = 0.5,
+        no_price: float = 0.5,
+        limit: int = 100,
+    ) -> Tuple[List[Position], List[Position]]:
+        """
+        Get market holders split by YES/NO outcome.
+        Returns: (yes_positions, no_positions)
+        """
+        url = f"{self.data_api_url}/holders"
+        params = {
+            "market": condition_id,
+            "limit": limit,
+        }
+        
+        try:
+            response = await self._request("GET", url, params)
+            
+            raw_holders = []
+            if isinstance(response, dict) and "holders" in response:
+                raw_holders = response["holders"]
+            elif isinstance(response, list):
+                if response and isinstance(response[0], dict) and "holders" in response[0]:
+                    for item in response:
+                        raw_holders.extend(item.get("holders", []))
+                else:
+                    raw_holders = response
+            
+            if not raw_holders:
+                logger.warning(f"No holders found for condition {condition_id}")
+                return [], []
+            
+            logger.info(f"Found {len(raw_holders)} raw holders for {condition_id}")
+            
+            # Take all holders returned by API (controlled by limit param)
+            top_holders = raw_holders
+            
+            yes_positions = []
+            no_positions = []
+            
+            async def _fetch_and_classify(h_data):
+                wallet = h_data.get("proxyWallet")
+                if not wallet:
+                    return None
+                
+                try:
+                    # Get detailed position for this wallet
+                    p_url = f"{self.data_api_url}/positions"
+                    p_params = {
+                        "user": wallet.lower(),
+                        "limit": 50,
+                    }
+                    
+                    pos_data = await self._request("GET", p_url, p_params)
+                    p_list = pos_data if isinstance(pos_data, list) else []
+                    
+                    # Find position matching our market
+                    for item in p_list:
+                        if item.get("conditionId") == condition_id:
+                            pos = Position.from_api_response(item)
+                            
+                            # Enrich with profile PnL
+                            # OPTIMIZATION: "Dust Filter"
+                            # Skip heavy PnL analysis only for tiny positions < $5 (was $50)
+                            try:
+                                is_dust = pos.current_value < 5.0
+                                if not is_dust:
+                                    profile = await self.get_profile(wallet)
+                                    if profile:
+                                        pos.holder_lifetime_pnl = profile.pnl
+                                        pos.holder_volume = profile.volume
+                                        pos.holder_first_trade_timestamp = profile.first_trade_timestamp
+                            except Exception as e:
+                                logger.debug(f"Profile fetch failed for {wallet}: {e}")
+                            
+                            return pos
+                    
+                    # No matching position found
+                    return None
+                    
+                except Exception as e:
+                    logger.debug(f"Failed to fetch position for {wallet}: {e}")
+                    return None
+            
+            # Aggressive Parallelism: Workers Queue (Optimized Speed)
+            queue = asyncio.Queue()
+            for h in top_holders:
+                queue.put_nowait(h)
+
+            async def worker(worker_id):
+                local_results = []
+                while True:
+                    try:
+                        h = queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    
+                    try:
+                        res = await _fetch_and_classify(h)
+                        local_results.append(res)
+                    except Exception as e:
+                        logger.error(f"Worker {worker_id} error: {e}")
+                    finally:
+                        queue.task_done()
+                return local_results
+
+            logger.info(f"Launching 20 concurrent workers for {len(top_holders)} holders...")
+            worker_tasks = [asyncio.create_task(worker(i)) for i in range(20)]
+            
+            # Wait for all workers to finish
+            worker_results = await asyncio.gather(*worker_tasks)
+            
+            # Flatten results list
+            results = []
+            for wr in worker_results:
+                results.extend(wr)
+            
+            for res in results:
+                if isinstance(res, Position):
+                    if res.outcome_index == 0:  # YES
+                        yes_positions.append(res)
+                    else:  # NO
+                        no_positions.append(res)
+            
+            logger.info(f"Classified holders: {len(yes_positions)} YES, {len(no_positions)} NO")
+            return yes_positions, no_positions
+            
+        except Exception as e:
+            logger.error(f"Failed to get holders for {condition_id}: {e}")
+            return [], []
+
+    async def test_holders_endpoint(self, condition_id: str):
+        """Debug method to test /holders endpoint"""
+        url = f"{self.data_api_url}/holders"
+        params = {"market": condition_id, "limit": 20}
+        
+        try:
+            data = await self._request("GET", url, params)
+            logger.info(f"Raw /holders response: {data}")
+            return data
+        except Exception as e:
+            logger.error(f"/holders failed: {e}")
+            raise
+
+    async def get_user_pnl_series(self, wallet_address: str, interval: str = "ALL") -> List[Dict[str, Any]]:
+        """Get user PnL history series (Frontend API)."""
+        # Construct URL similar to frontend: /profit/history
+        url = self.user_pnl_base_url
+        if "profit/history" not in url:
+            url = url.rstrip("/") + "/profit/history"
+            
+        params = {"user": wallet_address.lower(), "window": interval}
+        
+        try:
+            data = await self._request("GET", url, params=params)
+            if isinstance(data, list):
+                return data
+            return []
+        except Exception:
+            return []
 
     async def get_profile(self, wallet_address: str) -> Optional[Profile]:
-        """Get basic profile info for a wallet (cached)."""
+        """
+        Get profile data using Data API instead of Gamma /profiles.
+        Uses PnL history or Positions fallback.
+        """
         wallet = wallet_address.lower()
         now = time.time()
         
@@ -290,25 +608,456 @@ class PolymarketApiClient:
                 return profile
 
         try:
-            # Simple profile with just name/pseudonym
-            # In production, you might call gamma API or extract from trades
-            profile = Profile(
-                proxy_wallet=wallet,
-                name=None,
-                pseudonym=None,
-                pnl=0.0,
-                volume=0.0,
-            )
+            # 1. Try PnL Series (Best precision for Lifetime PnL)
+            series = await self.get_user_pnl_series(wallet, interval="ALL")
             
+            if series and len(series) >= 1:
+                current_pnl = series[-1].get("p", 0.0)
+                
+                # Estimate volume from PnL changes
+                total_volume = sum(
+                    abs(series[i]["p"] - series[i-1]["p"]) 
+                    for i in range(1, len(series))
+                ) if len(series) > 1 else 0.0
+                
+                # First trade timestamp from the start of the series
+                first_ts = int(series[0].get("t", 0))
+
+                profile = Profile(
+                    proxy_wallet=wallet,
+                    name=None, pseudonym=None, # Gamma API skipped
+                    pnl=float(current_pnl),
+                    volume=float(total_volume),
+                    first_trade_timestamp=first_ts
+                )
+            else:
+                # 2. Fallback: Position-based calculation
+                positions = await self.get_wallet_positions(wallet)
+                total_pnl = sum(pos.realized_pnl for pos in positions)
+                total_volume = sum(pos.current_value for pos in positions)
+                
+                profile = Profile(
+                    proxy_wallet=wallet,
+                    name=None, pseudonym=None,
+                    pnl=total_pnl,
+                    volume=total_volume,
+                    first_trade_timestamp=0 # Unknown
+                )
+
             # Cache result
             self._profile_cache[wallet] = (profile, now)
             return profile
             
         except Exception as e:
             logger.debug(f"Profile fetch failed for {wallet}: {e}")
-            empty = Profile(proxy_wallet=wallet)
+            # Return empty profile on failure
+            empty = Profile(proxy_wallet=wallet, pnl=0.0, volume=0.0, first_trade_timestamp=0)
             self._profile_cache[wallet] = (empty, now)
             return empty
+
+    async def get_new_trades_for_wallet(
+        self,
+        wallet_address: str,
+        since_timestamp: Optional[int] = None,
+    ) -> List[Trade]:
+        """Get new trades for a wallet since a given timestamp."""
+        trades = await self.get_wallet_activity(
+            wallet_address=wallet_address,
+            activity_type="TRADE",
+            limit=200,  # Increased to avoid missing high frequency trades
+            start_timestamp=since_timestamp,
+        )
+
+        # Filtering logic moved to scheduler for better control
+        if since_timestamp:
+            trades = [t for t in trades if t.timestamp >= since_timestamp]
+
+        trades.sort(key=lambda t: t.timestamp)
+        return trades
+
+    # =========================
+    # USER PnL (як у фронті)
+    # =========================
+
+    @staticmethod
+    def _interval_to_fidelity(interval: str) -> str:
+        """
+        Map 1D/1W/1M/ALL -> fidelity, точно як у фронті. [file:29]
+        """
+        if interval == "1D":
+            return "1h"
+        if interval == "1W":
+            return "3h"
+        if interval == "1M":
+            return "18h"
+        if interval == "ALL":
+            return "12h"  # For ALL interval
+        return "1d"  # дефолт
+
+    async def get_user_pnl_series(
+        self,
+        proxy_wallet: str,
+        interval: str = "1M",  # "1D" | "1W" | "1M" | "ALL"
+    ) -> List[Dict[str, float]]:
+        """
+        Отримати масив [{t,p}, ...] з /user-pnl, як у фронті. [file:29]
+        """
+        fidelity = self._interval_to_fidelity(interval)
+        
+        # Try multiple URL formats and parameter combinations for the user-pnl endpoint
+        endpoints_to_try = [
+            {
+                "url": f"{self.user_pnl_base_url}/user-pnl",
+                "params": {
+                    "user_address": proxy_wallet,
+                    "interval": interval.lower(),  # "1d", "1w", "1m", "all"
+                    "fidelity": fidelity,
+                }
+            },
+            {
+                "url": f"{self.data_api_url}/user-pnl",
+                "params": {
+                    "user_address": proxy_wallet,
+                    "interval": interval.lower(),
+                    "fidelity": fidelity,
+                }
+            },
+            # Alternative parameter format that might be used by frontend
+            {
+                "url": f"{self.user_pnl_base_url}/user-pnl",
+                "params": {
+                    "userAddress": proxy_wallet,
+                    "interval": interval.lower(),
+                    "fidelity": fidelity,
+                }
+            },
+            # Try with different case variations
+            {
+                "url": f"{self.user_pnl_base_url}/user-pnl",
+                "params": {
+                    "userAddress": proxy_wallet,
+                    "interval": interval,
+                    "fidelity": fidelity,
+                }
+            },
+        ]
+        
+        for endpoint_info in endpoints_to_try:
+            url = endpoint_info["url"]
+            params = endpoint_info["params"]
+            
+            try:
+                logger.debug(f"Trying PnL endpoint: {url} with params: {params}")
+                data = await self._request("GET", url, params)
+                
+                if data:
+                    if isinstance(data, list):
+                        series: List[Dict[str, float]] = []
+                        for item in data:
+                            try:
+                                t = int(item["t"])
+                                p = float(item["p"])
+                                series.append({"t": t, "p": p})
+                            except (KeyError, TypeError, ValueError) as e:
+                                logger.warning(f"Skipping invalid PnL item {item}: {e}")
+                                continue
+                        
+                        if series:
+                            series.sort(key=lambda x: x["t"])
+                            logger.info(f"Successfully fetched {len(series)} PnL data points from {url}")
+                            return series
+                        else:
+                            logger.debug(f"Got empty series from {url}")
+                    else:
+                        logger.debug(f"Got non-list response from {url}: {type(data)}")
+                else:
+                    logger.debug(f"Got empty response from {url}")
+            except ApiError as e:
+                if "405" in str(e):
+                    logger.warning(f"Method not allowed error for {url}, trying alternatives...")
+                else:
+                    logger.debug(f"API error for {url}: {e}")
+            except Exception as e:
+                logger.debug(f"Request failed for {url}: {e}")
+                continue  # Try next endpoint
+        
+        # If all attempts failed, return empty list
+        logger.info(f"All PnL endpoint attempts failed for wallet {proxy_wallet}. Will calculate from trade data.")
+        return []
+
+    @staticmethod
+    def _compute_gain_loss_net(
+        points: List[Dict[str, float]],
+        interval: str,
+    ) -> Dict[str, float]:
+        """
+        Точна реалізація gain/loss/netTotal з фронтенд-коду. [file:29]
+        """
+        if not isinstance(points, list) or len(points) < 2:
+            return {"gain": 0.0, "loss": 0.0, "netTotal": 0.0}
+
+        gain = 0.0
+        loss = 0.0
+        net = 0.0
+
+        if interval == "ALL":
+            s = points[0].get("p", 0.0) or 0.0
+            net = points[-1].get("p", 0.0) or 0.0
+
+            if s > 0:
+                gain += s
+            elif s < 0:
+                loss += abs(s)
+
+            for idx in range(1, len(points)):
+                diff = (points[idx]["p"] - points[idx - 1]["p"])
+                if diff > 0:
+                    gain += diff
+                elif diff < 0:
+                    loss += abs(diff)
+        else:
+            s = points[0].get("p", 0.0) or 0.0
+            net = (points[-1].get("p", 0.0) or 0.0) - s
+
+            for idx in range(1, len(points)):
+                diff = (points[idx]["p"] - points[idx - 1]["p"])
+                if diff > 0:
+                    gain += diff
+                elif diff < 0:
+                    loss += abs(diff)
+
+        if gain == 0 and loss == 0:
+            if net > 0:
+                gain = net
+                loss = 0.0
+            elif net < 0:
+                gain = 0.0
+                loss = abs(net)
+
+        return {"gain": gain, "loss": loss, "netTotal": net}
+
+    async def get_detailed_statistics_for_date_range(
+        self,
+        wallet_address: str,
+        days: int,
+        proxy_wallet: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Статистика за період у стилі Polymarket:
+        - position_value / unrealized_pnl / realized_pnl / total_pnl з /positions
+        - gain/loss/netTotal за 1D/1W/1M/ALL на основі /user-pnl (як у фронті)
+        """
+        from datetime import timedelta
+        
+        # 1. Портфель зараз
+        positions = await self.get_wallet_positions(wallet_address)
+        total_position_value = sum(pos.current_value for pos in positions)
+        total_unrealized_pnl = sum(pos.cash_pnl for pos in positions)
+        total_realized_pnl = sum(pos.realized_pnl for pos in positions)
+        total_pnl_now = total_unrealized_pnl + total_realized_pnl
+
+        # 2. Визначаємо інтервал як на UI
+        if days <= 1:
+            interval = "1D"
+        elif days <= 7:
+            interval = "1W"
+        elif days <= 31:
+            interval = "1M"
+        else:
+            interval = "ALL"
+
+        # Try to get the proxy wallet from profile if not provided
+        if not proxy_wallet:
+            profile = await self.get_profile(wallet_address)
+            if profile and profile.proxy_wallet:
+                proxy_wallet = profile.proxy_wallet
+            else:
+                proxy_wallet = wallet_address.lower()
+        
+        # Use the proxy wallet for getting PnL series
+        series = await self.get_user_pnl_series(proxy_wallet, interval=interval)
+        
+        # Calculate PnL stats from series if available
+        if series and len(series) >= 2:
+            pnl_stats = self._compute_gain_loss_net(series, interval=interval)
+            gain = pnl_stats["gain"]
+            loss = pnl_stats["loss"]
+            net_total = pnl_stats["netTotal"]
+            logger.info(f"Successfully fetched PnL series for wallet {proxy_wallet}, {len(series)} data points")
+        else:
+            # If we can't get PnL series from API, start with zero values but try to calculate from trades
+            gain = 0.0
+            loss = 0.0
+            net_total = 0.0
+            logger.info(f"Could not fetch PnL series for wallet {proxy_wallet}, will calculate from trade data")
+
+        # Get trades for predictions count in the specific period
+        now = datetime.now()
+        start_date = now - timedelta(days=days)
+        start_ts = int(start_date.timestamp())
+
+        trades = await self.get_wallet_activity(
+            wallet_address=wallet_address,
+            activity_type="TRADE",
+            limit=1000,
+            start_timestamp=start_ts,
+        )
+        
+        # Initialize trades_by_condition here to ensure it's always defined
+        trades_by_condition: Dict[str, List[Trade]] = {}
+        for trade in trades:
+            trades_by_condition.setdefault(trade.condition_id, []).append(trade)
+
+        # Calculate from trades if we couldn't get PnL series
+        if net_total == 0.0 and gain == 0.0 and loss == 0.0 and len(trades) > 0:
+            # Use trade data to calculate period-specific PnL
+            # Group trades by condition and calculate PnL using FIFO
+            
+            total_gain = 0.0
+            total_loss = 0.0
+            total_net = 0.0
+            
+            for condition_trades in trades_by_condition.values():
+                condition_trades.sort(key=lambda x: x.timestamp)
+                open_buys: List[tuple] = []  # (size, price)
+                condition_pnl = 0.0
+                
+                for trade in condition_trades:
+                    if trade.side.upper() == "BUY":
+                        open_buys.append((trade.size, trade.price))
+                    else:  # SELL
+                        sell_size = trade.size
+                        sell_price = trade.price
+                        
+                        while sell_size > 0 and open_buys:
+                            buy_size, buy_price = open_buys[0]
+                            matched = min(sell_size, buy_size)
+                            
+                            trade_pnl = matched * (sell_price - buy_price)
+                            condition_pnl += trade_pnl
+                            
+                            # Track gain vs loss
+                            if trade_pnl > 0:
+                                total_gain += trade_pnl
+                            else:
+                                total_loss += abs(trade_pnl)
+                            
+                            if buy_size <= sell_size:
+                                open_buys.pop(0)
+                                sell_size -= buy_size
+                            else:
+                                open_buys[0] = (buy_size - sell_size, buy_price)
+                                sell_size = 0
+            
+            gain = total_gain
+            loss = total_loss
+            net_total = total_gain - total_loss  # Net total is gain minus loss
+        
+        # Find the biggest win from positions
+        all_pnls = []
+        for pos in positions:
+            if pos.cash_pnl > 0:
+                all_pnls.append(pos.cash_pnl)
+            if pos.realized_pnl > 0:
+                all_pnls.append(pos.realized_pnl)
+        
+        # Also check for biggest win in trades if positions don't have high values
+        # Make sure trades_by_condition is always defined
+        for condition_trades in trades_by_condition.values():
+            condition_trades.sort(key=lambda x: x.timestamp)
+            open_buys: List[tuple] = []
+            for trade in condition_trades:
+                if trade.side.upper() == "BUY":
+                    open_buys.append((trade.size, trade.price))
+                else:  # SELL
+                    sell_size = trade.size
+                    sell_price = trade.price
+                    
+                    while sell_size > 0 and open_buys:
+                        buy_size, buy_price = open_buys[0]
+                        matched = min(sell_size, buy_size)
+                        trade_pnl = matched * (sell_price - buy_price)
+                        
+                        if trade_pnl > 0:
+                            all_pnls.append(trade_pnl)
+                        
+                        if buy_size <= sell_size:
+                            open_buys.pop(0)
+                            sell_size -= buy_size
+                        else:
+                            open_buys[0] = (buy_size - sell_size, buy_price)
+                            sell_size = 0
+        
+        biggest_win = max(all_pnls) if all_pnls else 0.0
+        total_predictions = len(trades)
+
+        stats = {
+            "position_value": total_position_value,
+            "unrealized_pnl": total_unrealized_pnl,
+            "realized_pnl": total_realized_pnl,
+            "total_pnl": total_pnl_now,
+            "gain": gain,
+            "loss": loss,
+            "net_pnl": net_total,          # це те саме, що Net total на UI
+            "period_realized_pnl": net_total,
+            "biggest_win": biggest_win,
+            "biggest_loss": 0.0,  # Placeholder
+            "predictions_count": total_predictions,
+            "wins_count": 0,      # Placeholder
+            "losses_count": 0,    # Placeholder
+            "total_won": 0.0,     # Placeholder
+            "total_lost": 0.0,    # Placeholder
+            "days": days,
+            "interval": interval,
+        }
+
+        return stats
+
+    async def debug_wallet_data(self, wallet_address: str) -> Dict[str, Any]:
+        """
+        Debug method to fetch comprehensive wallet data for troubleshooting.
+        """
+        # Get profile
+        profile = await self.get_profile(wallet_address)
+        
+        # Get positions
+        positions = await self.get_wallet_positions(wallet_address)
+        
+        # Get trades
+        trades = await self.get_wallet_trades(wallet_address, limit=50)
+        
+        # Get activity
+        activity = await self.get_wallet_activity(wallet_address, limit=50)
+        
+        # Get PnL series for different intervals
+        pnl_series_1d = await self.get_user_pnl_series(wallet_address.lower(), interval="1D")
+        pnl_series_1w = await self.get_user_pnl_series(wallet_address.lower(), interval="1W")
+        pnl_series_1m = await self.get_user_pnl_series(wallet_address.lower(), interval="1M")
+        
+        # Get proxy wallet if available
+        proxy_wallet = wallet_address.lower()
+        if profile and hasattr(profile, 'proxy_wallet') and profile.proxy_wallet:
+            proxy_wallet = profile.proxy_wallet
+        
+        # Get PnL series using proxy wallet if available
+        proxy_pnl_series_1m = await self.get_user_pnl_series(proxy_wallet, interval="1M")
+        
+        return {
+            'profile': profile,
+            'positions_count': len(positions),
+            'trades_count': len(trades),
+            'activity_count': len(activity),
+            'pnl_series_1d_length': len(pnl_series_1d),
+            'pnl_series_1w_length': len(pnl_series_1w),
+            'pnl_series_1m_length': len(pnl_series_1m),
+            'proxy_pnl_series_1m_length': len(proxy_pnl_series_1m),
+            'wallet_address': wallet_address,
+            'proxy_wallet': proxy_wallet,
+            'pnl_series_1m_first': pnl_series_1m[0] if pnl_series_1m else None,
+            'pnl_series_1m_last': pnl_series_1m[-1] if pnl_series_1m else None,
+            'proxy_pnl_series_1m_first': proxy_pnl_series_1m[0] if proxy_pnl_series_1m else None,
+            'proxy_pnl_series_1m_last': proxy_pnl_series_1m[-1] if proxy_pnl_series_1m else None,
+        }
 
 
 # Global client instance

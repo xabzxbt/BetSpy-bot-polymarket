@@ -1,5 +1,5 @@
 """
-Reply keyboard handler — processes persistent bottom menu buttons.
+Reply keyboard handler — processes the persistent bottom menu buttons.
 """
 
 from aiogram import Router, F
@@ -8,83 +8,155 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
 from loguru import logger
 
-from database import db
-from repository import UserRepository, WalletRepository
-from keyboards import get_wallet_list_keyboard, get_cancel_keyboard
+from services.user_service import resolve_user
+from i18n import get_text
+from keyboards import get_settings_keyboard, get_cancel_keyboard
 from config import get_settings
-from handlers import AddWalletStates
-
 
 router = Router(name="reply_nav")
 
 
-@router.message(F.text == "📋 My Traders")
-async def reply_my_traders(message: Message) -> None:
-    """Show subscribed traders."""
-    async with db.session() as session:
-        user_repo = UserRepository(session)
-        wallet_repo = WalletRepository(session)
-        
-        user = await user_repo.get_or_create(
-            telegram_id=message.from_user.id,
-            username=message.from_user.username,
-            first_name=message.from_user.first_name,
-        )
-        
-        wallets = await wallet_repo.get_user_wallets(user.id)
-        settings = get_settings()
-        
-        if not wallets:
-            await message.answer(
-                "📭 <b>No Subscriptions</b>\n\n"
-                "You're not tracking any traders yet.\n\n"
-                "Use /subscribe or the button below to add a trader.",
-                parse_mode=ParseMode.HTML
-            )
-        else:
-            await message.answer(
-                f"📋 <b>Your Subscriptions</b>\n\n"
-                f"Tracking {len(wallets)}/{settings.max_wallets_per_user} traders:",
-                reply_markup=get_wallet_list_keyboard(wallets),
-                parse_mode=ParseMode.HTML,
-            )
+# ── Signals ──────────────────────────────────────────
+
+@router.message(F.text.in_(["📊 Signals", "📊 Сигнали", "📊 Сигналы"]))
+async def reply_signals(message: Message) -> None:
+    user, lang = await resolve_user(message.from_user)
+    from keyboards_intelligence import get_category_keyboard
+    await message.answer(
+        get_text("intel.market_signals_title", lang),
+        reply_markup=get_category_keyboard(lang),
+        parse_mode=ParseMode.HTML,
+    )
 
 
-@router.message(F.text == "➕ Subscribe")
-async def reply_subscribe(message: Message, state: FSMContext) -> None:
-    """Start subscription flow from button."""
-    async with db.session() as session:
-        user_repo = UserRepository(session)
-        wallet_repo = WalletRepository(session)
-        
-        user = await user_repo.get_or_create(
-            telegram_id=message.from_user.id,
-            username=message.from_user.username,
-            first_name=message.from_user.first_name,
+# ── Hot Today ────────────────────────────────────────
+
+@router.message(F.text.in_(["🔥 Hot", "🔥 Гарячі", "🔥 Горячие"]))
+async def reply_hot(message: Message) -> None:
+    user, lang = await resolve_user(message.from_user)
+    await message.answer(get_text("loading", lang), parse_mode=ParseMode.HTML)
+
+    from market_intelligence import market_intelligence, Category, TimeFrame
+    from services.format_service import format_market_card
+    from keyboards_intelligence import get_trending_keyboard, get_category_keyboard
+
+    try:
+        markets = await market_intelligence.fetch_trending_markets(
+            category=Category.ALL, timeframe=TimeFrame.WEEK, limit=10,
         )
-        
-        # Check wallet limit
-        settings = get_settings()
-        wallet_count = await wallet_repo.count_user_wallets(user.id)
-        
-        if wallet_count >= settings.max_wallets_per_user:
+        if not markets:
             await message.answer(
-                f"❌ You've reached the limit of {settings.max_wallets_per_user} traders.\n\n"
-                f"Remove one to add a new trader.",
+                get_text("hot.title", lang) + "\n\n" + get_text("hot.empty", lang),
                 parse_mode=ParseMode.HTML,
             )
             return
-        
-        await state.set_state(AddWalletStates.waiting_for_address)
-        
+
+        text = get_text("hot.title", lang) + "\n\n"
+        for i, m in enumerate(markets, 1):
+            text += format_market_card(m, i, lang) + "\n"
+        text += f"\n💡 {get_text('intel.click_hint', lang)}"
+
         await message.answer(
-            "📝 <b>Subscribe to a Trader</b>\n\n"
-            "Send me the Ethereum wallet address (0x...):",
-            reply_markup=get_cancel_keyboard(),
+            text,
+            reply_markup=get_trending_keyboard(lang, markets, "all", "week", page=1, total_pages=1),
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+    except Exception as e:
+        logger.error(f"Hot today reply error: {e}")
+        await message.answer(get_text("error_generic", lang), parse_mode=ParseMode.HTML)
+
+
+# ── Analyze ──────────────────────────────────────────
+
+@router.message(F.text.in_(["🔗 Analyze", "🔗 Аналіз", "🔗 Анализ"]))
+async def reply_analyze(message: Message, state: FSMContext) -> None:
+    user, lang = await resolve_user(message.from_user)
+    from handlers import AnalyzeEventStates
+    await state.set_state(AnalyzeEventStates.waiting_for_link)
+    await message.answer(
+        get_text("prompt_analyze_link", lang),
+        reply_markup=get_cancel_keyboard(lang),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+
+
+# ── Wallets ──────────────────────────────────────────
+
+@router.message(F.text.in_(['📋 Wallets', '📋 Валлети', '📋 Кошельки']))
+async def reply_wallets(message: Message) -> None:
+    user, lang = await resolve_user(message.from_user)
+    from database import db
+    from repository import WalletRepository
+    from keyboards import get_wallet_list_keyboard
+
+    async with db.session() as session:
+        repo = WalletRepository(session)
+        wallets = await repo.get_user_wallets(user.id)
+
+    settings = get_settings()
+    if not wallets:
+        await message.answer(get_text("no_wallets", lang), parse_mode=ParseMode.HTML)
+    else:
+        await message.answer(
+            get_text("wallet_list_header", lang, count=len(wallets), limit=settings.max_wallets_per_user),
+            reply_markup=get_wallet_list_keyboard(lang, wallets),
             parse_mode=ParseMode.HTML,
         )
+
+
+# ── Watchlist ────────────────────────────────────────
+
+@router.message(F.text.in_(["⭐ Watchlist", "⭐ Обрані", "⭐ Избранное"]))
+async def reply_watchlist(message: Message) -> None:
+    user, lang = await resolve_user(message.from_user)
+    from database import db
+    from services.watchlist_service import WatchlistService
+    import html
+
+    async with db.session() as session:
+        items = await WatchlistService.get_all(session, user.id)
+
+    if not items:
+        await message.answer(
+            get_text("watchlist.title", lang) + "\n\n" + get_text("watchlist.empty", lang),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    text = get_text("watchlist.title", lang) + f" ({len(items)})\n\n"
+    for i, item in enumerate(items[:20], 1):
+        q = html.escape(item.question[:60])
+        text += f"{i}. <b>{q}</b>\n"
+        from config import get_referral_link
+        market_url = get_referral_link(item.event_slug, item.market_slug)
+        text += f"   🔗 <a href='{market_url}'>Open</a>\n\n"
+
+    await message.answer(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+# ── Settings ─────────────────────────────────────────
+
+@router.message(F.text.in_(["⚙️ Settings", "⚙️ Налашт", "⚙️ Настройки"]))
+async def reply_settings(message: Message) -> None:
+    user, lang = await resolve_user(message.from_user)
+    await message.answer(
+        get_text("settings_menu", lang),
+        reply_markup=get_settings_keyboard(lang),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+# ── Help ─────────────────────────────────────────────
+
+@router.message(F.text.in_(['❓ Help', '❓ Інфо', '❓ Помощь']))
+async def reply_help(message: Message) -> None:
+    user, lang = await resolve_user(message.from_user)
+    await message.answer(get_text("help_text", lang), parse_mode=ParseMode.HTML)
 
 
 def setup_reply_handlers(dp) -> None:
     dp.include_router(router)
     logger.info("Reply navigation handlers registered")
+    
