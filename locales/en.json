@@ -256,5 +256,6 @@
   "holders.comparison_count": "   Smart >$3K: {yes_count} vs {no_count} {check}",
   "holders.comparison_prof": "   Profitable: {yes_pct}% vs {no_pct}% {check}",
   "holders.line_empty": "   {side}: N/A (no data or &lt;3 holders)",
+  "hot.no_markets": "No active markets found.",
   "bayes_c_confirm": "Confirms market"
 }

@@ -14,8 +14,9 @@ from loguru import logger
 
 from i18n import get_text
 from market_intelligence import (
-    MarketStats, BetRecommendation, SignalStrength, MarketQuality,
+    MarketStats, BetRecommendation, SignalStrength, MarketQuality, WhaleAnalysis,
 )
+from analytics.orchestrator import DeepAnalysisResult
 
 
 def format_volume(volume: float) -> str:
@@ -737,3 +738,234 @@ def _format_simple_analysis(market: MarketStats, lang: str) -> str:
     except Exception as e:
         logger.error(f"Simple Format Error: {e}", exc_info=True)
         return f"⚠️ <b>Analysis Error</b>: {e}"
+
+
+# --- New Formatting Functions for Hot & Signals ---
+
+def format_hot_line(idx: int, m: MarketStats, lang: str) -> str:
+    """Format single line for Hot Today list with edge/Kelly/SM conflict."""
+    # Title (truncate if too long)
+    title = html.escape(m.question[:55]) + ("..." if len(m.question) > 55 else "")
+    
+    # Prices & volume
+    yes_p = format_price(m.yes_price)
+    no_p = format_price(m.no_price)
+    vol = format_volume(m.volume_24h)
+    
+    # Whale tilt
+    wa = m.whale_analysis
+    if wa and wa.is_significant:
+        whale_side = wa.dominance_side
+        whale_pct = int(wa.dominance_pct)
+        whale_str = f"🐋 {whale_side} {whale_pct}%"
+    else:
+        whale_str = "🐋 —"
+    
+    # Timing
+    if m.days_to_close == 0:
+        time_str = "<1d"
+    else:
+        time_str = f"{m.days_to_close}d"
+    
+    # Edge & Kelly
+    edge_val = getattr(m, "edge", 0.0)
+    rec_side = getattr(m, "rec_side", "NEUTRAL")
+    kelly_pct = getattr(m, "kelly_pct", 0.0)
+    
+    if abs(edge_val) >= 0.02:
+        edge_str = f"📈 Edge: {edge_val*100:+.1f}% → {rec_side}"
+        size_str = f"💼 {kelly_pct:.1f}%"
+    else:
+        edge_str = "📈 Edge: ~0 (market ≈ model)"
+        size_str = "💼 0% (SKIP)"
+    
+    # Smart Money conflict marker
+    sm_icon = ""
+    if hasattr(m, "holders") and m.holders:
+        smart_side = m.holders.smart_score_side
+        if smart_side not in ("NEUTRAL", rec_side) and m.holders.smart_score >= 60:
+            sm_icon = "  SM ⚠️"
+        elif rec_side != "NEUTRAL" and abs(edge_val) >= 0.02:
+            sm_icon = "  SM ✅"
+    
+    # Score emoji
+    score = m.signal_score
+    if score >= 90:
+        emoji = "🟢🟢"
+    elif score >= 70:
+        emoji = "🟢"
+    elif score >= 50:
+        emoji = "🟡"
+    else:
+        emoji = "🔴"
+    
+    final_rec = rec_side if rec_side != "NEUTRAL" else "—"
+    
+    return (
+        f"{idx}. {title}\n"
+        f"   💰 YES {yes_p} · NO {no_p}  📊 {vol}\n"
+        f"   {whale_str}  ⏰ {time_str}\n"
+        f"   {edge_str}   {size_str}{sm_icon}\n"
+        f"   {emoji} {score}/100 → {final_rec}\n"
+    )
+
+
+def format_hot_markets(markets: List[MarketStats], category_name: str, lang: str) -> str:
+    """Format full Hot Today message with header & footer."""
+    if not markets:
+        return get_text("hot.no_markets", lang)
+    
+    # Header
+    text = f"🔥 <b>Hot {category_name}</b>\n\n"
+    text += "Top volume & whale action:\n\n"
+    
+    # List markets
+    for idx, m in enumerate(markets[:10], start=1):
+        text += format_hot_line(idx, m, lang)
+        text += "\n"
+    
+    # Footer: Total risk
+    total_kelly = sum(getattr(m, "kelly_pct", 0.0) for m in markets[:10])
+    text += f"\n💡 Сумарний ризик: {total_kelly:.1f}% банкролу\n"
+    text += "⚠️ Не варто брати всі ставки — вибирай найкращі 2–3.\n"
+    
+    return text.strip()
+
+
+def format_signal_card(m: MarketStats, lang: str) -> str:
+    """Compact signal card for quick opportunities."""
+    title = html.escape(m.question[:60]) + ("..." if len(m.question) > 60 else "")
+    
+    # Prices
+    yes_p = format_price(m.yes_price)
+    no_p = format_price(m.no_price)
+    
+    # Edge & side
+    edge_val = getattr(m, "effective_edge", getattr(m, "edge", 0.0))
+    rec_side = getattr(m, "rec_side", "NEUTRAL")
+    kelly_pct = getattr(m, "kelly_pct", 0.0)
+    
+    # Emoji for recommendation
+    if rec_side == "YES":
+        action_emoji = "🟢"
+    elif rec_side == "NO":
+        action_emoji = "🔴"
+    else:
+        action_emoji = "⚪"
+    
+    # Build card
+    text = f"{action_emoji} <b>{title}</b>\n"
+    text += f"   💰 YES {yes_p} · NO {no_p}\n"
+    text += f"   📈 Edge: {edge_val*100:+.1f}% → <b>{rec_side}</b>\n"
+    text += f"   💼 Size: {kelly_pct:.1f}%\n"
+    
+    if m.days_to_close == 0:
+        text += "   ⏰ Closes today\n"
+    else:
+        text += f"   ⏰ {m.days_to_close}d left\n"
+    
+    return text
+
+
+def format_deep_analysis_result(result: DeepAnalysisResult, lang: str) -> str:
+    """
+    Format deep analysis result with proper conflict handling.
+    FIXED: Uses 50 confidence threshold and blocks BUY on SM conflict.
+    """
+    m = result.market
+    title = html.escape(m.question[:60]) + ("..." if len(m.question) > 60 else "")
+    
+    # Determine header based on setup strength
+    if result.is_positive_setup:
+        if result.confidence >= 70:
+            header_emoji = "🟢"
+            header_text = f"BUY {result.rec_side}"
+        else:
+            header_emoji = "🟡"
+            header_text = f"Lean {result.rec_side}"
+    else:
+        header_emoji = "🛑"
+        header_text = "SKIP"
+    
+    # Price display
+    if result.rec_side == "YES":
+        price_display = format_price(m.yes_price)
+    elif result.rec_side == "NO":
+        price_display = format_price(m.no_price)
+    else:
+        # Average
+        price_display = format_price((m.yes_price + m.no_price) / 2)
+    
+    # Build output
+    text = f"{header_emoji} <b>{header_text} @ {price_display}</b>\n"
+    text += f"<b>{title}</b>\n\n"
+    
+    # WHY section
+    text += "<b>WHY:</b>\n"
+    # Using float to match expectations
+    edge_val = float(m.edge)
+    eff_edge_val = float(m.effective_edge)
+    text += f"• Edge: {edge_val*100:+.1f}% (after fees: {eff_edge_val*100:+.1f}%)\n"
+    text += f"• Confidence: {result.confidence}/100\n"
+    
+    # Smart Money indicator
+    if m.holders and m.holders.smart_score > 0:
+        sm_side = m.holders.smart_score_side
+        sm_score = m.holders.smart_score
+        
+        if sm_side == result.rec_side:
+            text += f"• Smart Money: ✅ {sm_side} {sm_score}/100\n"
+        else:
+            # Highlight conflict
+            conflict_emoji = "⚠️" if sm_score >= 60 else "⚡"
+            text += f"• Smart Money: {conflict_emoji} {sm_side} {sm_score}/100 (CONFLICT)\n"
+    
+    # Conflicts warning
+    if result.conflicts:
+        text += "\n<b>⚠️ CONFLICTS:</b>\n"
+        for c in result.conflicts:
+            if c["type"] == "SMART_MONEY":
+                text += f"• Strong Smart Money on {c['side']} ({c['score']}/100)\n"
+    
+    # Size recommendation
+    text += f"\n<b>SIZE:</b> {result.kelly_pct:.1f}% of bankroll\n"
+    
+    if result.confidence < 50 and result.confidence >= 30:
+        text += "💡 Reduced size due to lower confidence\n"
+    elif result.confidence < 30:
+        text += "💡 Very small size — high uncertainty\n"
+    
+    # Risk warning for NO positions
+    if result.rec_side == "NO" and result.is_positive_setup:
+        text += "\n⚠️ <b>NO positions:</b> Limited upside, ensure edge is strong\n"
+    
+    return text
+
+
+def format_signals_list(markets: List[MarketStats], lang: str) -> str:
+    """Format list of signal opportunities."""
+    if not markets:
+        return "🔍 No strong signals found right now.\n\nMarkets are fairly priced or lack liquidity."
+    
+    text = "⚡ <b>Quick Signals</b>\n\n"
+    text += "High-confidence opportunities (next 3 days):\n\n"
+    
+    for idx, m in enumerate(markets[:5], start=1):
+        text += f"{idx}. {format_signal_card(m, lang)}\n"
+    
+    text += "\n<i>Signals update every 15 minutes. Act quickly — edges fade.</i>"
+    return text
+
+
+def format_brief_signal(result: DeepAnalysisResult) -> str:
+    """Brief format for signal list."""
+    m = result.market
+    title = html.escape(m.question[:45]) + ("..." if len(m.question) > 45 else "")
+    
+    emoji = "🟢" if result.confidence >= 70 else "🟡"
+    conf = result.confidence
+    
+    return (
+        f"{emoji} <b>{result.rec_side}</b> | {title}\n"
+        f"   Edge: {m.effective_edge*100:+.1f}% | Conf: {conf}/100 | Size: {result.kelly_pct:.1f}%"
+    )

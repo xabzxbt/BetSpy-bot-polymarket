@@ -20,6 +20,7 @@ from handlers_intelligence import setup_intelligence_handlers
 from handlers_reply import setup_reply_handlers
 from handlers_watchlist import setup_watchlist_handlers
 from handlers_hot import setup_hot_handlers
+from handlers_signals import setup_signals_handlers
 from handlers_analytics import setup_analytics_handlers
 from scheduler import init_notification_service
 from market_intelligence import market_intelligence
@@ -70,6 +71,7 @@ async def main() -> None:
     setup_reply_handlers(dp)
     setup_handlers(dp)
     setup_hot_handlers(dp)          # BEFORE intelligence (has intel: catch-all)
+    setup_signals_handlers(dp)      # Signals
     setup_analytics_handlers(dp)    # Deep Analysis — BEFORE intelligence
     setup_watchlist_handlers(dp)
     setup_intelligence_handlers(dp) # LAST (has catch-all for intel:*)

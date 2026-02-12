@@ -42,8 +42,104 @@ from polymarket_api import PolymarketApiClient
 
 
 # =====================================================================
-# Result
+# Result Classes
 # =====================================================================
+
+@dataclass
+class DeepAnalysisResult:
+    market: MarketStats
+    rec_side: str
+    confidence: int
+    kelly_pct: float
+    is_positive_setup: bool
+    conflicts: list
+
+
+class Orchestrator:
+    """Deep analysis orchestrator with proper confidence calculation."""
+    
+    def __init__(self):
+        self.base_kelly = 3.0  # Base 3% Kelly size
+    
+    async def analyze_market(self, market: MarketStats) -> DeepAnalysisResult:
+        """
+        Deep analysis with corrected confidence calculation.
+        Includes proportional smart conflict penalty.
+        """
+        # Note: Holders data is already on the market object in this model
+        holders_res = getattr(market, "holders", None) or HoldersAnalysis(smart_score=0, smart_score_side="NEUTRAL")
+        
+        # Calculate base confidence from edge
+        edge_abs = abs(getattr(market, "effective_edge", 0))
+        conf_base = min(40, int(edge_abs * 500))  # 8% edge = 40 pts max
+        
+        # Liquidity bonus (up to 10 pts)
+        liq_bonus = min(10, int(market.liquidity / 10000))
+        
+        # Time urgency bonus (up to 10 pts)
+        time_bonus = 10 if market.days_to_close == 0 else (5 if market.days_to_close <= 2 else 0)
+        
+        # SMART CONFLICT HANDLING - Proportional penalty
+        if holders_res.smart_score_side == market.rec_side:
+            # Alignment with smart money - positive
+            conf_smart = holders_res.smart_score * 0.4
+        elif holders_res.smart_score >= 80:
+            # VERY STRONG conflict (Smart Score 80+ against us)
+            conf_smart = -min(50, holders_res.smart_score * 0.5)
+        elif holders_res.smart_score >= 60:
+            # Strong conflict
+            conf_smart = -min(30, holders_res.smart_score * 0.3)
+        elif holders_res.smart_score >= 40:
+            # Moderate conflict
+            conf_smart = -20
+        else:
+            # Mild conflict
+            conf_smart = -10
+        
+        # Calculate total confidence (clamped 0-100)
+        conf_score = int(conf_base + conf_smart + liq_bonus + time_bonus)
+        conf_score = max(0, min(100, conf_score))
+        
+        # Determine if setup is positive
+        is_positive_setup = conf_score >= 50  # RAISED from 40
+        
+        # Check for strong smart money conflict (override)
+        if holders_res.smart_score >= 80 and holders_res.smart_score_side not in ("NEUTRAL", market.rec_side):
+            is_positive_setup = False  # Force neutral/lean despite edge
+        
+        # Dynamic sizing based on confidence
+        k_safe = min(self.base_kelly, market.kelly_pct)
+        
+        if conf_score < 30:
+            k_safe *= 0.3
+        elif conf_score < 50:
+            k_safe *= 0.6
+        
+        k_safe = round(k_safe, 1)
+        
+        # CRITICAL: Block BUY if size becomes too small after downscaling
+        if k_safe < 1.0:
+            is_positive_setup = False
+        
+        # Collect conflicts for display
+        conflicts = []
+        if holders_res.smart_score >= 60 and holders_res.smart_score_side not in ("NEUTRAL", market.rec_side):
+            conflicts.append({
+                "type": "SMART_MONEY",
+                "side": holders_res.smart_score_side,
+                "score": holders_res.smart_score,
+                "severity": "high" if holders_res.smart_score >= 80 else "medium"
+            })
+        
+        return DeepAnalysisResult(
+            market=market,
+            rec_side=market.rec_side,
+            confidence=conf_score,
+            kelly_pct=k_safe,
+            is_positive_setup=is_positive_setup,
+            conflicts=conflicts
+        )
+
 
 @dataclass
 class DeepAnalysis:
