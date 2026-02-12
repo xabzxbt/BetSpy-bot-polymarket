@@ -6,7 +6,7 @@ for a specific market to determine smart money conviction.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import statistics
 
 from polymarket_api import Position
