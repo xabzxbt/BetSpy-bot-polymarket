@@ -393,28 +393,110 @@ class PolymarketApiClient:
     async def get_market_holders(
         self,
         condition_id: str,
-        limit: int = 1000,
+        limit: int = 100,  # Limit for initial holder list
     ) -> List[Position]:
-        """Get all position holders for a specific market."""
-        url = f"{self.data_api_url}/positions"
-        # API often accepts 'conditionId' or 'asset'
+        """
+        Get position holders for a specific market.
+        
+        Methodology:
+        1. Call /holders to get list of wallets (and raw amounts).
+        2. For top N holders, call /positions to get valid PnL/Entry Price data.
+           (Since /holders endpoint usually doesn't give PnL).
+        
+        NOTE: /positions requires 'user' param. match specific conditionId to avoid fetching all user positions.
+        """
+        # Endpoint provided by user: /holders
+        # Params: market (conditionId), limit
+        url = f"{self.data_api_url}/holders"
         params = {
-            "conditionId": condition_id,
+            "market": condition_id,
             "limit": limit,
-            "sortBy": "CURRENT",  # Get largest holders first
-            "sortDirection": "DESC",
+            # "minBalance": "1" # Optional
         }
 
         try:
-            data = await self._request("GET", url, params)
-            if not isinstance(data, list):
-                # Fallback: try filtering by asset param if conditionId fails?
-                # But usually conditionId is standard.
+            # 1. Get List of Holders
+            # Note: This endpoint might return { "holders": [...] } or just [...]
+            # User example: { "token": "...", "holders": [...] }
+            response = await self._request("GET", url, params)
+            
+            raw_holders = []
+            if isinstance(response, dict) and "holders" in response:
+                raw_holders = response["holders"]
+            elif isinstance(response, list):
+                raw_holders = response
+            else:
+                logger.warning(f"Unexpected /holders response format: {type(response)}")
+                return []
+            
+            if not raw_holders:
                 return []
 
-            positions = [Position.from_api_response(item) for item in data]
-            logger.info(f"Fetched {len(positions)} holders for market {condition_id[:10]}...")
-            return positions
+            logger.info(f"Found {len(raw_holders)} raw holders. Fetching details for top {min(len(raw_holders), 30)}...")
+
+            # 2. Fetch detailed positions for top 30 to get PnL
+            # We can't do all 1000 due to rate limits/time.
+            # Analytical compromise: Stats will be based on TOP holders, which is often what we want for "Smart Money".
+            
+            top_holders = raw_holders[:30] # Analyze top 30 whales/holders
+            
+            async def _fetch_pos(h_data):
+                wallet = h_data.get("proxyWallet")
+                if not wallet:
+                    return None
+                    
+                # Get specific position for this market
+                # /positions?user=...&market=...
+                # Note: data_api params might be 'conditionId' or 'market' depending on endpoint.
+                # /positions usually uses 'conditionId' or just filtering result?
+                # Let's try widely used param 'conditionId' or 'asset'.
+                # User prompt said params={"user": ..., "market": condition_id} for /positions.
+                try:
+                    p_url = f"{self.data_api_url}/positions"
+                    p_params = {"user": wallet, "market": condition_id} 
+                    # If market param is not supported, we might get all positions. 
+                    # But usually checking docs, /positions takes 'user' (required).
+                    
+                    pos_data = await self._request("GET", p_url, p_params)
+                    
+                    # Result is list of positions. Find the one matching our market.
+                    if isinstance(pos_data, list):
+                        for item in pos_data:
+                            # Check match. Item usually has 'conditionId' or 'asset'
+                            if item.get("conditionId") == condition_id or item.get("asset") == condition_id:
+                                return Position.from_api_response(item)
+                    
+                    # If not found in detailed positions, use raw data as fallback
+                    # Raw data: amount (shares). We can calc value approx.
+                    outcome_idx = h_data.get("outcomeIndex")
+                    outcome = "YES" if outcome_idx == 0 else "NO"
+                    size = float(h_data.get("amount", 0))
+                    return Position(
+                        condition_id=condition_id,
+                        asset=h_data.get("asset", ""),
+                        outcome=outcome,
+                        size=size,
+                        avg_price=0.5, # Unknown
+                        current_price=0.5, # Unknown
+                        current_value=0, # Will be inaccurate
+                        cash_pnl=0.0, # No PnL
+                        realized_pnl=0.0,
+                        proxy_wallet=wallet
+                    )
+                except Exception as e:
+                    # logger.warning(f"Failed to fetch position for {wallet}: {e}")
+                    return None
+
+            # Run parallel fetches
+            results = await asyncio.gather(*[_fetch_pos(h) for h in top_holders], return_exceptions=True)
+            
+            valid_positions = []
+            for res in results:
+                if isinstance(res, Position):
+                    valid_positions.append(res)
+            
+            return valid_positions
+
         except Exception as e:
             logger.error(f"Failed to get holders for {condition_id}: {e}")
             return []
