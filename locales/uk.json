@@ -348,6 +348,8 @@
   "holders.comparison_count": "   Smart >$3K: {yes_count} vs {no_count} {check}",
   "holders.comparison_prof": "   Profitable: {yes_pct}% vs {no_pct}% {check}",
   "holders.line_empty": "   {side}: N/A (дані відсутні або &lt;3 холдери)",
+  "l2.reason_holders_align": "Smart Money по холдерах теж за {side} (Smart Score {score}/100)",
+  "l2.reason_holders_conflict": "⚠️ Smart Money по холдерах за протилежну сторону ({side}, {score}/100)",
   "hot.no_markets": "Активних ринків не знайдено.",
   "bayes_c_confirm": "Підтверджує ринок"
 }

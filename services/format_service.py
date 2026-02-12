@@ -542,11 +542,11 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
              # Explicit Smart Money Conflict Check (User Request 2)
              if holders.smart_score_side == rec_side and holders.smart_score >= 60:
                  reasons.append(
-                     f"Smart Money по холдерах теж за {rec_side} (Smart Score {holders.smart_score}/100)"
+                     get_text("l2.reason_holders_align", lang, side=rec_side, score=holders.smart_score)
                  )
              elif holders.smart_score_side not in ("NEUTRAL", rec_side) and holders.smart_score >= 60:
                  reasons.append(
-                     f"⚠️ Smart Money по холдерах за протилежну сторону ({holders.smart_score_side}, {holders.smart_score}/100)"
+                     get_text("l2.reason_holders_conflict", lang, side=holders.smart_score_side, score=holders.smart_score)
                  )
                  
              # Median PnL comparison
@@ -922,11 +922,9 @@ def format_deep_analysis_result(result: DeepAnalysisResult, lang: str) -> str:
         sm_score = m.holders.smart_score
         
         if sm_side == result.rec_side:
-            text += f"• Smart Money: ✅ {sm_side} {sm_score}/100\n"
+            text += f"• {get_text('l2.reason_holders_align', lang, side=sm_side, score=sm_score)}\n"
         else:
-            # Highlight conflict
-            conflict_emoji = "⚠️" if sm_score >= 60 else "⚡"
-            text += f"• Smart Money: {conflict_emoji} {sm_side} {sm_score}/100 (CONFLICT)\n"
+            text += f"• {get_text('l2.reason_holders_conflict', lang, side=sm_side, score=sm_score)}\n"
     
     # Conflicts warning
     if result.conflicts:
