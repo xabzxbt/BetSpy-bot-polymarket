@@ -17,7 +17,7 @@ Usage:
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 from loguru import logger
 
@@ -583,8 +583,10 @@ async def run_deep_analysis(
 
     # Phase 6: Confidence (Unified Logic)
     orch = Orchestrator()
+    # Use effective_edge for confidence calculation (consistent with analyze_market)
+    effective_edge = getattr(market, "effective_edge", edge)
     confidence, k_safe, is_positive_setup_final, conflicts_list = orch._calculate_confidence_and_sizing(
-        market, rec_side, edge, model_prob, holders_res
+        market, rec_side, effective_edge, model_prob, holders_res
     )
 
     # Log confidence components for debugging as requested
