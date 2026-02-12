@@ -419,101 +419,106 @@ class PolymarketApiClient:
         condition_id: str,
         yes_price: float = 0.5,
         no_price: float = 0.5,
-        limit: int = 100,
+        limit: int = 50,
     ) -> Tuple[List[Position], List[Position]]:
         """
         Get market holders split by YES/NO outcome.
         Returns: (yes_positions, no_positions)
         """
         url = f"{self.data_api_url}/holders"
-        params = {
-            "market": condition_id,
-            "limit": limit,
-        }
         
-        try:
-            response = await self._request("GET", url, params)
+        async def _fetch_raw(idx):
+            params = {
+                "conditionId": condition_id,
+                "outcomeIndex": str(idx),
+                "limit": limit,
+            }
+            try:
+                resp = await self._request("GET", url, params)
+                if isinstance(resp, list): return resp
+                if isinstance(resp, dict) and "holders" in resp: return resp["holders"]
+                return []
+            except Exception:
+                return []
+
+        # Fetch YES and NO raw holder lists in parallel
+        yes_raw, no_raw = await asyncio.gather(_fetch_raw(0), _fetch_raw(1))
+        
+        # Combine top holders from both sides for detailed analysis
+        # We take top 20 from each side to keep processing load reasonable
+        top_yes = yes_raw[:20]
+        top_no = no_raw[:20]
+        
+        yes_positions = []
+        no_positions = []
+        
+        async def _enrich_holder(h_data, expected_side_idx):
+            wallet = h_data.get("proxyWallet") or h_data.get("address")
+            if not wallet: return None
             
-            raw_holders = []
-            if isinstance(response, dict) and "holders" in response:
-                raw_holders = response["holders"]
-            elif isinstance(response, list):
-                if response and isinstance(response[0], dict) and "holders" in response[0]:
-                    for item in response:
-                        raw_holders.extend(item.get("holders", []))
-                else:
-                    raw_holders = response
-            
-            if not raw_holders:
-                logger.warning(f"No holders found for condition {condition_id}")
-                return [], []
-            
-            logger.info(f"Found {len(raw_holders)} raw holders for {condition_id}")
-            
-            # Take top 30 for analysis
-            top_holders = raw_holders[:30]
-            
-            yes_positions = []
-            no_positions = []
-            
-            async def _fetch_and_classify(h_data):
-                wallet = h_data.get("proxyWallet")
-                if not wallet:
-                    return None
+            try:
+                # 1. Fetch positions for this wallet
+                p_url = f"{self.data_api_url}/positions"
+                p_params = {"user": wallet.lower(), "limit": 40}
+                pos_data = await self._request("GET", p_url, p_params)
+                p_list = pos_data if isinstance(pos_data, list) else []
                 
-                try:
-                    # Get detailed position for this wallet
-                    p_url = f"{self.data_api_url}/positions"
-                    p_params = {
-                        "user": wallet.lower(),
-                        "limit": 50,
-                    }
-                    
-                    pos_data = await self._request("GET", p_url, p_params)
-                    p_list = pos_data if isinstance(pos_data, list) else []
-                    
-                    # Find position matching our market
-                    for item in p_list:
-                        if item.get("conditionId") == condition_id:
-                            pos = Position.from_api_response(item)
-                            
-                            # Enrich with profile PnL
-                            try:
-                                profile = await self.get_profile(wallet)
-                                if profile:
-                                    pos.holder_lifetime_pnl = profile.pnl
-                                    pos.holder_volume = profile.volume
-                            except Exception as e:
-                                logger.debug(f"Profile fetch failed for {wallet}: {e}")
-                            
-                            return pos
-                    
-                    # No matching position found
-                    return None
-                    
-                except Exception as e:
-                    logger.debug(f"Failed to fetch position for {wallet}: {e}")
-                    return None
-            
-            # Fetch all in parallel
-            results = await asyncio.gather(
-                *[_fetch_and_classify(h) for h in top_holders],
-                return_exceptions=True
-            )
-            
-            for res in results:
-                if isinstance(res, Position):
-                    if res.outcome_index == 0:  # YES
-                        yes_positions.append(res)
-                    else:  # NO
-                        no_positions.append(res)
-            
-            logger.info(f"Classified holders: {len(yes_positions)} YES, {len(no_positions)} NO")
-            return yes_positions, no_positions
-            
-        except Exception as e:
-            logger.error(f"Failed to get holders for {condition_id}: {e}")
-            return [], []
+                target_pos = None
+                for item in p_list:
+                    if item.get("conditionId") == condition_id:
+                        # Only accept if it matches the side we are looking for OR any side if we want full classification
+                        # But since we are enriching a specific side's top holder, it's safer to just match conditionId
+                        target_pos = Position.from_api_response(item)
+                        break
+                
+                if not target_pos:
+                    # Fallback: create a dummy position from holder data if we can't find it in /positions 
+                    # (sometimes Data API is inconsistent)
+                    target_pos = Position(
+                        proxy_wallet=wallet, asset="", condition_id=condition_id,
+                        size=float(h_data.get("size", 0)), avg_price=0.0,
+                        initial_value=0.0, current_value=float(h_data.get("size", 0)) * (yes_price if expected_side_idx == 0 else no_price),
+                        cash_pnl=0.0, percent_pnl=0.0, realized_pnl=0.0,
+                        cur_price=(yes_price if expected_side_idx == 0 else no_price),
+                        title="", slug="", event_slug="", outcome="YES" if expected_side_idx == 0 else "NO",
+                        outcome_index=expected_side_idx
+                    )
+
+                # 2. Enrich with profile (PnL)
+                profile = await self.get_profile(wallet)
+                if profile:
+                    target_pos.holder_lifetime_pnl = profile.pnl
+                    target_pos.holder_volume = profile.volume
+                
+                return target_pos
+            except Exception as e:
+                logger.debug(f"Enrichment failed for {wallet}: {e}")
+                return None
+
+        # Fetch all details in parallel
+        tasks = []
+        for h in top_yes: tasks.append(_enrich_holder(h, 0))
+        for h in top_no: tasks.append(_enrich_holder(h, 1))
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        for res in results:
+            if isinstance(res, Position):
+                if res.outcome_index == 0:
+                    yes_positions.append(res)
+                else:
+                    no_positions.append(res)
+        
+        # If we have raw counts but enrichment failed to find them in /positions, 
+        # ensure SideStats at least has the correct count for reporting.
+        # This is handled by holders_analysis.py using these lists.
+        # But we should log the success
+        logger.info(f"Holders classified for {condition_id}: YES={len(yes_positions)} (raw:{len(yes_raw)}), NO={len(no_positions)} (raw:{len(no_raw)})")
+        
+        # If one side is empty but raw had data, it usually means /positions API didn't return that specific market.
+        # The fallback dummy position above helps with this.
+        
+        return yes_positions, no_positions
 
     async def test_holders_endpoint(self, condition_id: str):
         """Debug method to test /holders endpoint"""
