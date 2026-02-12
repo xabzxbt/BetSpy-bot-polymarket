@@ -830,10 +830,20 @@ def _format_quant_analysis_v2(market: MarketStats, deep: Any, lang: str) -> str:
         # Bayesian
         bayes = deep.bayesian
         if bayes:
-            text += f"🧠 Bayesian: {bayes.final_probability*100:.0f}% YES\n"
+            prior = market.yes_price
+            final = bayes.final_probability
+            diff = final - prior
+            
+            if abs(diff) < 0.02:
+                comment = get_text("bayes_c_confirm", lang)
+                text += f"🧠 Bayesian: {comment} ({prior*100:.0f}% → {final*100:.0f}%)\n"
+            else:
+                side = "YES" if diff > 0 else "NO"
+                text += f"🧠 Bayesian: signal {side} ({prior*100:.0f}% → {final*100:.0f}%)\n"
             
         # Kelly
-        text += f"💰 Kelly: {k_safe}% ({'edge' if is_positive_setup else 'no edge'})\n\n"
+        kelly_comment = get_text('l3.kelly_no_edge', lang) if k_safe == 0 else "edge"
+        text += f"💰 Kelly: {k_safe}% ({kelly_comment})\n\n"
         
         # Whale Flow Block
         wf_lbl = get_text("l3.whale_label", lang)

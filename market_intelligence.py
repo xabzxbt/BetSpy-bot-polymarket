@@ -712,6 +712,8 @@ class MarketIntelligenceEngine:
                 # Try to clean the slug by removing trailing -XXX-XXX-XXX patterns
                 import re
                 cleaned = re.sub(r'(-\d+)+$', '', market_slug)
+                # Also remove common suffixes if present
+                cleaned = re.sub(r'-(yes|no|binary)$', '', cleaned, flags=re.IGNORECASE)
                 event_slug = cleaned if cleaned else market_slug
 
             return MarketStats(

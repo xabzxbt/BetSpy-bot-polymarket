@@ -41,8 +41,8 @@ async def callback_hot_today(callback: CallbackQuery) -> None:
     try:
         markets = await market_intelligence.fetch_trending_markets(
             category=Category.ALL,
-            timeframe=TimeFrame.WEEK,
-            limit=10,
+            timeframe=TimeFrame.MONTH,
+            limit=20,
         )
 
         if not markets:
