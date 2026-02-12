@@ -43,6 +43,12 @@ MIN_LR = 0.33
 MIN_EVIDENCE_VOLUME = 500  # $500 total
 
 
+# Likelihoods (derived from historical backtesting/heuristics)
+LIKELIHOOD_SMART_MONEY_STRONG_YES = 2.5
+LIKELIHOOD_SMART_MONEY_STRONG_NO = 0.4
+LIKELIHOOD_WHALE_SURGE_YES = 1.8
+LIKELIHOOD_WHALE_SURGE_NO = 0.55
+
 # =====================================================================
 # Data classes
 # =====================================================================
@@ -259,6 +265,47 @@ def detect_price_volume_divergence(
     )
 
 
+def detect_smart_money_score(
+    smart_score: float,
+    smart_side: str,
+) -> Optional[Evidence]:
+    """
+    Incorporate Smart Money Score (Holders Analysis) as Bayesian Evidence.
+    """
+    if smart_score < 60:
+        return None  # Not significant
+
+    # Map score 60-100 to Likelihood Ratio
+    # 100 -> 2.5x (Strong)
+    # 60 -> 1.2x (Weak)
+    
+    normalized = (smart_score - 60) / 40.0  # 0.0 to 1.0
+    
+    if smart_side == "YES":
+        lr = 1.2 + (normalized * (LIKELIHOOD_SMART_MONEY_STRONG_YES - 1.2))
+        desc = f"Smart Money Score {smart_score:.0f}/100 favors YES"
+        emoji = "🧠"
+    elif smart_side == "NO":
+        # For NO, we want LR < 1. 
+        # If Strong NO (100) -> 0.4
+        # If Weak NO (60) -> 0.8
+        lr_inv = 1.2 + (normalized * ( (1/LIKELIHOOD_SMART_MONEY_STRONG_NO) - 1.2 ))
+        lr = 1.0 / lr_inv
+        desc = f"Smart Money Score {smart_score:.0f}/100 favors NO"
+        emoji = "🧠"
+    else:
+        return None
+
+    lr = _clamp_lr(lr)
+    
+    return Evidence(
+        name="Smart Money Holders",
+        description=desc,
+        likelihood_ratio=lr,
+        emoji=emoji,
+    )
+
+
 def detect_consensus(
     trades: List[Dict[str, Any]],
     window_hours: int = 4,
@@ -371,6 +418,59 @@ def bayesian_update(
 
     posterior = odds / (1.0 + odds)
     posterior = max(0.03, min(0.97, posterior))
+
+    return BayesianResult(
+        prior=prior,
+        posterior=posterior,
+        evidence_list=evidence_list,
+        combined_lr=combined_lr,
+        update_magnitude=abs(posterior - prior),
+    )
+
+
+def bayesian_update_with_holders(
+    prior: float,
+    trades: List[Dict[str, Any]],
+    price_change_24h: float,
+    avg_hourly_volume: float,
+    smart_score: float,
+    smart_side: str,
+) -> BayesianResult:
+    """
+    Enhanced Bayesian update including Holders Analysis (Smart Money) evidence.
+    """
+    evidence_list: List[Evidence] = []
+
+    # 1. Whale Surge
+    e1 = detect_whale_surge(trades, window_hours=2, avg_hourly_volume=avg_hourly_volume)
+    if e1: evidence_list.append(e1)
+
+    # 2. Divergence
+    e2 = detect_price_volume_divergence(trades, price_change_24h, window_hours=4)
+    if e2: evidence_list.append(e2)
+
+    # 3. Consensus
+    e3 = detect_consensus(trades, window_hours=4, min_wallets=3, min_trade_size=5000)
+    if e3: evidence_list.append(e3)
+
+    # 4. Smart Money (Holders)
+    e4 = detect_smart_money_score(smart_score, smart_side)
+    if e4: evidence_list.append(e4)
+
+    # Prior check
+    prior_clamped = max(0.01, min(0.99, prior))
+    
+    # Odds form
+    odds = prior_clamped / (1.0 - prior_clamped)
+
+    combined_lr = 1.0
+    for ev in evidence_list:
+        odds *= ev.likelihood_ratio
+        combined_lr *= ev.likelihood_ratio
+
+    # Posterior
+    posterior = odds / (1.0 + odds)
+    posterior = max(0.01, min(0.99, posterior))
 
     return BayesianResult(
         prior=prior,

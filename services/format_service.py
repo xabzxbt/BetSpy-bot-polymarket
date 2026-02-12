@@ -405,11 +405,8 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
 
         p_market = market.yes_price
 
-        # Guardrail: if model ≈ market (< 2 p.p.) → force SKIP
-        model_confirms_market = abs(p_model - p_market) < 0.02
-        if model_confirms_market:
-            # Re-ensure values are aligned for display logic
-            p_model = p_market 
+        # Guardrail: Removed
+        model_confirms_market = False 
 
         # Kelly data
         k_safe = 0.0
@@ -423,7 +420,7 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         rec_side = deep.recommended_side or "NEUTRAL"
         edge_pp = deep.edge * 100 if deep.edge else 0.0
 
-        is_positive_setup = (rec_side in ("YES", "NO")) and (abs(edge_pp) >= 2.0) and (k_safe > 0.0)
+        is_positive_setup = (rec_side in ("YES", "NO")) and (abs(edge_pp) >= 0.5) and (k_safe > 0.0)
 
         # Cap recommended size for mass users (max 5-6%)
         if k_safe > 6.0:
@@ -454,7 +451,7 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         # --- 3. LEVEL 1: INSTANT SIGNAL ---
         
         edge_disp = f"{edge_pp:+.1f}"
-        if abs(edge_pp) < 1.0:
+        if abs(edge_pp) < 0.1:
             edge_disp = "~0" # Simplified
         
         l1_text = ""
@@ -941,10 +938,9 @@ def _format_quant_analysis_v3(market: MarketStats, deep: Any, lang: str) -> str:
         p_model = max(0.0, min(1.0, p_model))
         p_market = market.yes_price
 
-        # Guardrail: if model ≈ market (< 2 p.p.) → force SKIP
-        model_confirms_market = abs(p_model - p_market) < 0.02
-        if model_confirms_market:
-            p_model = p_market 
+        # Guardrail: Removed to allow small edges
+        # model_confirms_market = abs(p_model - p_market) < 0.02
+        model_confirms_market = False 
 
         # Kelly
         k_safe = deep.kelly.kelly_final_pct if deep.kelly else 0.0
@@ -961,10 +957,11 @@ def _format_quant_analysis_v3(market: MarketStats, deep: Any, lang: str) -> str:
         elif conf_score < 50: k_safe *= 0.6
         k_safe = min(6.0, round(k_safe, 1))
 
-        is_positive_setup = (rec_side in ("YES", "NO")) and (abs(edge_pp) >= 2.0) and (k_safe > 0.0)
+        # Update threshold to 0.5% to match Kelly
+        is_positive_setup = (rec_side in ("YES", "NO")) and (abs(edge_pp) >= 0.5) and (k_safe > 0.0)
         
         # Formatting Helpers
-        edge_disp = f"{edge_pp:+.1f}%" if abs(edge_pp) >= 1.0 else "~0%"
+        edge_disp = f"{edge_pp:+.1f}%" if abs(edge_pp) >= 0.1 else "~0%"
         
         # ---------------------------
         # 1. HEADER
@@ -1079,7 +1076,7 @@ def _format_quant_analysis_v3(market: MarketStats, deep: Any, lang: str) -> str:
         if bayes:
             prior = market.yes_price * 100
             post = bayes.posterior * 100
-            if abs(post - prior) < 2.0:
+            if abs(post - prior) < 0.1:
                  b_msg = get_text("bayes_c_confirm", lang)
             else:
                  b_msg = f"{prior:.0f}% → {post:.0f}%"

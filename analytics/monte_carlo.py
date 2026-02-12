@@ -288,18 +288,23 @@ def run_generic_simulation(
     days: int,
     price_history: PriceHistory,
     market_price: float,
+    base_probability: Optional[float] = None,
     n_sims: int = NUM_SIMULATIONS,
 ) -> MonteCarloResult:
     """
     Monte Carlo simulation for generic markets.
     
-    NO DRIFT "prediction". 
-    We pretend the price follows a geometric random walk with NO drift (Martingale).
-    The 'probability_yes' is simply the current price (neutral).
-    This simulation is used ONLY to visualize VOLATILITY/RISK (percentiles).
+    NO DRIFT "prediction" by default. 
+    We pretend the price follows a geometric random walk.
+    
+    If 'base_probability' is provided (from Bayesian), we center the simulation there.
+    Otherwise, we use current_price (Neutral).
     """
     if RANDOM_SEED is not None:
         random.seed(RANDOM_SEED)
+
+    # Center of the simulation
+    center = base_probability if base_probability is not None else current_price
 
     # Use market's own volatility
     if not price_history.is_empty:
@@ -331,14 +336,13 @@ def run_generic_simulation(
     for _ in range(n_sims):
         # random shock based on total time volatility
         shock = random.gauss(0, total_vol)
-        p_final = current_price + shock
+        p_final = center + shock
         # Clip to [0.01, 0.99]
         p_final = max(0.01, min(0.99, p_final))
         final_prices.append(p_final)
 
-    # The model "prediction" is just the current price (Neutral)
-    # We DO NOT predict the winner here.
-    prob_yes = current_price 
+    # The model "prediction" matches the simulations mean (approx base_probability)
+    prob_yes = statistics.mean(final_prices) if final_prices else center 
 
     final_prices.sort()
     
@@ -358,7 +362,7 @@ def run_generic_simulation(
         num_simulations=n_sims,
         probability_yes=prob_yes,
         market_price=market_price,
-        edge=0.0, # NO EDGE claimed from generic simulation
+        edge=prob_yes - market_price,
         percentile_5=pct_5,
         percentile_50=pct_50,
         percentile_95=pct_95,

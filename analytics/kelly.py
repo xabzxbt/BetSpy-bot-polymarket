@@ -19,7 +19,7 @@ from analytics.probability import signal_to_probability
 
 DEFAULT_FRACTION = 0.25     # Quarter Kelly
 MAX_FULL_KELLY_CAP = 0.20   # Absolute limit for Full Kelly (20% of bankroll)
-MIN_EDGE_THRESHOLD = 0.02   # Ignore edges < 2 p.p.
+MIN_EDGE_THRESHOLD = 0.005   # Ignore edges < 0.5 p.p. (was 2%)
 DEFAULT_BANKROLL = 10_000   # Default bankroll
 
 
@@ -145,7 +145,8 @@ def calculate_kelly(
         price = 1.0 - market_price
         
     edge_abs = p - price
-    edge_pct = (edge_abs / price * 100) if price > 0 else 0.0
+    # Edge as percentage of the price (ROI potential)
+    edge_pct = (edge_raw / market_price * 100) if market_price > 0 else 0.0
     
     # 3. Check Significance
     # If edge is tiny (< 2%), return 0
@@ -166,13 +167,25 @@ def calculate_kelly(
             fraction_name=_get_fraction_name(fraction)
         )
         
-    # 4. Kelly Formula: f = (bp - q) / b
-    # b = net odds = (1/price) - 1
-    if price <= 0 or price >= 1:
+    # 4. Kelly Formula for Binary Options (Polymarket)
+    # Ref: https://en.wikipedia.org/wiki/Kelly_criterion#Betting
+    # f* = p/a - q/b where a is loss (100%), b is win quantity (net odds)
+    # For binary: f* = (p * (b_odds + 1) - 1) / b_odds
+    # Where b_odds = (1/price) - 1
+    
+    if price <= 0.01 or price >= 0.99:
         kelly_full = 0.0
     else:
-        b = (1.0 / price) - 1.0
+        # Net odds (how much you win per $1 risked)
+        # If price is 0.60, you risk 0.60 to win 0.40. Net odds = 0.4/0.6 = 0.666
+        # Formula: b = (1 - price) / price
+        b = (1.0 - price) / price
+        
+        # Kelly fraction f = (bp - q) / b
+        # p = probability of win (model prob)
+        # q = probability of loss (1 - p)
         q = 1.0 - p
+        
         if b > 0:
             kelly_full = (b * p - q) / b
         else:

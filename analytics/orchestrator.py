@@ -32,7 +32,7 @@ from analytics.monte_carlo import (
     run_crypto_simulation,
     run_generic_simulation,
 )
-from analytics.bayesian import BayesianResult, bayesian_update
+from analytics.bayesian import BayesianResult, bayesian_update_with_holders, detect_smart_money_score
 from analytics.holders_analysis import (
     calculate_side_stats,
     calculate_smart_score as calc_smart_score,
@@ -191,22 +191,170 @@ async def run_deep_analysis(
 
     # --- Phase 2: Run modules ---
 
-    # Greeks
-    greeks_result = None
+    # --- Phase 2: Holders Analysis (Moved Up) ---
+    holders_res = None
+    smart_score = 50.0
+    smart_side = "NEUTRAL"
+    
     try:
-        greeks_result = calculate_greeks(
-            yes_price=market.yes_price,
-            days_remaining=market.days_to_close,
-            price_history=price_history,
-        )
-    except Exception as e:
-        errors["greeks"] = str(e)
-        logger.warning(f"Greeks failed: {e}")
+        from types import SimpleNamespace
+        
+        yes_holders, no_holders = holders_positions
+        
+        # Changed from 5000 to 3000 per user request
+        SMART_PNL_THRESHOLD = 3000 
+        
+        def _calc_holder_stats(positions, side: str):
+            if not positions:
+                return SimpleNamespace(
+                    side=side,
+                    count=0,
+                    median_pnl=0.0,
+                    smart_count_5k=0,
+                    profitable_pct=0.0,
+                    top_holder_profit=0.0,
+                    top_holder_address="",
+                    top_holder_wins=0,
+                    top_holder_losses=0,
+                    profitable_count=0,
+                    above_10k_count=0,
+                    above_5k_pct=0.0, 
+                    veteran_count=0,
+                    novoreg_count=0
+                )
+            
+            # Novoreg Analysis
+            import time
+            now_ts = int(time.time())
+            thirty_days = 30 * 24 * 60 * 60
+            
+            veterans = 0
+            novoregs = 0
+            
+            # Filter analyzed positions
+            analyzed_positions = [p for p in positions if getattr(p, "holder_first_trade_timestamp", 0) > 0]
 
-    # Monte Carlo
+            for p in analyzed_positions:
+                ts = getattr(p, "holder_first_trade_timestamp", 0)
+                if ts > 0:
+                    age = now_ts - ts
+                    if age >= thirty_days:
+                        veterans += 1
+                    else:
+                        novoregs += 1
+
+            # Smart Money (Lifetime Profit > 3k)
+            smart_3k = sum(1 for p in analyzed_positions if getattr(p, "holder_lifetime_pnl", 0.0) >= SMART_PNL_THRESHOLD)
+            
+            # Profitable %
+            if analyzed_positions:
+                profitable = sum(1 for p in analyzed_positions if getattr(p, "holder_lifetime_pnl", 0.0) > 0)
+                profitable_pct = (profitable / len(analyzed_positions)) * 100
+            else:
+                profitable_pct = 0.0
+
+            # Top holder
+            if analyzed_positions:
+                top = max(analyzed_positions, key=lambda p: getattr(p, "holder_lifetime_pnl", 0.0))
+                top_profit = getattr(top, "holder_lifetime_pnl", 0.0)
+                top_addr = getattr(top, "wallet_address", getattr(top, "proxy_wallet", ""))
+            else:
+                top_profit = 0.0
+                top_addr = ""
+
+            # Extra stats
+            above_10k = sum(1 for p in positions if getattr(p, "current_value", 0.0) > 10000)
+            
+            return SimpleNamespace(
+                side=side,
+                count=len(positions),
+                median_pnl=0.0, # Removed computational burden
+                smart_count_5k=smart_3k,
+                profitable_pct=profitable_pct,
+                top_holder_profit=top_profit,
+                top_holder_address=top_addr,
+                top_holder_wins=0,
+                top_holder_losses=0,
+                above_10k_count=above_10k,
+                above_5k_pct=(smart_3k/len(positions)*100) if positions else 0.0,
+                veteran_count=veterans,
+                novoreg_count=novoregs
+            )
+
+        yes_stats_obj = _calc_holder_stats(yes_holders, "YES")
+        no_stats_obj = _calc_holder_stats(no_holders, "NO")
+        
+        # Calculate Smart Score
+        yes_smart = yes_stats_obj.smart_count_5k
+        no_smart = no_stats_obj.smart_count_5k
+        
+        wa = market.whale_analysis
+        
+        # Base score on smart holder count difference
+        if yes_smart > no_smart:
+            smart_side = "YES"
+            diff = yes_smart - no_smart
+            smart_score = min(100, 50 + diff * 10)
+        elif no_smart > yes_smart:
+            smart_side = "NO"
+            diff = no_smart - yes_smart
+            smart_score = min(100, 50 + diff * 10)
+        else:
+            smart_score = 50.0
+            smart_side = "NEUTRAL"
+            
+        # Breakdown
+        smart_score_breakdown = {
+            "holders": float(smart_score * 0.4),
+            "tilt": float(abs(wa.tilt) * 100 * 0.3) if wa else 0.0,
+            "model": 0.0 
+        }
+
+        holders_res = SimpleNamespace(
+            yes_stats=yes_stats_obj,
+            no_stats=no_stats_obj,
+            smart_score=smart_score,
+            smart_score_side=smart_side,
+            smart_score_breakdown=smart_score_breakdown
+        )
+        
+        logger.info(f"Holders Analysis Computed: Score={smart_side} {smart_score}")
+
+    except Exception as e:
+        logger.warning(f"Holders analysis failed: {e}")
+        errors["holders"] = str(e)
+
+    # --- Phase 3: Bayesian Update (uses Holders Evidence) ---
+    bayesian_result = None
+    try:
+        if trades:
+            avg_hourly_vol = 0.0
+            wa = market.whale_analysis
+            if wa and wa.window_hours > 0 and wa.total_volume > 0:
+                avg_hourly_vol = wa.total_volume / wa.window_hours
+
+            bayesian_result = bayesian_update_with_holders(
+                prior=market.yes_price,
+                trades=trades,
+                price_change_24h=market.price_change_24h,
+                avg_hourly_volume=avg_hourly_vol,
+                smart_score=smart_score,
+                smart_side=smart_side,
+            )
+    except Exception as e:
+        errors["bayesian"] = str(e)
+        logger.warning(f"Bayesian failed: {e}")
+        
+    # --- Phase 4: Monte Carlo (Seeded with Bayesian Posterior) ---
+    # Determine base probability for MC
+    base_prob_for_mc = market.yes_price
+    if bayesian_result:
+        base_prob_for_mc = bayesian_result.posterior
+
     mc_result = None
     try:
         if crypto_info and crypto_data and crypto_data.is_valid:
+            # Crypto simulation (GBM) ignores base_probability as it uses fundamental price
             mc_result = run_crypto_simulation(
                 crypto=crypto_data,
                 threshold=crypto_info.threshold,
@@ -215,53 +363,39 @@ async def run_deep_analysis(
                 market_price=market.yes_price,
             )
         elif not price_history.is_empty:
+            # Generic simulation uses base_probability as center
             mc_result = run_generic_simulation(
                 current_price=market.yes_price,
                 days=market.days_to_close,
                 price_history=price_history,
                 market_price=market.yes_price,
+                base_probability=base_prob_for_mc, # NEW: Seed with Posterior
             )
     except Exception as e:
         errors["monte_carlo"] = str(e)
         logger.warning(f"Monte Carlo failed: {e}")
 
-    # Bayesian
-    bayesian_result = None
-    try:
-        if trades:
-            # Estimate average hourly volume from whale analysis
-            avg_hourly_vol = 0.0
-            wa = market.whale_analysis
-            if wa and wa.window_hours > 0 and wa.total_volume > 0:
-                avg_hourly_vol = wa.total_volume / wa.window_hours
-
-            bayesian_result = bayesian_update(
-                prior=market.yes_price,
-                trades=trades,
-                price_change_24h=market.price_change_24h,
-                avg_hourly_volume=avg_hourly_vol,
-            )
-    except Exception as e:
-        errors["bayesian"] = str(e)
-        logger.warning(f"Bayesian failed: {e}")
-
-    # --- Phase 3: Unified model probability ---
-    # Uses Bayesian + MC only.
-    model_prob = _compute_model_probability(
-        mc_result=mc_result,
-        bayesian_result=bayesian_result,
-        market_price=market.yes_price,
-    )
+    # --- Phase 5: Unified Probability & Decision ---
     
-    # --- PROMPT REQUIREMENT 1: GUARDRAIL ---
-    # If |model - market| < 2 p.p. => model confirms market => edge=0, Kelly=0, SKIP
-    model_confirms_market = abs(model_prob - market.yes_price) < 0.02
-    if model_confirms_market:
-        model_prob = market.yes_price # Force equality to ensure edge=0
+    # If Crypto: Blend MC (Fundamental) and Bayesian (Whale)
+    if crypto_info and mc_result and bayesian_result:
+        # 60% Fundamental, 40% Whale
+        model_prob = (0.6 * mc_result.probability_yes) + (0.4 * bayesian_result.posterior)
+    
+    # If Generic: MC result IS the refined Bayesian posterior (with volatility)
+    elif mc_result:
+        model_prob = mc_result.probability_yes
+        
+    # Fallback
+    elif bayesian_result:
+        model_prob = bayesian_result.posterior
+    else:
+        model_prob = market.yes_price
 
-    # --- Phase 4: Edge & recommendation ---
-    # 2 p.p. threshold
-    EDGE_THRESHOLD = 0.02
+    model_prob = max(0.01, min(0.99, model_prob))
+
+    # --- Phase 6: Edge & recommendation ---
+    EDGE_THRESHOLD = 0.005 # 0.5% edge (aligned with Kelly)
 
     edge_yes = model_prob - market.yes_price
     edge_no = (1.0 - model_prob) - market.no_price  # = market.yes_price - model_prob
@@ -270,7 +404,7 @@ async def run_deep_analysis(
     rec_side = "NEUTRAL"
     edge = 0.0
 
-    if model_confirms_market:
+    if False: # Removed guardrail
         rec_side = "NEUTRAL"
         edge = 0.0
     elif edge_yes > EDGE_THRESHOLD and edge_yes > edge_no:
@@ -300,168 +434,12 @@ async def run_deep_analysis(
         errors["kelly"] = str(e)
         logger.warning(f"Kelly failed: {e}")
 
-    # Force Kelly to 0 when there's no edge (guardrail)
-    if rec_side == "NEUTRAL":
-        if kelly_result:
-            kelly_result.kelly_final_pct = 0.0
-            kelly_result.kelly_full = 0.0
-            kelly_result.kelly_time_adj_pct = 0.0
-    
-    # Fix bug: Kelly calculator might return positive stake for negative edge if inputs wrong
-    if edge <= 0:
-         if kelly_result: 
-            kelly_result.kelly_final_pct = 0.0
-            kelly_result.kelly_full = 0.0
+    # Removed artificial Kelly zeroing logic
+    # if edge <= 0: ...
 
-    # Holders Analysis (Phase 2.5 inserted here)
-    holders_res = None
-    
-    try:
-        from types import SimpleNamespace
-        
-        yes_holders, no_holders = holders_positions
-        
-        # Changed from 5000 to 3000 per user request
-        SMART_PNL_THRESHOLD = 3000 
-        
-        def _calc_holder_stats(positions, side: str):
-            if not positions:
-                return SimpleNamespace(
-                    side=side,
-                    count=0,
-                    median_pnl=0.0,
-                    smart_count_5k=0,
-                    profitable_pct=0.0,
-                    top_holder_profit=0.0,
-                    top_holder_address="",
-                    top_holder_wins=0,
-                    top_holder_losses=0,
-                    # Added for compatibility
-                    profitable_count=0,
-                    above_5k_count=0,
-                    above_10k_count=0,
-                    above_50k_count=0,
-                    smart_count_10k=0,
-                    veteran_count=0,
-                    novoreg_count=0
-                )
-            
-            # Novoreg Analysis (copy of logic from holders_analysis.py)
-            import time
-            now_ts = int(time.time())
-            thirty_days = 30 * 24 * 60 * 60
-            
-            veterans = 0
-            novoregs = 0
-            
-            # Filter analyzed positions (non-dust, where we fetched profile)
-            analyzed_positions = [p for p in positions if getattr(p, "holder_first_trade_timestamp", 0) > 0]
 
-            for p in analyzed_positions:
-                ts = getattr(p, "holder_first_trade_timestamp", 0)
-                if ts > 0:
-                    age = now_ts - ts
-                    if age >= thirty_days:
-                        veterans += 1
-                    else:
-                        novoregs += 1
-
-            # Calculate stats from enriched positions
-            # holder_lifetime_pnl is populated in get_market_holders
-            pnls = [getattr(p, "holder_lifetime_pnl", 0.0) for p in analyzed_positions]
-            pnls = [x for x in pnls if x is not None] # Safety check
-            
-            if not pnls:
-                 median = 0.0
-            else:
-                 pnls_sorted = sorted(pnls)
-                 median = pnls_sorted[len(pnls_sorted) // 2]
-
-            # Smart Money (Lifetime Profit > 3k)
-            smart_3k = sum(1 for p in analyzed_positions if getattr(p, "holder_lifetime_pnl", 0.0) >= SMART_PNL_THRESHOLD)
-            
-            # Profitable %
-            if analyzed_positions:
-                profitable = sum(1 for p in analyzed_positions if getattr(p, "holder_lifetime_pnl", 0.0) > 0)
-                profitable_pct = (profitable / len(analyzed_positions)) * 100
-            else:
-                profitable_pct = 0.0
-
-            # Top holder by PnL (Only consider analyzed positions to avoid picking "dust" with 0 PnL)
-            if analyzed_positions:
-                top = max(analyzed_positions, key=lambda p: getattr(p, "holder_lifetime_pnl", 0.0))
-                top_profit = getattr(top, "holder_lifetime_pnl", 0.0)
-                top_addr = getattr(top, "wallet_address", getattr(top, "proxy_wallet", ""))
-            else:
-                top_profit = 0.0
-                top_addr = ""
-
-            # Extra stats matching SideStats
-            above_10k = sum(1 for p in positions if getattr(p, "current_value", 0.0) > 10000)
-            
-            return SimpleNamespace(
-                side=side,
-                count=len(positions),
-                median_pnl=median,
-                smart_count_5k=smart_3k, # Field name kept for compatibility, but logic is >3k
-                profitable_pct=profitable_pct,
-                top_holder_profit=top_profit,
-                top_holder_address=top_addr,
-                top_holder_wins=0,
-                top_holder_losses=0,
-                # Extra fields for formatter compatibility
-                above_10k_count=above_10k,
-                above_5k_pct=(smart_3k/len(positions)*100) if positions else 0.0, # metric for smart money
-                veteran_count=veterans,
-                novoreg_count=novoregs
-            )
-
-        yes_stats_obj = _calc_holder_stats(yes_holders, "YES")
-        no_stats_obj = _calc_holder_stats(no_holders, "NO")
-        
-        # Calculate Smart Score
-        # Simple Logic as requested
-        yes_smart = yes_stats_obj.smart_count_5k
-        no_smart = no_stats_obj.smart_count_5k
-        
-        wa = market.whale_analysis
-        
-        # Base score on smart holder count difference
-        smart_side = "NEUTRAL"
-        smart_score = 50
-        
-        if yes_smart > no_smart:
-            smart_side = "YES"
-            diff = yes_smart - no_smart
-            smart_score = min(100, 50 + diff * 10)
-        elif no_smart > yes_smart:
-             smart_side = "NO"
-             diff = no_smart - yes_smart
-             smart_score = min(100, 50 + diff * 10)
-             
-        # Breakdown
-        smart_score_breakdown = {
-            "holders": float(smart_score * 0.4),
-            "tilt": float(abs(wa.tilt) * 100 * 0.3) if wa else 0.0,
-            "model": 0.0 # simplified
-        }
-
-        # Build final object for DeepAnalysis.holders
-        holders_res = SimpleNamespace(
-            yes_stats=yes_stats_obj,
-            no_stats=no_stats_obj,
-            smart_score=smart_score,
-            smart_score_side=smart_side,
-            smart_score_breakdown=smart_score_breakdown
-        )
-        
-        logger.info(f"Holders Analysis Computed: YES Smart={yes_smart}, NO Smart={no_smart}, Score={smart_side} {smart_score}")
-
-    except Exception as e:
-        logger.warning(f"Holders analysis failed: {e}")
-        errors["holders"] = str(e)
-        import traceback
-        logger.debug(traceback.format_exc())
+    # Removed old Holders Analysis Block 
+    # (It is now computed earlier in Phase 2)
 
 
     # --- Phase 6: Confidence ---
