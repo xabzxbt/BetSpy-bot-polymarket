@@ -320,6 +320,9 @@ async def run_deep_analysis(
         
         yes_holders, no_holders = holders_positions
         
+        # Changed from 5000 to 3000 per user request
+        SMART_PNL_THRESHOLD = 3000 
+        
         def _calc_holder_stats(positions, side: str):
             if not positions:
                 return SimpleNamespace(
@@ -351,8 +354,8 @@ async def run_deep_analysis(
                  pnls_sorted = sorted(pnls)
                  median = pnls_sorted[len(pnls_sorted) // 2]
 
-            # Smart Money (Lifetime Profit > 5k)
-            smart_5k = sum(1 for p in positions if getattr(p, "holder_lifetime_pnl", 0.0) >= 5000)
+            # Smart Money (Lifetime Profit > 3k)
+            smart_3k = sum(1 for p in positions if getattr(p, "holder_lifetime_pnl", 0.0) >= SMART_PNL_THRESHOLD)
             
             # Profitable %
             profitable = sum(1 for p in positions if getattr(p, "holder_lifetime_pnl", 0.0) > 0)
@@ -370,7 +373,7 @@ async def run_deep_analysis(
                 side=side,
                 count=len(positions),
                 median_pnl=median,
-                smart_count_5k=smart_5k,
+                smart_count_5k=smart_3k, # Field name kept for compatibility, but logic is >3k
                 profitable_pct=profitable_pct,
                 top_holder_profit=top_profit,
                 top_holder_address=top_addr,
@@ -378,7 +381,7 @@ async def run_deep_analysis(
                 top_holder_losses=0,
                 # Extra fields for formatter compatibility
                 above_10k_count=above_10k,
-                above_5k_pct=(smart_5k/len(positions)*100) if positions else 0.0 # metric for smart money
+                above_5k_pct=(smart_3k/len(positions)*100) if positions else 0.0 # metric for smart money
             )
 
         yes_stats_obj = _calc_holder_stats(yes_holders, "YES")

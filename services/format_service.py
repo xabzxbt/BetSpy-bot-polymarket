@@ -110,26 +110,30 @@ def format_holders_block(holders: Any, lang: str) -> str:
     
     # Format Yes line
     yes = holders.yes_stats
-    smart_pct_yes = (yes.smart_count_5k / yes.count * 100) if yes.count > 0 else 0.0
-    
-    line_yes = get_text("holders.line", lang, side="YES", 
-        count=yes.count, 
-        median=f"{yes.median_pnl:+.0f}",
-        count_5k=yes.smart_count_5k, # Using Smart (Lifetime PnL > 5k)
-        pct=f"{smart_pct_yes:.1f}"
-    )
+    if yes.count == 0:
+        line_yes = get_text("holders.line_empty", lang, side="YES")
+    else:
+        smart_pct_yes = (yes.smart_count_5k / yes.count * 100) if yes.count > 0 else 0.0
+        line_yes = get_text("holders.line", lang, side="YES", 
+            count=yes.count, 
+            median=f"{yes.median_pnl:+.0f}",
+            count_5k=yes.smart_count_5k, # Using Smart (Lifetime PnL > 5k, really 3k now)
+            pct=f"{smart_pct_yes:.1f}"
+        )
     
     # Format No line
     no = holders.no_stats
-    smart_pct_no = (no.smart_count_5k / no.count * 100) if no.count > 0 else 0.0
-    
-    line_no = get_text("holders.line", lang, side="NO", 
-        count=no.count, 
-        median=f"{no.median_pnl:+.0f}",
-        count_10k=no.smart_count_5k, # Using Smart > 5k for consistency
-        count_5k=no.smart_count_5k,  # Param definition might vary in locale keys
-        pct=f"{smart_pct_no:.1f}"
-    )
+    if no.count == 0:
+        line_no = get_text("holders.line_empty", lang, side="NO")
+    else:
+        smart_pct_no = (no.smart_count_5k / no.count * 100) if no.count > 0 else 0.0
+        line_no = get_text("holders.line", lang, side="NO", 
+            count=no.count, 
+            median=f"{no.median_pnl:+.0f}",
+            count_10k=no.smart_count_5k, # Using Smart > 5k for consistency
+            count_5k=no.smart_count_5k,  # Param definition might vary in locale keys
+            pct=f"{smart_pct_no:.1f}"
+        )
     
     # Smart Score
     smart = get_text("holders.smart_score", lang, 
@@ -422,6 +426,19 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         # Confidence Score
         conf_score = deep.confidence if deep.confidence else 50
         
+        # Dynamic Sizing based on Confidence (User Request 3.2)
+        if conf_score < 30:
+            k_safe *= 0.3
+        elif conf_score < 50:
+            k_safe *= 0.6
+        k_safe = round(k_safe, 1)
+
+        is_positive_setup = (rec_side in ("YES", "NO")) and (abs(edge_pp) >= 2.0) and (k_safe > 0.0)
+
+        # Cap recommended size for mass users (max 5-6%)
+        if k_safe > 6.0:
+            k_safe = 6.0
+        
         # Calculate Potential ROI (if wins)
         roi_win = 0.0
         entry_price = market.yes_price if rec_side == "YES" else market.no_price
@@ -442,9 +459,16 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         l1_text += f"💰 {get_text('detail.yes', lang)} {format_price(market.yes_price)} · {get_text('detail.no', lang)} {format_price(market.no_price)} · Vol 24h: {format_volume(market.volume_24h)}\n"
         l1_text += "────────────────────────────\n"
         
+        # Dynamic Action Title based on Confidence (User Request 3.1)
+        min_conf_for_buy = 40
+
         if is_positive_setup:
             price_display = int(market.yes_price * 100) if rec_side == "YES" else int(market.no_price * 100)
-            l1_text += f"{get_text('l1.signal_buy', lang, side=rec_side, price=price_display)}\n"
+            
+            if conf_score >= min_conf_for_buy:
+                l1_text += f"{get_text('l1.signal_buy', lang, side=rec_side, price=price_display)}\n"
+            else:
+                l1_text += f"🟡 <b>Lean {rec_side} @ {price_display}¢</b> (small size)\n"
             
             # Size calc
             size_str = f"{k_safe:.1f}%"
@@ -460,7 +484,7 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         reasons = []
         
         wa = market.whale_analysis
-        holders = deep.holders
+        holders = getattr(deep, "holders", None)
         
         # Reason 1: Whales
         # Only show whale reason if model doesn't force a SKIP (user request)
@@ -506,6 +530,16 @@ def _format_quant_analysis(market: MarketStats, deep: Any, lang: str) -> str:
         
         # Reason Holders (NEW)
         if holders:
+             # Explicit Smart Money Conflict Check (User Request 2)
+             if holders.smart_score_side == rec_side and holders.smart_score >= 60:
+                 reasons.append(
+                     f"Smart Money по холдерах теж за {rec_side} (Smart Score {holders.smart_score}/100)"
+                 )
+             elif holders.smart_score_side not in ("NEUTRAL", rec_side) and holders.smart_score >= 60:
+                 reasons.append(
+                     f"⚠️ Smart Money по холдерах за протилежну сторону ({holders.smart_score_side}, {holders.smart_score}/100)"
+                 )
+                 
              # Median PnL comparison
              # "Holders median NO: +$187 vs YES: -$23"
              side_1 = rec_side if rec_side != "NEUTRAL" else "NO"
