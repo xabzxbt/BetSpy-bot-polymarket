@@ -505,22 +505,38 @@ class PolymarketApiClient:
                     logger.debug(f"Failed to fetch position for {wallet}: {e}")
                     return None
             
-            # Fetch in chunks to avoid overwhelming the event loop and connection pool
-            results = []
-            chunk_size = 50
-            total_holders = len(top_holders)
+            # Aggressive Parallelism: Workers Queue (Optimized Speed)
+            queue = asyncio.Queue()
+            for h in top_holders:
+                queue.put_nowait(h)
+
+            async def worker(worker_id):
+                local_results = []
+                while True:
+                    try:
+                        h = queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    
+                    try:
+                        res = await _fetch_and_classify(h)
+                        local_results.append(res)
+                    except Exception as e:
+                        logger.error(f"Worker {worker_id} error: {e}")
+                    finally:
+                        queue.task_done()
+                return local_results
+
+            logger.info(f"Launching 20 concurrent workers for {len(top_holders)} holders...")
+            worker_tasks = [asyncio.create_task(worker(i)) for i in range(20)]
             
-            for i in range(0, total_holders, chunk_size):
-                chunk = top_holders[i : i + chunk_size]
-                logger.info(f"Processing holders batch {i+1}-{min(i+chunk_size, total_holders)} of {total_holders}...")
-                
-                chunk_results = await asyncio.gather(
-                    *[_fetch_and_classify(h) for h in chunk],
-                    return_exceptions=True
-                )
-                results.extend(chunk_results)
-                # Small yield to let other tasks breathe
-                await asyncio.sleep(0.05)
+            # Wait for all workers to finish
+            worker_results = await asyncio.gather(*worker_tasks)
+            
+            # Flatten results list
+            results = []
+            for wr in worker_results:
+                results.extend(wr)
             
             for res in results:
                 if isinstance(res, Position):
