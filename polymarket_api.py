@@ -426,7 +426,13 @@ class PolymarketApiClient:
             if isinstance(response, dict) and "holders" in response:
                 raw_holders = response["holders"]
             elif isinstance(response, list):
-                raw_holders = response
+                # Handle list of token objects (e.g. [{token:..., holders:[...]}, ...])
+                if response and isinstance(response[0], dict) and "holders" in response[0]:
+                    for item in response:
+                        raw_holders.extend(item.get("holders", []))
+                else:
+                    # Assume flat list of holders
+                    raw_holders = response
             else:
                 logger.warning(f"Unexpected /holders response format: {type(response)}")
                 return []
