@@ -257,7 +257,12 @@
   "holders.comparison_prof": "   Profitable: {yes_pct}% vs {no_pct}% {check}",
   "holders.line_empty": "   {side}: N/A (no data or &lt;3 holders)",
   "l2.reason_holders_align": "Smart Money on holders also for {side} (Smart Score {score}/100)",
-  "l2.reason_holders_conflict": "⚠️ Smart Money on holders on the opposite side ({side}, {score}/100)",
+  "l2.reason_holders_conflict": "⚠️ Smart Money Holders disagree ({side}, {score}/100)",
   "hot.no_markets": "No active markets found.",
+  "hot.total_risk": "Total Risk: {risk}% of bankroll",
+  "hot.advice": "⚠️ Don't take all bets — pick the best 2-3.",
+  "hot.title_global": "Hot Today (Global)",
+  "btn.categories": "📊 Categories",
+  "btn.signals": "⚡ Signals",
   "bayes_c_confirm": "Confirms market"
 }

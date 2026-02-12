@@ -12,7 +12,9 @@ router = Router(name="hot")
 @router.callback_query(F.data == "hot_all")
 @router.callback_query(F.data == "intel:hot")
 async def hot_all_handler(callback: CallbackQuery):
-    """Hot Today — all categories"""
+    """
+    HOT: Global list of the best money-making markets across all categories.
+    """
     _, lang = await resolve_user(callback.from_user)
     
     try:
@@ -20,15 +22,37 @@ async def hot_all_handler(callback: CallbackQuery):
     except Exception:
         pass
     
-    markets = await engine.fetch_trending_markets(
-        category=Category.ALL,
-        timeframe=TimeFrame.TODAY,
-        limit=15
-    )
+    # Use the new global opportunities ranker
+    markets = await engine.fetch_hot_opportunities(limit=15)
     
-    text = format_hot_markets(markets, "Today", lang)
+    title = get_text("hot.title_global", lang)
+    text = format_hot_markets(markets, title, lang)
     
-    # Inline buttons for category filters
+    # Updated keyboard: Categories menu + Quick access to Signals
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=get_text("btn.categories", lang), callback_data="hot_categories_menu"),
+            InlineKeyboardButton(text=get_text("btn.signals", lang), callback_data="signals_quick"),
+        ],
+        [
+            InlineKeyboardButton(text=get_text("btn.refresh", lang, default="🔃 Refresh"), callback_data="hot_all"),
+        ]
+    ])
+    
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    except Exception as e:
+        logger.debug(f"Hot refresh: {e}")
+        await callback.answer()
+
+
+@router.callback_query(F.data == "hot_categories_menu")
+async def hot_categories_handler(callback: CallbackQuery):
+    """Menu with category filters"""
+    _, lang = await resolve_user(callback.from_user)
+    
+    text = "📊 <b>Market Categories</b>\nSelect a category to see trending markets:"
+    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🏀 Sports", callback_data="hot_sports"),
@@ -36,16 +60,11 @@ async def hot_all_handler(callback: CallbackQuery):
         ],
         [
             InlineKeyboardButton(text="🏛 Politics", callback_data="hot_politics"),
-            InlineKeyboardButton(text="🔥 All", callback_data="hot_all"),
+            InlineKeyboardButton(text="◀️ Back to HOT", callback_data="hot_all"),
         ],
     ])
     
-    try:
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-    except Exception as e:
-        logger.error(f"Hot all error: {e}")
-        # If edit failed (e.g. same text), just answer
-        await callback.answer()
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 
 @router.callback_query(F.data == "hot_sports")

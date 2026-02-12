@@ -809,10 +809,15 @@ def format_hot_line(idx: int, m: MarketStats, lang: str) -> str:
     
     final_rec = rec_side if rec_side != "NEUTRAL" else "—"
     
+    # Add HOT Score if available
+    hot_tag = ""
+    if getattr(m, "hot_score", 0) > 0:
+        hot_tag = f" ⚡{int(m.hot_score)}"
+
     return (
         f"{idx}. {title}\n"
         f"   💰 YES {yes_p} · NO {no_p}  📊 {vol}\n"
-        f"   {whale_str}  ⏰ {time_str}\n"
+        f"   {whale_str}  ⏰ {time_str}{hot_tag}\n"
         f"   {edge_str}   {size_str}{sm_icon}\n"
         f"   {emoji} {score}/100 → {final_rec}\n"
     )
@@ -834,8 +839,8 @@ def format_hot_markets(markets: List[MarketStats], category_name: str, lang: str
     
     # Footer: Total risk
     total_kelly = sum(getattr(m, "kelly_pct", 0.0) for m in markets[:10])
-    text += f"\n💡 Сумарний ризик: {total_kelly:.1f}% банкролу\n"
-    text += "⚠️ Не варто брати всі ставки — вибирай найкращі 2–3.\n"
+    text += f"\n💡 {get_text('hot.total_risk', lang, risk=f'{total_kelly:.1f}')}\n"
+    text += f"{get_text('hot.advice', lang)}\n"
     
     return text.strip()
 

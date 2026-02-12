@@ -214,6 +214,7 @@ class MarketStats:
     rec_side: str = "NEUTRAL"
     kelly_pct: float = 0.0
     arbitrage_available: bool = False
+    hot_score: float = 0.0
 
     # Score breakdown for transparency
     score_breakdown: Dict[str, float] = field(default_factory=dict)
@@ -737,6 +738,57 @@ class MarketIntelligenceEngine:
         )
         
         return signals[:limit]
+
+    async def fetch_hot_opportunities(self, limit: int = 15) -> List[MarketStats]:
+        """
+        Global HOT: best money-making markets across ALL categories.
+        Сортує по edge × score × ліквідність, з урахуванням SM-конфліктів.
+        """
+        # Беремо ширший пул по ВСІХ категоріях
+        base = await self.fetch_trending_markets(
+            category=Category.ALL,
+            timeframe=TimeFrame.TODAY,
+            limit=120,  # беремо запас, потім відфільтруємо
+        )
+
+        hot = []
+        for m in base:
+            # Edge/Kelly вже є після fetch_trending_markets,
+            # але на всяк випадок перевіряємо атрибути
+            edge_abs = abs(getattr(m, "effective_edge", getattr(m, "edge", 0.0)))
+            score = getattr(m, "signal_score", 0)
+            kelly = getattr(m, "kelly_pct", 0.0)
+            liq = m.liquidity
+
+            # Сильний SM-конфлікт — штраф
+            sm_penalty = 0
+            h = getattr(m, "holders", None)
+            if h and h.smart_score_side not in ("NEUTRAL", m.rec_side) and h.smart_score >= 80:
+                sm_penalty = -40
+            elif h and h.smart_score_side not in ("NEUTRAL", m.rec_side) and h.smart_score >= 60:
+                sm_penalty = -20
+
+            # Формула hot-score
+            # 1. Edge (найважливіший)
+            # 2. Signal Score (модельна впевненість)
+            # 3. Liquidity (бонус за виконання без сліппеджу)
+            # 4. Kelly (рекомендований розмір)
+            # 5. Smart Money Penalty (конфлікт інтересів)
+            
+            hot_score = (
+                edge_abs * 100 * 2 +       # кожні 1% edge = 2 бали
+                score * 1.2 +              # сигнал
+                min(liq / 10000, 10) * 3 + # ліквідність (max 30 балів)
+                kelly * 1.5 +              # розмір ставки
+                sm_penalty                 # штраф
+            )
+
+            m.hot_score = hot_score
+            hot.append(m)
+
+        # Сортуємо за hot_score, потім за 24h volume
+        hot.sort(key=lambda m: (m.hot_score, m.volume_24h), reverse=True)
+        return hot[:limit]
 
     # =================================================================
     # PARSING
