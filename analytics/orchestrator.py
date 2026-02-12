@@ -301,10 +301,15 @@ async def run_deep_analysis(
         # Holders (New)
         async def _fetch_holders_task():
             async with PolymarketApiClient() as client:
+                yes_id = market.clob_token_ids[0] if len(market.clob_token_ids) > 0 else None
+                no_id = market.clob_token_ids[1] if len(market.clob_token_ids) > 1 else None
+                
                 return await client.get_market_holders(
                     market.condition_id,
                     yes_price=market.yes_price,
                     no_price=market.no_price,
+                    yes_token_id=yes_id,
+                    no_token_id=no_id
                 )
         
         tasks["holders"] = _fetch_holders_task()

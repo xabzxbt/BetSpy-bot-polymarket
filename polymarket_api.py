@@ -420,49 +420,57 @@ class PolymarketApiClient:
         yes_price: float = 0.5,
         no_price: float = 0.5,
         limit: int = 50,
+        yes_token_id: Optional[str] = None,
+        no_token_id: Optional[str] = None,
     ) -> Tuple[List[Position], List[Position]]:
         """
         Get market holders split by YES/NO outcome.
-        Returns: (yes_positions, no_positions)
+        Supports fetching by Condition ID (legacy) or directly by Asset/Token IDs (preferred).
         """
         url = f"{self.data_api_url}/holders"
         
-        async def _fetch_raw(idx):
-            # We try 'market' first as it's the most common alias that worked before
+        async def _fetch_by_id(market_id: str):
+            if not market_id: return []
+            # Try both param keys just in case
             for key in ["market", "conditionId"]:
-                params = {
-                    key: condition_id,
-                    "outcomeIndex": str(idx),
-                    "limit": limit,
-                }
+                params = {key: market_id, "limit": limit}
                 try:
                     resp = await self._request("GET", url, params)
-                    data = []
-                    if isinstance(resp, list): 
-                        data = resp
-                    elif isinstance(resp, dict):
-                        data = resp.get("holders", resp.get("data", []))
-                    
-                    if data:
-                        return data
-                except Exception as e:
-                    logger.debug(f"/holders fetch failed with {key}: {e}")
+                    if isinstance(resp, list): return resp
+                    if isinstance(resp, dict): return resp.get("holders", resp.get("data", []))
+                except Exception:
                     continue
             return []
 
-        # Fetch YES and NO raw holder lists in parallel
-        yes_raw, no_raw = await asyncio.gather(_fetch_raw(0), _fetch_raw(1))
+        # Strategy: Use Token IDs if available (more precise), else Condition ID
+        if yes_token_id and no_token_id:
+            yes_raw, no_raw = await asyncio.gather(
+                _fetch_by_id(yes_token_id),
+                _fetch_by_id(no_token_id)
+            )
+        else:
+            # Fallback: fetch using condition_id (likely returns only YES/Primary or mixed)
+            # We fetch a larger batch to improve chances of seeing both sides
+            raw = await _fetch_by_id(condition_id)
+            yes_raw = raw # We'll filter later
+            no_raw = raw  # We'll filter later
+
+        logger.debug(f"Holders raw fetch: YES_ID={yes_token_id} -> {len(yes_raw)}, NO_ID={no_token_id} -> {len(no_raw)}")
         
-        # Combine top holders from both sides for detailed analysis
-        top_yes = yes_raw[:20]
-        top_no = no_raw[:20]
+        # Limit processing
+        top_yes = yes_raw[:30]
+        top_no = no_raw[:30]
         
         yes_positions = []
         no_positions = []
         
-        async def _enrich_holder(h_data, expected_side_idx):
+        async def _enrich_holder(h_data, side_label, side_idx, price):
             wallet = h_data.get("proxyWallet") or h_data.get("address") or h_data.get("wallet")
-            if not wallet: return None
+            if not wallet: return
+            
+            # If we used distinct Token IDs, we know the side. 
+            # If we used Condition ID, we must verify the side via /positions.
+            is_distinct_fetch = (yes_token_id is not None)
             
             try:
                 # 1. Fetch positions for this wallet
@@ -473,25 +481,37 @@ class PolymarketApiClient:
                 
                 target_pos = None
                 for item in p_list:
-                    # Case-insensitive match for robustness
+                    # Match condition ID
                     if str(item.get("conditionId", "")).lower() == str(condition_id).lower():
-                        target_pos = Position.from_api_response(item)
-                        # Double check outcome index matches if multiple positions exist for some reason
-                        if target_pos.outcome_index == expected_side_idx:
+                        pos = Position.from_api_response(item)
+                        # If distinct fetch, we trust the source. 
+                        # If shared fetch, we naturally segregate by checking outcome_index.
+                        if is_distinct_fetch:
+                            # Even if fetched by ID, good to verify, but primary match is condition
+                            target_pos = pos
                             break
+                        else:
+                            # Only accept if matches our expected side
+                            if pos.outcome_index == side_idx:
+                                target_pos = pos
+                                break
                 
                 if not target_pos:
-                    # Fallback: create a dummy position from holder data
-                    # This ensures we don't return 'N/A' if raw holders were found
-                    target_pos = Position(
-                        proxy_wallet=wallet, asset="", condition_id=condition_id,
-                        size=float(h_data.get("size", 0)), avg_price=0.0,
-                        initial_value=0.0, current_value=float(h_data.get("size", 0)) * (yes_price if expected_side_idx == 0 else no_price),
-                        cash_pnl=0.0, percent_pnl=0.0, realized_pnl=0.0,
-                        cur_price=(yes_price if expected_side_idx == 0 else no_price),
-                        title="", slug="", event_slug="", outcome="YES" if expected_side_idx == 0 else "NO",
-                        outcome_index=expected_side_idx
-                    )
+                    # Fallback if /positions fails but we know they are a holder
+                    # Only safe to assume side if we used Token IDs
+                    if is_distinct_fetch:
+                        target_pos = Position(
+                            proxy_wallet=wallet, asset="", condition_id=condition_id,
+                            size=float(h_data.get("size", 0)), avg_price=0.0,
+                            initial_value=0.0, current_value=float(h_data.get("size", 0)) * price,
+                            cash_pnl=0.0, percent_pnl=0.0, realized_pnl=0.0,
+                            cur_price=price,
+                            title="", slug="", event_slug="", outcome=side_label,
+                            outcome_index=side_idx
+                        )
+                    else:
+                        # If shared fetch and no position found, we can't determine side. Skip.
+                        return
 
                 # 2. Enrich with profile (PnL)
                 profile = await self.get_profile(wallet)
@@ -499,26 +519,33 @@ class PolymarketApiClient:
                     target_pos.holder_lifetime_pnl = profile.pnl
                     target_pos.holder_volume = profile.volume
                 
-                return target_pos
+                if target_pos.outcome_index == 0:
+                    yes_positions.append(target_pos)
+                elif target_pos.outcome_index == 1:
+                    no_positions.append(target_pos)
+                    
             except Exception as e:
                 logger.debug(f"Enrichment failed for {wallet}: {e}")
-                return None
 
-        # Fetch all details in parallel
+        # Process both lists
+        # Note: if using ConditionID (fallback), yes_raw == no_raw, so we process same list twice? 
+        # Efficient way: if distinct, process separate. If shared, process once.
+        
         tasks = []
-        for h in top_yes: tasks.append(_enrich_holder(h, 0))
-        for h in top_no: tasks.append(_enrich_holder(h, 1))
+        if yes_token_id and no_token_id:
+             for h in top_yes: tasks.append(_enrich_holder(h, "YES", 0, yes_price))
+             for h in top_no: tasks.append(_enrich_holder(h, "NO", 1, no_price))
+        else:
+             # Shared list treatment
+             # We just iterate the single raw list and put them in correct buckets
+             # We use '0' and 'YES' as defaults but relies on checking real position
+             unique_holders = {h.get("address", h.get("proxyWallet")) : h for h in yes_raw if h.get("address") or h.get("proxyWallet")}
+             for h in list(unique_holders.values())[:40]:
+                 tasks.append(_enrich_holder(h, "ANY", -1, yes_price))
+
+        await asyncio.gather(*tasks, return_exceptions=True)
         
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        for res in results:
-            if isinstance(res, Position):
-                if res.outcome_index == 0:
-                    yes_positions.append(res)
-                else:
-                    no_positions.append(res)
-        
-        logger.info(f"Holders final for {condition_id}: YES={len(yes_positions)}/{len(yes_raw)}, NO={len(no_positions)}/{len(no_raw)}")
+        logger.info(f"Holders final: YES={len(yes_positions)}, NO={len(no_positions)}")
         return yes_positions, no_positions
 
     async def test_holders_endpoint(self, condition_id: str):
