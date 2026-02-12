@@ -247,5 +247,11 @@
   "holders.smart_score": "   🎯 Smart Score: {side} {score}/100",
   "holders.top_holder": "   🔥 Top holder {side}: ${profit} (@{addr}...)",
   "l2.reason_holders_median": "Holders median {side}: +${val} vs {opp}: -${opp_val}",
-  "l2.reason_holders_whales": "{side} >$10K holders: {count} vs {opp}: {opp_count}"
+  "l2.reason_holders_whales": "{side} >$10K holders: {count} vs {opp}: {opp_count}",
+  "holders.smart_score_breakdown": "   └ Holders: {holders}pts | Whales: {whales}pts | Model: {model}pts",
+  "holders.top_holder_with_winrate": "🔥 Top holder {side}: ${profit} | {winrate}% win rate ({wins}W-{losses}L) (@{addr}...)",
+  "holders.comparison_title": "👥 YES vs NO:",
+  "holders.comparison_med": "   Med PnL:  ${yes_med} vs ${no_med} {check}",
+  "holders.comparison_count": "   >$10K:    {yes_count} vs {no_count} {check}",
+  "holders.comparison_prof": "   Profitable: {yes_pct}% vs {no_pct}% {check}"
 }

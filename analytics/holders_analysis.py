@@ -26,6 +26,8 @@ class SideStats:
     above_50k_count: int
     top_holder_profit: float
     top_holder_address: str
+    top_holder_wins: int = 0
+    top_holder_losses: int = 0
 
     @property
     def above_5k_pct(self) -> float:
@@ -61,7 +63,8 @@ def calculate_side_stats(positions: List[Position], side: str) -> SideStats:
             side=side, count=0, median_pnl=0.0,
             profitable_count=0, profitable_pct=0.0,
             above_5k_count=0, above_10k_count=0, above_50k_count=0,
-            top_holder_profit=0.0, top_holder_address=""
+            top_holder_profit=0.0, top_holder_address="",
+            top_holder_wins=0, top_holder_losses=0
         )
 
     # Median PnL (using cash_pnl + realized_pnl usually, but API gives cashPnl which is unrealized)
@@ -115,7 +118,9 @@ def calculate_side_stats(positions: List[Position], side: str) -> SideStats:
         above_10k_count=len(above_10k),
         above_50k_count=len(above_50k),
         top_holder_profit=top_profit,
-        top_holder_address=top_addr
+        top_holder_address=top_addr,
+        top_holder_wins=0,
+        top_holder_losses=0
     )
 
 

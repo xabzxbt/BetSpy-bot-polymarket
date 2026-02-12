@@ -136,33 +136,125 @@ def format_holders_block(holders: Any, lang: str) -> str:
         score=holders.smart_score
     )
     
+    # Smart Score Breakdown (NEW)
+    hs_bd = holders.smart_score_breakdown
+    if hs_bd:
+         holders_pts = int(hs_bd.get('holders', 0))
+         whales_pts = int(hs_bd.get('tilt', 0))
+         model_pts = int(hs_bd.get('model', 0))
+         
+         breakdown_line = get_text("holders.smart_score_breakdown", lang,
+             holders=holders_pts, whales=whales_pts, model=model_pts
+         )
+         smart += f"\n{breakdown_line}"
+
     # Top Holder
-    # Determine who is better
     top_side = holders.yes_stats.side
     max_prof = holders.yes_stats.top_holder_profit
     
+    # Determine which top holder to show (the one with higher profit)
     if holders.no_stats.top_holder_profit > max_prof:
         top_side = holders.no_stats.side
         max_prof = holders.no_stats.top_holder_profit
     
-    # Find address
-    addr = ""
-    if top_side == "YES":
-        addr = holders.yes_stats.top_holder_address
-    else:
-        addr = holders.no_stats.top_holder_address
-        
+    # Get stats for the winning top holder
+    stats = holders.yes_stats if top_side == "YES" else holders.no_stats
+    addr = stats.top_holder_address
+    wins = stats.top_holder_wins
+    losses = stats.top_holder_losses
+    
     addr_short = addr[:5] if addr else "???"
     
-    top_line = get_text("holders.top_holder", lang,
-        side=top_side,
-        profit=f"{int(max_prof):+}",
-        addr=addr_short
-    )
+    # Win rate logic (NEW)
+    winrate_str = ""
+    if wins + losses > 0:
+         total = wins + losses
+         wr = (wins / total) * 100
+         winrate_str = f" | {wr:.0f}% win rate ({wins}W-{losses}L)"
+         
+         # Use specialized key for winrate if desired, or append manually?
+         # Prompt asked: "holders.top_holder_with_winrate"
+         top_line = get_text("holders.top_holder_with_winrate", lang,
+             side=top_side,
+             profit=f"{int(max_prof):+}",
+             winrate=f"{wr:.0f}",
+             wins=wins,
+             losses=losses,
+             addr=addr_short
+         )
+    else:
+         top_line = get_text("holders.top_holder", lang,
+             side=top_side,
+             profit=f"{int(max_prof):+}",
+             addr=addr_short
+         )
     
     title = get_text("holders.title", lang)
     
-    return f"{title}\n{line_yes}\n{line_no}\n\n{smart}\n{top_line}\n"
+    # Comparison Block (NEW)
+    comparison = format_comparison(holders.yes_stats, holders.no_stats, lang)
+    
+    return f"{title}\n{line_yes}\n{line_no}\n\n{smart}\n{top_line}\n{comparison}"
+
+
+def format_comparison(yes_stats: Any, no_stats: Any, lang: str) -> str:
+    """Format YES vs NO comparison table."""
+    try:
+        title = get_text("holders.comparison_title", lang)  # "👥 YES vs NO:"
+        
+        # Median PnL
+        yes_med = yes_stats.median_pnl
+        no_med = no_stats.median_pnl
+        med_check = "✅" if no_med > yes_med else ""
+        # Invert check for YES? usually highest median wins.
+        if yes_med > no_med: med_check = "✅ (YES)"
+        if no_med > yes_med: med_check = "✅ (NO)"
+        # Prompt only showed check on the right. Assuming right column is NO.
+        # "Med PnL: -$23 vs +$187 ✅" -> implied NO is better.
+        # Let's align with prompt: Check mark appears on the line if one is clearly better?
+        # Or specifically if NO is better? "✅ біля кращого значення"
+        # If YES is better, should check be on the left? f-string alignment makes it hard.
+        # Let's put check at the end if NO wins, or just indicate winner.
+        # Prompt example: "-$23 vs +$187 ✅" (NO is better).
+        # We will assume column order YES vs NO.
+        
+        check = ""
+        if no_med > yes_med: check = "✅"
+        elif yes_med > no_med: check = "⬅️" # Show arrow to yes? Or just check if specific side?
+        # Prompt says "✅ біля кращого значення".
+        # Since text is "YES vs NO", if YES is better: "✅ $100 vs $50".
+        # But we format as string.
+        # Let's follow prompt sample precisely: "Med PnL: -$23 vs +$187 ✅"
+        # This implies check is suffixes.
+        
+        # Med PnL
+        med_line = get_text("holders.comparison_med", lang,
+            yes_med=f"{yes_med:>6.0f}",
+            no_med=f"{no_med:>6.0f}",
+            check="✅" if no_med > yes_med else ("✅ (YES)" if yes_med > no_med else "")
+        )
+        
+        # >$10K count
+        yes_10k = yes_stats.above_10k_count
+        no_10k = no_stats.above_10k_count
+        count_line = get_text("holders.comparison_count", lang,
+            yes_count=f"{yes_10k:>6}",
+            no_count=f"{no_10k:>6}",
+            check="✅" if no_10k > yes_10k else ("✅ (YES)" if yes_10k > no_10k else "")
+        )
+        
+        # Profitable %
+        yes_prof = yes_stats.profitable_pct
+        no_prof = no_stats.profitable_pct
+        prof_line = get_text("holders.comparison_prof", lang,
+            yes_pct=f"{yes_prof:>4.0f}",
+            no_pct=f"{no_prof:>4.0f}",
+            check="✅" if no_prof > yes_prof else ("✅ (YES)" if yes_prof > no_prof else "")
+        )
+        
+        return f"\n{title}\n{med_line}\n{count_line}\n{prof_line}\n"
+    except Exception:
+        return ""
 
 
 def format_market_card(market: MarketStats, index: int, lang: str) -> str:
