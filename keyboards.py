@@ -41,7 +41,6 @@ def get_persistent_menu(lang: str) -> ReplyKeyboardMarkup:
     )
     builder.row(
         KeyboardButton(text=get_text("reply.wallets", lang)),
-        KeyboardButton(text=get_text("reply.watchlist", lang)),
     )
     builder.row(
         KeyboardButton(text=get_text("reply.settings", lang)),
@@ -78,7 +77,6 @@ def get_main_menu_keyboard(lang: str) -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(text=get_text("btn.hot_today", lang), callback_data="intel:hot"),
-        InlineKeyboardButton(text=get_text("btn.watchlist", lang), callback_data="menu:watchlist"),
     )
     builder.row(
         InlineKeyboardButton(text=get_text("btn.settings", lang), callback_data="menu:settings"),

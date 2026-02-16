@@ -70,34 +70,6 @@ async def reply_wallets(message: Message) -> None:
         )
 
 
-# ── Watchlist ────────────────────────────────────────
-
-@router.message(F.text.in_(["⭐ Watchlist", "⭐ Обрані", "⭐ Избранное"]))
-async def reply_watchlist(message: Message) -> None:
-    user, lang = await resolve_user(message.from_user)
-    from database import db
-    from services.watchlist_service import WatchlistService
-    import html
-
-    async with db.session() as session:
-        items = await WatchlistService.get_all(session, user.id)
-
-    if not items:
-        await message.answer(
-            get_text("watchlist.title", lang) + "\n\n" + get_text("watchlist.empty", lang),
-            parse_mode=ParseMode.HTML,
-        )
-        return
-
-    text = get_text("watchlist.title", lang) + f" ({len(items)})\n\n"
-    for i, item in enumerate(items[:20], 1):
-        q = html.escape(item.question[:60])
-        text += f"{i}. <b>{q}</b>\n"
-        from config import get_referral_link
-        market_url = get_referral_link(item.event_slug, item.market_slug)
-        text += f"   🔗 <a href='{market_url}'>Open</a>\n\n"
-
-    await message.answer(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 # ── Settings ─────────────────────────────────────────
