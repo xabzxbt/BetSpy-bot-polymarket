@@ -1,6 +1,6 @@
 {
   "welcome_choose_language": "🎯 <b>Welcome to PolyParlay!</b>\n\nChoose language:",
-  "welcome_main": "🎯 <b>PolyParlay</b> — Your Navigator in the World of Polymarket\n\n<b>What I can do:</b>\n🔥 <b>Hot Markets</b> — showing where the big activity and money are right now.\n🔗 <b>Link Analysis</b> — send a link to any market, and I will conduct a deep analysis.\n📋 <b>Wallet Tracker</b> — follow successful traders and get notifications about their moves.\n⭐ <b>Watchlist</b> — keep interesting markets at your fingertips.\n\n🆓 <b>Status:</b> The bot is currently completely free.\n🚀 <b>Future:</b> Many updates and improvements are coming to the project.\n\n🧩 <b>Coming Soon:</b> The <b>PolyParlay</b> project is under development, which will allow you to make <b>parlay</b> bets on Polymarket! Stay tuned for the release.\n\nNavigation 👇",
+  "welcome_main": "🎯 <b>PolyParlay</b> — Your Navigator in the World of Polymarket\n\n<b>What I can do:</b>\n🔥 <b>Hot Markets</b> — showing where the big activity and money are right now.\n📋 <b>Wallet Tracker</b> — follow successful traders and get notifications about their moves.\n⭐ <b>Watchlist</b> — keep interesting markets at your fingertips.\n\n🆓 <b>Status:</b> The bot is currently completely free.\n🚀 <b>Future:</b> Many updates and improvements are coming to the project.\n\n🧩 <b>Coming Soon:</b> The <b>PolyParlay</b> project is under development, which will allow you to make <b>parlay</b> bets on Polymarket! Stay tuned for the release.\n\nNavigation 👇",
   "btn.add_wallet": "➕ Add Wallet",
   "btn.my_wallets": "📋 My Wallets",
   "btn.analyze_link": "🔗 Analyze Link",
@@ -57,7 +57,7 @@
   "cat.all": "All",
   "loading": "⏳ Loading...",
   "error_generic": "❌ Error. Try again.",
-  "help_text": "🎯 <b>PolyParlay Help</b>\n\n<b>Bot Features:</b>\n🔥 <b>Hot Markets</b> — top markets by activity.\n🔗 <b>Analysis</b> — deep analysis of any market via link.\n📋 <b>Wallets</b> — track whales and smart money.\n⭐ <b>Watchlist</b> — your personal watchlist.\n\n🆓 <b>Free:</b> The bot operates freely.\n🚀 <b>PolyParlay:</b> We are developing a platform for parlay bets on Polymarket. Stay tuned!\n\n<b>Commands:</b>\n/start — Menu\n/wallets — Wallets\n/help — Help",
+  "help_text": "🎯 <b>PolyParlay Help</b>\n\n<b>Bot Features:</b>\n🔥 <b>Hot Markets</b> — top markets by activity.\n📋 <b>Wallets</b> — track whales and smart money.\n⭐ <b>Watchlist</b> — your personal watchlist.\n\n🆓 <b>Free:</b> The bot operates freely.\n🚀 <b>PolyParlay:</b> We are developing a platform for parlay bets on Polymarket. Stay tuned!\n\n<b>Commands:</b>\n/start — Menu\n/wallets — Wallets\n/help — Help",
   "settings_menu": "⚙️ <b>Settings</b>",
   "select_language": "🌐 <b>Language:</b>",
   "language_changed": "✅ Language updated!",
