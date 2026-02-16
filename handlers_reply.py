@@ -10,13 +10,10 @@ from loguru import logger
 
 from services.user_service import resolve_user
 from i18n import get_text
-from keyboards import get_settings_keyboard, get_cancel_keyboard
 from config import get_settings
+from keyboards import get_settings_keyboard
 
 router = Router(name="reply_nav")
-
-
-
 
 
 # ── Hot Today ────────────────────────────────────────
@@ -47,21 +44,6 @@ async def reply_hot(message: Message) -> None:
     except Exception as e:
         logger.error(f"Hot today reply error: {e}")
         await message.answer(get_text("error_generic", lang), parse_mode=ParseMode.HTML)
-
-
-# ── Analyze ──────────────────────────────────────────
-
-@router.message(F.text.in_(["🔗 Analyze", "🔗 Аналіз", "🔗 Анализ"]))
-async def reply_analyze(message: Message, state: FSMContext) -> None:
-    user, lang = await resolve_user(message.from_user)
-    from handlers import AnalyzeEventStates
-    await state.set_state(AnalyzeEventStates.waiting_for_link)
-    await message.answer(
-        get_text("prompt_analyze_link", lang),
-        reply_markup=get_cancel_keyboard(lang),
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
 
 
 # ── Wallets ──────────────────────────────────────────

@@ -38,7 +38,6 @@ def get_persistent_menu(lang: str) -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.row(
         KeyboardButton(text=get_text("reply.hot", lang)),
-        KeyboardButton(text=get_text("reply.analyze", lang)),
     )
     builder.row(
         KeyboardButton(text=get_text("reply.wallets", lang)),
