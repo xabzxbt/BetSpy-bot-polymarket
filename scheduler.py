@@ -589,27 +589,22 @@ class TradeNotificationService:
         lang: str,
     ) -> str:
         """Format trade notification message."""
-        side_text = get_side_text(trade.side, lang)
-        profile_link = get_profile_link(trade.proxy_wallet)
+        # Use centralized formatting
+        from services.format_service import format_new_trade
         
-        # Choose key based on size 
-        key = "new_trade"
-        # If trade < $1000, don't call it "WHALE", just "TRADE"
-        if trade.usdc_size < 1000:
-            key = "new_trade_small"
-
-        return get_text(
-            key,
-            lang,
-            wallet_name=html.escape(wallet_name),
+        return format_new_trade(
+            wallet_name=wallet_name,
+            wallet_address=trade.proxy_wallet,
             market_title=trade.title,
-            side=side_text,
             outcome=trade.outcome,
+            side=trade.side,
             size=trade.size,
-            usdc_size=trade.usdc_size,
             price=trade.price,
-            market_link=trade.market_link,
-            profile_link=profile_link,
+            usdc_size=trade.usdc_size,
+            market_slug=trade.event_slug,  # Using event_slug instead of strict market_slug for link
+            lang=lang,
+            is_whale=(trade.usdc_size >= 5000),  # User defined >$5k as whale
+            referral_code=self.settings.polymarket_referral_code
         )
     
     def _format_close_notification(

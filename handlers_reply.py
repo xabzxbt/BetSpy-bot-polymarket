@@ -26,29 +26,21 @@ async def reply_hot(message: Message) -> None:
     user, lang = await resolve_user(message.from_user)
     await message.answer(get_text("loading", lang), parse_mode=ParseMode.HTML)
 
-    from market_intelligence import market_intelligence, Category, TimeFrame
-    from services.format_service import format_market_card
-    from keyboards_intelligence import get_trending_keyboard
+    from handlers_hot import get_hot_page_content
 
     try:
-        markets = await market_intelligence.fetch_trending_markets(
-            category=Category.ALL, timeframe=TimeFrame.WEEK, limit=10,
-        )
-        if not markets:
+        text, reply_markup = await get_hot_page_content(1, lang)
+        
+        if not text:
             await message.answer(
                 get_text("hot.title", lang) + "\n\n" + get_text("hot.empty", lang),
                 parse_mode=ParseMode.HTML,
             )
             return
 
-        text = get_text("hot.title", lang) + "\n\n"
-        for i, m in enumerate(markets, 1):
-            text += format_market_card(m, i, lang) + "\n"
-        text += f"\n💡 {get_text('intel.click_hint', lang)}"
-
         await message.answer(
             text,
-            reply_markup=get_trending_keyboard(lang, markets, "all", "week", page=1, total_pages=1),
+            reply_markup=reply_markup,
             parse_mode=ParseMode.HTML,
             disable_web_page_preview=True,
         )

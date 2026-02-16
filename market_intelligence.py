@@ -78,8 +78,8 @@ class WhaleAnalysis:
     """Structured analysis of whale (smart money) activity.
 
     Tiers:
-      - Medium: $500–$2000 per trade
-      - Large (Whale): $2000+ per trade
+      - Medium: $500–$5000 per trade
+      - Large (Whale): $5000+ per trade
       - Retail: < $500
 
     All volumes are in USDC.
@@ -127,7 +127,7 @@ class WhaleAnalysis:
 
     @property
     def large_whale_share_pct(self) -> float:
-        """% of smart money from large ($2000+) whales."""
+        """% of smart money from large ($5000+) whales."""
         if self.total_volume > 0:
             return (self.large_volume / self.total_volume) * 100
         return 0.0
@@ -263,7 +263,7 @@ class MarketIntelligenceEngine:
 
     # --- Thresholds ---
     MEDIUM_THRESHOLD = 500    # $500+ = medium smart money
-    WHALE_THRESHOLD = 2000    # $2000+ = large whale
+    WHALE_THRESHOLD = 5000    # $5000+ = large whale
     MIN_VOLUME_24H = 1000     # Minimum 24h vol to show in trending
     WHALE_WINDOW_HOURS = 24   # Default analysis window
 

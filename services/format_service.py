@@ -502,67 +502,47 @@ def _format_quant_analysis_v3(market: MarketStats, deep: Any, lang: str) -> str:
         return f"⚠️ <b>Analysis Info Error</b>: {e}"
 
 
-def _format_simple_analysis(market: MarketStats, lang: str) -> str:
-    """
-    Simplified Fact-Based Format (Fallback).
-    """
-    try:
-        # Prices
-        yes_price = market.yes_price
-        no_price = market.no_price
+def format_new_trade(
+    wallet_name: str,
+    wallet_address: str,
+    market_title: str,
+    outcome: str,
+    side: str,
+    size: float,
+    price: float,
+    usdc_size: float,
+    market_slug: str,
+    lang: str = "en",
+    is_whale: bool = False,
+    referral_code: str = "xabzxbt" # Default can be overridden, usually passed from config but here just to ensure links work
+) -> str:
+    """Format a new trade notification."""
+    
+    # Profile link with referral
+    profile_link = f"https://polymarket.com/profile/{wallet_address}"
+    if referral_code:
+        profile_link += f"?via={referral_code}"
         
-        # Smart Money / Whales
-        wa = market.whale_analysis
-        whale_str = "—"
-        last_whale_str = "—"
-        whale_side = "NEUTRAL"
-        whale_pct = 50
-        
-        if wa and wa.is_significant:
-            whale_side = wa.dominance_side
-            whale_pct = int(wa.dominance_pct)
-            whale_str = f"{whale_pct}% {get_text('unified.in', lang)} {whale_side}"
-            
-            # Last whale trade
-            if wa.top_trade_size > 0:
-                ago = f"{int(wa.hours_since_last_trade*60)}m" if wa.hours_since_last_trade < 1 else f"{int(wa.hours_since_last_trade)}h"
-                last_whale_str = f"{format_volume(wa.top_trade_size)} → {wa.top_trade_side} ({ago} ago)"
-        
-        rec_side = market.recommended_side
-        
-        # HEADER
-        safe_q = market.question.replace("{", "(").replace("}", ")")
-        text = f"🔎 {get_text('unified.analysis_title', lang)} <b>{safe_q}</b>\n\n"
-        
-        # SHORT SUMMARY (Fact-based)
-        summary_key = "unified.summary_neutral"
-        if rec_side == "YES":
-            summary_key = "unified.summary_buy_yes"
-        elif rec_side == "NO":
-            summary_key = "unified.summary_buy_no"
-            
-        text += f"{get_text('unified.briefly', lang)}: {get_text(summary_key, lang, side=whale_side, pct=whale_pct)}\n"
-        
-        text += "────────────────────────────\n"
-        
-        # MONEY & PRICES
-        text += f"💰 <b>{get_text('unified.prices_vol', lang)}</b>\n"
-        text += f"• YES: {int(yes_price*100)}¢ NO: {int(no_price*100)}¢\n"
-        text += f"• {get_text('unified.vol', lang)}: {format_volume(market.volume_24h)} | {get_text('unified.liq', lang)}: {format_volume(market.liquidity)}\n\n"
-        
-        # WHALE FLOW
-        text += f"🐋 <b>{get_text('unified.flow', lang)}</b>\n"
-        text += f"• Smart money: {whale_str}\n"
-        text += f"• {get_text('unified.last_whale', lang)}: {last_whale_str}\n\n"
-        
-        # Conclusion
-        text += f"🏁 <b>{get_text('unified.conclusion_title', lang)}</b>\n"
-        if rec_side != "NEUTRAL":
-             text += f"Possible entry {rec_side} (see Deep Analysis)."
-        else:
-             text += get_text("unified.concl_final_wait", lang)
-             
-        return text
-    except Exception as e:
-        logger.error(f"Simple Format Error: {e}", exc_info=True)
-        return f"⚠️ <b>Analysis Error</b>: {e}"
+    # Market link with referral
+    market_link = f"https://polymarket.com/event/{market_slug}"
+    if referral_code:
+        market_link += f"?via={referral_code}"
+    
+    # Side styling
+    side_emoji = "🟢" if side.upper() == "BUY" else "🔴"
+    side_text = get_text("trade.side_buy", lang) if side.upper() == "BUY" else get_text("trade.side_sell", lang)
+    
+    key = "new_trade" if is_whale else "new_trade_small"
+    
+    return get_text(
+        key, lang,
+        wallet_name=wallet_name,
+        profile_link=profile_link,
+        market_title=html.escape(market_title),
+        side=f"{side_emoji} {side_text}", # "🟢 ПОКУПКА"
+        outcome=outcome,
+        size=size,
+        price=price,
+        usdc_size=usdc_size,
+        market_link=market_link,
+    )
