@@ -16,17 +16,7 @@ from config import get_settings
 router = Router(name="reply_nav")
 
 
-# ── Signals ──────────────────────────────────────────
 
-@router.message(F.text.in_(["📊 Signals", "📊 Сигнали", "📊 Сигналы"]))
-async def reply_signals(message: Message) -> None:
-    user, lang = await resolve_user(message.from_user)
-    from keyboards_intelligence import get_category_keyboard
-    await message.answer(
-        get_text("intel.market_signals_title", lang),
-        reply_markup=get_category_keyboard(lang),
-        parse_mode=ParseMode.HTML,
-    )
 
 
 # ── Hot Today ────────────────────────────────────────
@@ -38,7 +28,7 @@ async def reply_hot(message: Message) -> None:
 
     from market_intelligence import market_intelligence, Category, TimeFrame
     from services.format_service import format_market_card
-    from keyboards_intelligence import get_trending_keyboard, get_category_keyboard
+    from keyboards_intelligence import get_trending_keyboard
 
     try:
         markets = await market_intelligence.fetch_trending_markets(

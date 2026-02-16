@@ -707,8 +707,13 @@ class TradeNotificationService:
         profile_link = get_profile_link(first_trade.proxy_wallet)
         
         # Create the header with summary
+        # If total trade volume < $5000, don't call it "WHALE BATCH"
+        header_key = "batch_trade.header"
+        if total_usdc < 5000:
+            header_key = "batch_trade.header_small"
+
         header = get_text(
-            "batch_trade.header", lang,
+            header_key, lang,
             count=trade_count,
             profile_link=profile_link,
             wallet_name=html.escape(wallet_name),
@@ -727,6 +732,7 @@ class TradeNotificationService:
             item = get_text(
                 "batch_trade.item", lang,
                 market_title=title,
+                market_link=trade.market_link,
                 side=side_text,
                 outcome=trade.outcome,
                 price=trade.price,

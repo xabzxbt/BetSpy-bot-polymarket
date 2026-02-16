@@ -37,7 +37,6 @@ def get_persistent_menu(lang: str) -> ReplyKeyboardMarkup:
     """
     builder = ReplyKeyboardBuilder()
     builder.row(
-        KeyboardButton(text=get_text("reply.signals", lang)),
         KeyboardButton(text=get_text("reply.hot", lang)),
         KeyboardButton(text=get_text("reply.analyze", lang)),
     )
@@ -74,9 +73,7 @@ def get_main_menu_keyboard(lang: str) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text=get_text("btn.add_wallet", lang), callback_data="menu:add_wallet"),
         InlineKeyboardButton(text=get_text("btn.my_wallets", lang), callback_data="menu:my_wallets"),
     )
-    builder.row(
-        InlineKeyboardButton(text=get_text("btn.trending", lang), callback_data="intel:back_categories"),
-    )
+
     builder.row(
         InlineKeyboardButton(text=get_text("btn.analyze_link", lang), callback_data="menu:analyze_link"),
     )

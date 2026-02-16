@@ -148,7 +148,7 @@ def get_trending_keyboard(
     builder.row(
         InlineKeyboardButton(
             text=get_text("btn.refresh", lang),
-            callback_data=f"intel:time:{category}:{timeframe}:{page}",
+            callback_data="intel:hot",
         )
     )
 
@@ -156,10 +156,6 @@ def get_trending_keyboard(
     builder.row(
         InlineKeyboardButton(
             text=get_text("btn.back", lang),
-            callback_data="intel:back_categories",
-        ),
-        InlineKeyboardButton(
-            text=get_text("btn.back_to_menu", lang),
             callback_data="menu:main",
         ),
     )
@@ -197,7 +193,7 @@ def get_market_detail_keyboard(
     builder.row(
         InlineKeyboardButton(
             text=get_text("btn.back", lang),
-            callback_data="intel:back_categories",
+            callback_data="intel:hot",  # Back to Hot Today list instead of categories
         ),
         InlineKeyboardButton(
             text=get_text("btn.back_to_menu", lang),
