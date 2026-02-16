@@ -527,25 +527,31 @@ class MarketIntelligenceEngine:
     async def fetch_trending_markets(
         self,
         category: Category = Category.ALL,
-        timeframe: TimeFrame = TimeFrame.WEEK,
-        limit: int = 20,
+        timeframe: TimeFrame = TimeFrame.WEEK,  # Parameter kept for compatibility but ignored in simplified logic
+        limit: int = 100,  # Increased limit as requested
     ) -> List[MarketStats]:
-        """Fetch trending markets filtered by category and timeframe."""
-        now = datetime.utcnow()
-
-        tf_ranges = {
-            TimeFrame.TODAY: (now - timedelta(hours=1), now + timedelta(hours=36)),
-            TimeFrame.DAYS_2: (now, now + timedelta(days=3)),
-            TimeFrame.DAYS_3: (now, now + timedelta(days=4)),
-            TimeFrame.WEEK: (now, now + timedelta(days=8)),
-            TimeFrame.MONTH: (now, now + timedelta(days=35)),
-        }
-        end_after, end_before = tf_ranges.get(timeframe, tf_ranges[TimeFrame.MONTH])
-
+        """
+        Fetch trending markets (Simplified High-Volume Logic).
+        
+        Logic:
+        1. Fetch top 100-200 markets by volume24hr
+        2. Filter out:
+           - Closed / Resolved
+           - Prices < 5¢ or > 95¢ (implied odds 5-95%)
+        3. Sort by Volume 24h
+        4. Return top `limit` items
+        """
         params = {
-            "active": "true", "closed": "false",
-            "limit": 200, "order": "volume24hr", "ascending": "false",
+            "active": "true", 
+            "closed": "false",
+            "limit": 200, 
+            "order": "volume24hr", 
+            "ascending": "false",
         }
+        
+        # Specific category filtering at API level if possible could optimize,
+        # but Gamma API filtering is limited. We filter locally.
+        
         data = await self._request(f"{self.gamma_api_url}/markets", params)
         if not data:
             return []
@@ -557,60 +563,31 @@ class MarketIntelligenceEngine:
                 if not m:
                     continue
 
-                # Timeframe filter
-                if timeframe != TimeFrame.MONTH:
-                    if m.end_date < end_after or m.end_date > end_before:
-                        continue
-
-                # Category filter
+                # --- 1. Category Filter ---
                 if category != Category.ALL:
                     if not self._matches_category(m, category):
                         continue
 
-                # Volume filter — lower for short-term and specific categories
-                if category != Category.ALL:
-                    min_vol = 500  # Lower threshold for specific categories
-                elif timeframe in (TimeFrame.TODAY, TimeFrame.DAYS_2, TimeFrame.DAYS_3):
-                    min_vol = 500
-                else:
-                    min_vol = self.MIN_VOLUME_24H
-                if m.volume_24h < min_vol:
+                # --- 2. Price Filter (5¢ - 95¢) ---
+                # We want only competitive markets
+                if m.yes_price < 0.05 or m.yes_price > 0.95:
+                    continue
+                if m.no_price < 0.05 or m.no_price > 0.95:
+                    continue
+                    
+                # --- 3. Liquidity/Volume Sanity Check ---
+                if m.liquidity < 1000 or m.volume_24h < 100:
                     continue
 
                 markets.append(m)
             except Exception:
                 continue
 
-        # Fallback: if nothing found, relax timeframe and volume
-        if not markets and timeframe != TimeFrame.MONTH:
-            for item in data:
-                try:
-                    m = self._parse_market(item)
-                    if not m:
-                        continue
-                    if category != Category.ALL and not self._matches_category(m, category):
-                        continue
-                    if m.volume_24h >= 100:  # Very low threshold as fallback
-                        markets.append(m)
-                except Exception:
-                    continue
-
+        # Sort by 24h volume descending
         markets.sort(key=lambda m: m.volume_24h, reverse=True)
-        markets = markets[:limit]
-
-        # Enrich
-        enriched = []
-        for m in markets:
-            try:
-                m = await self._enrich_market_data(m)
-                self._calculate_signal(m)
-                enriched.append(m)
-            except Exception as e:
-                logger.error(f"Enrich failed for {m.slug}: {e}")
-                enriched.append(m)
-
-        enriched.sort(key=lambda m: m.signal_score, reverse=True)
-        return enriched
+        
+        # Return top N
+        return markets[:limit]
 
     # =================================================================
     # PARSING
