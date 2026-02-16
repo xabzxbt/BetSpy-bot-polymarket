@@ -336,7 +336,8 @@ class TradeNotificationService:
             
             # Filter: trades strictly AFTER max_timestamp to avoid duplicates
             # Duplicates are handled by _processed_trades cache, but that is empty on restart.
-            new_trades = [t for t in trades if t.timestamp > max_timestamp]
+            # Using >= to ensure we catch all trades if limit was hit in previous fetch (ASC sort).
+            new_trades = [t for t in trades if t.timestamp >= max_timestamp]
             
             if not new_trades:
                 return

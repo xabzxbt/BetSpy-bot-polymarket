@@ -661,17 +661,42 @@ class PolymarketApiClient:
         since_timestamp: Optional[int] = None,
     ) -> List[Trade]:
         """Get new trades for a wallet since a given timestamp."""
-        trades = await self.get_wallet_activity(
-            wallet_address=wallet_address,
-            activity_type="TRADE",
-            limit=200,  # Increased to avoid missing high frequency trades
-            start_timestamp=since_timestamp,
-        )
+        # Use ASC sort if we have a start timestamp to ensure we get the oldest
+        # unseen trades first (preventing gaps if volume > limit)
+        params = {
+            "user": wallet_address.lower(),
+            "type": "TRADE",
+            "limit": 500,  # Increased limit
+        }
+        
+        if since_timestamp:
+            params["sortBy"] = "TIMESTAMP"
+            params["sortDirection"] = "ASC"
+            params["start"] = since_timestamp
+        else:
+            params["sortBy"] = "TIMESTAMP"
+            params["sortDirection"] = "DESC"
+
+        url = f"{self.data_api_url}/activity"
+        
+        try:
+            data = await self._request("GET", url, params)
+            if not isinstance(data, list):
+                logger.warning(f"Unexpected response format for activity: {type(data)}")
+                trades = []
+            else:
+                trades = [Trade.from_api_response(item) for item in data]
+                logger.debug(f"Fetched {len(trades)} trades for {wallet_address[:10]} (since={since_timestamp})")
+        except Exception as e:
+            logger.error(f"Failed to get new trades for {wallet_address}: {e}")
+            trades = []
 
         # Filtering logic moved to scheduler for better control
+        # But we still sanity check strict equality if needed
         if since_timestamp:
             trades = [t for t in trades if t.timestamp >= since_timestamp]
 
+        # Ensure consistent sort order (oldest to newest) for the scheduler
         trades.sort(key=lambda t: t.timestamp)
         return trades
 
