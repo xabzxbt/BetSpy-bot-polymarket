@@ -102,6 +102,8 @@
   "select_min_amount": "💰 <b>Порог Алертов</b>\n\nМин. сумма трейда:",
   "min_amount_updated": "✅ Порог: <b>{amount}</b> для {name}",
   "min_amount_all": "Все",
+  "wallet_settings_menu": "⚙️ <b>Настройки кошелька: {name}</b>\n\n📍 Адрес: <code>{address}</code>\n\n🔹 Статус: <b>{status}</b>\n🔹 Мин. сумма алерта: <b>{min_amount}</b>\n\nВыберите опцию ниже:",
+  "wallet_active": "Активен",
   "wallet_pause_success": "⏸️ Пауза <b>{name}</b>",
   "wallet_resume_success": "▶️ Резюм <b>{name}</b>",
   "trade.side_buy": "🟢 ПОКУПКА",

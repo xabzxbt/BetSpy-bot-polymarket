@@ -101,6 +101,8 @@
   "select_min_amount": "💰 <b>Поріг Алертів</b>\n\nМін. сума трейду:",
   "min_amount_updated": "✅ Поріг: <b>{amount}</b> для {name}",
   "min_amount_all": "Всі",
+  "wallet_settings_menu": "⚙️ <b>Налаштування гаманця: {name}</b>\n\n📍 Адреса: <code>{address}</code>\n\n🔹 Статус: <b>{status}</b>\n🔹 Мін. сума алерту: <b>{min_amount}</b>\n\nОберіть опцію нижче:",
+  "wallet_active": "Активний",
   "wallet_pause_success": "⏸️ Пауза <b>{name}</b>",
   "wallet_resume_success": "▶️ Резюм <b>{name}</b>",
   "trade.side_buy": "🟢 КУПІВЛЯ",

@@ -100,6 +100,8 @@
   "select_min_amount": "💰 <b>Alert Threshold</b>\n\nMin trade size for alerts:",
   "min_amount_updated": "✅ Threshold: <b>{amount}</b> for {name}",
   "min_amount_all": "All",
+  "wallet_settings_menu": "⚙️ <b>Wallet Settings: {name}</b>\n\n📍 Address: <code>{address}</code>\n\n🔹 Status: <b>{status}</b>\n🔹 Min Alert Amount: <b>{min_amount}</b>\n\nSelect an option below:",
+  "wallet_active": "Active",
   "wallet_pause_success": "⏸️ Paused <b>{name}</b>",
   "wallet_resume_success": "▶️ Resumed <b>{name}</b>",
   "trade.side_buy": "🟢 BUY",
